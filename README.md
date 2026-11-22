@@ -20,15 +20,18 @@ come under it.
   the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A fall, or the foot of the run, counts down five seconds to a
   new run (or Enter).
 
-*Show menus* (or `H`), at the top right, shows the rest: who goes down (the horse with its rider, the horse alone, or a person on
-skis, an adventurer with a sword on its back), the horse's skis (two long, or four short), the slope (two runs down the mountain, *Silent Warden*
-from beside its highest summit along a crest, or *Pale Crown*, longer, down a spur into the wooded foothills above a bay; or a
-groomed slope going on for ever), the snow (the game's materials, or plain), the view (*Cinema*, behind, beside, above, or turned by
-hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and riding from behind, and each keeps the one it was last left in) and its distance, the blur, and how finely the picture is drawn. `R` switches between watching and
-riding; `Space` pauses the demo; its timeline names its parts and can be dragged along.
+*Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
+the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, *Play* (watch the demo or ride;
+watching, pause, its speed and its timeline, which names its parts and can be dragged along; riding, restart the run, which is held
+while the menu is open), *Slope* (two runs down the mountain, *Silent Warden* from beside its highest summit along a crest, or *Pale
+Crown*, longer, down a spur into the wooded foothills above a bay; or a groomed slope going on for ever), *Skier* (the horse with its
+rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
+*Camera* (*Cinema*, *Behind*, *Beside*, *Above*, or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and
+riding from behind, and each keeps the one it was last left in; and its distance) and *Picture* (the game's snow or plain, how finely
+the picture is drawn, the blur). Escape or `H` closes it. `R` switches between watching and riding; `Space` pauses the demo.
 
 In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run), `?land=groomed`, `?snow=plain`,
-`?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1`, `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
+`?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
 frames come), `?webgl` (WebGL 2 rather than WebGPU).
 
 ## Working on it

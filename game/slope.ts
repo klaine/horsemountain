@@ -246,12 +246,12 @@ async function start() {
   const base = win.__figureBase ?? new URL('../figures/', location.href).href, slices = win.__slopeBase ?? new URL('../slopes/', location.href).href;
   // The runs to choose from, each a slice beside the page (`tools/skiRun.ts`, `PICK=3` for the third run kept in a world, and so on),
   // named for the peak it comes down below; `?world=` another slice to open on (`#w2-3` too, as the address keeps the choice).
-  const runs: { id: string; label: string; peak: string; title: string }[] = [
-    { id: 'w2', label: 'Silent Warden', peak: 'The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side' },
-    { id: 'w2-3', label: 'Pale Crown', peak: 'The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay' },
+  const runs: { id: string; label: string; peak: string; title: string; detail: string }[] = [
+    { id: 'w2', label: 'Silent Warden', peak: 'The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side', detail: '1.02 km along a crest, from beside the highest summit' },
+    { id: 'w2-3', label: 'Pale Crown', peak: 'The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay', detail: '1.43 km down a spur into wooded foothills above a bay' },
   ];
   const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
-  if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, peak: asked, title: `A run down the world ${asked}` });
+  if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, peak: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
   // (A land is a run, by its slice's name, or the groomed slope.)
   type LandKind = string;
   const hashed = location.hash.slice(1);
@@ -1478,16 +1478,42 @@ async function start() {
   let t = 0, playing = true, rate = 1, view = 'cinema' as View, scrubbing = false;
   const rates: [string, number][] = [['¼×', 0.25], ['½×', 0.5], ['1×', 1]];
   const views: [string, View, string][] = [['Cinema', 'cinema', 'C'], ['Behind', 'behind', 'B'], ['Beside', 'beside', 'S'], ['Above', 'above', 'A'], ['Free', 'free', 'F']];
-  const modes: [string, Mode, string][] = [['Watch', 'watch', 'Watch the demo run: a 720, a backflip, a backflip 360 and a ski jumper\'s flight off its four kickers'], ['Ride', 'ride', 'Ride it yourself: point to steer']];
-  const button = (parent: string, label: string, onclick: () => void, title?: string) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if (title) b.title = title; b.onclick = onclick; $(parent).appendChild(b); return b; };
-  const modeButtons = modes.map(([label, m, title]) => button('modes', label, () => setMode(m), title));
-  const whos: [string, Who][] = [['Person', 'person'], ['Horse', 'horse'], ['Horse & rider', 'mounted']];
+  const modes: [string, Mode, string][] = [['Watch demo', 'watch', 'Watch the demo run, a trick off every kicker (R)'], ['Ride', 'ride', 'Ride it yourself: the stick steers, and a trick is given you at each kicker (R)']];
+  /** A button in the menu, in the bar or the cards of `parent`; a card says what it is under its name (`detail`). */
+  const button = (parent: string, label: string, onclick: () => void, title?: string, detail?: string) => {
+    const b = document.createElement('button'), host = $(parent);
+    b.type = 'button'; b.onclick = onclick;
+    if (title) b.title = title;
+    if (detail) { const name = document.createElement('b'), about = document.createElement('span'); name.textContent = label; about.textContent = detail; b.append(name, about); } else b.textContent = label;
+    (host.querySelector('.seg, .cards') ?? host).appendChild(b);
+    return b;
+  };
+  // (Choosing to ride closes the menu, which holds riding while it is open.)
+  const modeButtons = modes.map(([label, m, title]) => button('modes', label, () => { setMode(m); if (m === 'ride') setMenu(false); }, title));
+  // The menu: opened by its button or `H`, closed by its cross, `H` or Escape. Riding is held while it is open; watching goes on.
+  const menuEl = $('menu'), menuButton = $('menuButton');
+  let menuOpen = false;
+  const setMenu = (open: boolean) => {
+    if (open === menuOpen && menuEl.hidden === !open) return;
+    // (Where the keys' focus was, seen before the panel goes, which takes it along.)
+    const inside = menuEl.contains(document.activeElement);
+    menuOpen = open;
+    menuEl.hidden = !open;
+    document.body.classList.toggle('menu-open', open);
+    menuButton.setAttribute('aria-expanded', String(open));
+    // (The keys' focus taken into the menu, and given back to its button: on the panel itself, not on a button in it, so that Space
+    // still pauses rather than pressing the button.)
+    if (open) menuEl.focus({ preventScroll: true }); else if (inside) menuButton.focus({ preventScroll: true });
+  };
+  menuButton.onclick = () => setMenu(true);
+  $('menuClose').onclick = () => setMenu(false);
+  const whos: [string, Who][] = [['Horse & rider', 'mounted'], ['Horse', 'horse'], ['Person', 'person']];
   const skiSets: [string, HorseSkis, string][] = [['Two long', 'pair', 'A long ski under each side, the fore and hind hooves bound to it'], ['Four short', 'four', 'A short ski under each hoof']];
   const whoButtons = whos.map(([label, w]) => button('skiers', label, () => setSkier(w)));
   // The land: the world's run, or the groomed slope; changed where the skier is, the demo run flown on the new land and riding
   // begun again from its top.
-  const landKinds: [string, LandKind, string][] = [...runs.map((r): [string, LandKind, string] => [r.label, r.id, r.title]), ['Groomed', 'groomed', 'A groomed slope at sixteen degrees, going on for ever']];
-  const landButtons = landKinds.map(([label, k, title]) => button('lands', label, () => { void setLand(k); }, title));
+  const landKinds: [string, LandKind, string, string][] = [...runs.map((r): [string, LandKind, string, string] => [r.label, r.id, r.title, r.detail]), ['Groomed', 'groomed', 'A groomed slope at sixteen degrees, going on for ever', 'Sixteen degrees, going on for ever']];
+  const landButtons = landKinds.map(([label, k, title, detail]) => button('lands', label, () => { void setLand(k); }, title, detail));
   const snowLooks: [string, SnowLook, string][] = [['Game', 'game', "The game's own snow, rock and far country, in lighter winter forms"], ['Plain', 'plain', 'Plain snow and rock: lighter still']];
   const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind !== 'groomed') void setLand(landKind, true); else reflect(); } }, title));
   const setLand = async (kind: LandKind, again = false) => {
@@ -1510,7 +1536,7 @@ async function start() {
   const rateButtons = rates.map(([label, r]) => button('rates', label, () => { rate = r; reflect(); }));
   const viewButtons = views.map(([label, v, key]) => button('views', label, () => setView(v), `${label} (${key})`));
   const restartButton = $('restart');
-  restartButton.onclick = () => restart();
+  restartButton.onclick = () => { restart(); setMenu(false); };
   // The stance: turned round on the snow to switch, or back to regular, by the next of the ground 180s; named for where it goes.
   const stanceButton = $('stance');
   stanceButton.onclick = () => { start180(); };
@@ -1547,26 +1573,24 @@ async function start() {
     showWatchTracks(mode === 'watch' ? t : null);
   };
   // (The stick and the trick controls lifted over the foot while the menus are shown.)
-  const placeHandy = () => { const foot = $('foot'); document.body.style.setProperty('--lift', document.body.classList.contains('bare') ? '0px' : `${foot.offsetHeight}px`); };
-  addEventListener('resize', () => placeHandy());
   const reflect = () => {
     $('play').textContent = playing ? 'Pause' : 'Play';
     modeButtons.forEach((b, i) => b.classList.toggle('on', modes[i][1] === mode));
     rateButtons.forEach((b, i) => b.classList.toggle('on', rates[i][1] === rate));
     viewButtons.forEach((b, i) => { b.classList.toggle('on', views[i][1] === view); b.hidden = mode === 'ride' && views[i][1] === 'free'; });
-    $('rates').hidden = line.hidden = mode === 'ride';
+    $('playback').hidden = mode === 'ride';
     $('stick').hidden = $('tricky').hidden = $('restarts').hidden = mode === 'watch';
     restartButton.classList.toggle('on', !!crash);
     whoButtons.forEach((b, i) => b.classList.toggle('on', whos[i][1] === who));
     skiButtons.forEach((b, i) => b.classList.toggle('on', skiSets[i][1] === horse.skis));
     $('skisets').hidden = who === 'person';
-    $('name').textContent = ['Grand Horse Mountain', land.short, { person: '', horse: 'horse', mounted: 'horse and rider' }[who], mode === 'ride' ? 'riding' : ''].filter(Boolean).join(' · ');
+    // (The game's name is the menu's; here, where and who.)
+    $('name').textContent = [land.short, { person: '', horse: 'horse', mounted: 'horse and rider' }[who], mode === 'ride' ? 'riding' : ''].filter(Boolean).join(' · ');
     landButtons.forEach((b, i) => b.classList.toggle('on', landKinds[i][1] === landKind));
     snowButtons.forEach((b, i) => b.classList.toggle('on', snowLooks[i][1] === snowLook));
     $('snows').hidden = landKind === 'groomed';
     $('of').textContent = land.fall === Infinity ? '' : ` of ${land.fall.toFixed(0)}`;
     document.body.classList.toggle('riding', mode === 'ride');
-    placeHandy();
   };
   $('play').onclick = () => { playing = !playing; reflect(); };
   // (Free: the view turned about the skier by hand, and carried along with it; only watching, as riding the stick steers.)
@@ -1660,6 +1684,7 @@ async function start() {
   };
   const ARROWS: Record<string, keyof typeof want.keys> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menuOpen) { setMenu(false); return; }
     if (e.target instanceof HTMLButtonElement && e.key === ' ') return;
     if (mode === 'ride' && ARROWS[e.key]) { want.keys[ARROWS[e.key]] = true; e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Shift') { want.brakeKey = true; return; }
@@ -1667,7 +1692,7 @@ async function start() {
     if (mode === 'ride' && e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) { restart(); e.preventDefault(); return; }
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
-    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setBare(!document.body.classList.contains('bare')); else if (v) setView(v[1]);
+    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (v) setView(v[1]);
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; });
   window.addEventListener('blur', () => { for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); });
@@ -1818,6 +1843,24 @@ async function start() {
     if (Math.abs(camera.fov - fovNow) > 0.01) { camera.fov = fovNow; camera.updateProjectionMatrix(); }
   };
 
+  /**
+   * However narrow the picture, the skier kept in it. A view that looks ahead of the skier, for room on the side it is heading to (a
+   * camera tracking beside it, the view from beside), was made for a screen held sideways; on a phone held upright the picture is
+   * less than half as wide, and the skier fell outside it. So the view is turned back towards the skier until it is no further off the
+   * middle than two thirds of the way to the picture's side: on a screen held sideways that is further than any view looks ahead.
+   */
+  const keepInPicture = (at: Vector3) => {
+    // (Where the skier is, seen from the camera: how far to the side of the middle of the picture, and how far above; each held within
+    // two thirds of the way to that edge, the camera turned on its own axes by what is over. With the menu open, the picture is what it
+    // leaves to be seen, `shiftView`.)
+    const half = Math.tan((camera.fov * Math.PI) / 360), v = Math.atan(half * Math.max(0.2, 1 - (2 * shift.y) / innerHeight));
+    const h = Math.atan(half * camera.aspect * Math.max(0.2, 1 - (2 * shift.x) / innerWidth));
+    const p = at.clone().addScaledVector(UP, 0.9).sub(camera.position).applyQuaternion(camera.quaternion.clone().invert());
+    const side = Math.atan2(p.x, -p.z), up = Math.atan2(p.y, Math.hypot(p.x, p.z));
+    const overSide = side - clamp(side, -0.65 * h, 0.65 * h), overUp = up - clamp(up, -0.65 * v, 0.65 * v);
+    if (overSide) camera.rotateY(-overSide);
+    if (overUp) camera.rotateX(overUp);
+  };
   const placeView = (now: Now, dt: number) => {
     const at = focus(), f = land.at(now.down, 0);
     across += ((mode === 'ride' ? 1 : 0.35) * now.left - across) * (placed ? ease(dt, 3) : 1);
@@ -1853,6 +1896,7 @@ async function start() {
       camera.position.y = Math.max(camera.position.y, ground(camera.position.x, camera.position.z) + 0.6);
       camera.lookAt(at.clone().add(lookOff));
     }
+    if (view !== 'free') keepInPicture(at);
     lastRider.copy(at);
     placed = true;
     sun.position.copy(at).addScaledVector(sunFrom, 50);
@@ -1873,6 +1917,22 @@ async function start() {
   };
 
   const fit = () => { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+  // (While the menu is open, the picture drawn as through a window slid over, so that the skier, whom the views keep in the middle of
+  // the picture, stands in the middle of what the menu leaves to be seen: above its sheet on a phone held upright, to the left of its
+  // panel beside the picture. Eased, so that the picture glides aside and back.)
+  const shift = { x: 0, y: 0 };
+  const shiftView = (dt: number) => {
+    let tx = 0, ty = 0;
+    if (menuOpen) {
+      const r = menuEl.getBoundingClientRect();
+      // (Above a sheet, between it and what is said at the top; beside a panel, in the middle of what it leaves.)
+      if (r.left < 2) ty = Math.max(0, innerHeight / 2 - (Math.max(0, $('where').getBoundingClientRect().bottom) + r.top) / 2); else tx = Math.max(0, innerWidth - r.left) / 2;
+    }
+    const k = ease(dt, 7);
+    shift.x += (tx - shift.x) * k; shift.y += (ty - shift.y) * k;
+    if (!tx && !ty && Math.abs(shift.x) + Math.abs(shift.y) < 0.5) { shift.x = shift.y = 0; if (camera.view?.enabled) camera.clearViewOffset(); return; }
+    camera.setViewOffset(innerWidth, innerHeight, shift.x, shift.y, innerWidth, innerHeight);
+  };
 
   // The picture (asked: "can we cheaply make background a bit blurry and add some motion blur?"): the scene drawn once with how far
   // each point of it moved across the picture since the last frame; each point smeared along that way, over eight samples, as a
@@ -1920,9 +1980,7 @@ async function start() {
   // Hiding the menus and the text, `H` too; the distance of the views from the skier. (Kept in this browser for next time, where it may.)
   const keep = (k: string, v: string) => { try { localStorage.setItem(`slope.${k}`, v); } catch { /* (not kept) */ } };
   const kept = (k: string) => { try { return localStorage.getItem(`slope.${k}`); } catch { return null; } };
-  const bareButton = $('bare'), distanceInput = $<HTMLInputElement>('distance');
-  const setBare = (on: boolean) => { document.body.classList.toggle('bare', on); bareButton.textContent = on ? 'Show menus' : 'Hide menus'; bareButton.title = on ? 'Show the menus and the text (H)' : 'Hide the menus and the text (H)'; keep('menus', on ? 'hidden' : 'shown'); placeHandy(); };
-  bareButton.onclick = () => setBare(!document.body.classList.contains('bare'));
+  const distanceInput = $<HTMLInputElement>('distance');
   const setDistance = (d: number) => { distance = clamp(d, 0.5, 3); distanceInput.value = String(distance); $('distanceOut').textContent = `${distance.toFixed(1)}×`; keep('distance', String(distance)); };
   distanceInput.addEventListener('input', () => setDistance(Number(distanceInput.value)));
   const blurInput = $<HTMLInputElement>('blur');
@@ -1931,9 +1989,8 @@ async function start() {
   const keptBlur = kept('blur');
   setBlur(query.has('blur') || keptBlur === null ? blurLevel : Number(keptBlur));
   setDistance(Number(kept('distance') ?? 1) || 1);
-  // (Hidden unless asked for, `?menus=1`, or shown last time here: asked, "make the cinematic camera and hide menus enabled as
-  // default". Kept under a name of its own, so that menus shown before this was asked are hidden once.)
-  setBare(query.get('menus') === '1' ? false : kept('menus') !== 'shown');
+  // (Closed unless asked for, `?menus=1`: asked, "make the cinematic camera and hide menus enabled as default".)
+  setMenu(query.get('menus') === '1');
 
   // How finely the picture is drawn (asked: "find how to best optimize the performance still with reasonable visual tradeoffs"):
   // what a frame costs goes nearly as the number of points drawn, so the surest saving there is. *Auto* (unless `?res=` says
@@ -2029,7 +2086,8 @@ async function start() {
       line.setAttribute('aria-valuenow', t.toFixed(1));
     } else {
       // (Stepped in small steps, so that a slow frame does not throw the skier off its line.)
-      const steps = playing ? Math.ceil(dt / (1 / 120)) : 0;
+      // (Held while the menu is open.)
+      const steps = playing && !menuOpen ? Math.ceil(dt / (1 / 120)) : 0;
       const p = focus(), f = land.frame(p.x, p.z, ride.down);
       at = { down: f.s, left: f.left, speed: crash ? 0 : ride.speed, way: ride.way, ski: ride.way, skid: 0, tuck: ride.tuck, brake: ride.brake };
       for (let i = 0; i < steps; i++) { askRide(); at = stepRide(dt / steps); }
@@ -2057,6 +2115,7 @@ async function start() {
     land.lod?.(camera.position.x, camera.position.z);
     if (kickersOn) placeKickers(at.down);
     placeView(at, dt);
+    shiftView(dt);
     reinsNow();
     showTold();
     $('speed').textContent = (at.speed * 3.6).toFixed(0);
