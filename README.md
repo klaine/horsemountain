@@ -13,12 +13,16 @@ come under it.
   trick off each (a 720, a backflip, a backflip 360, a ski jumper's flight, a cork 540 that lands it switch, a switch 540 that brings
   it round again, a superman whip), with turns on the snow to switch and back on the way to the foot; filmed by a cinematic camera
   that cuts from shot to shot, cameras set down by each kicker for its jump.
-- **Riding it yourself**, seen from behind: the stick at the lower left steers, to either side to turn (carved, or skidded out at its rim), up to tuck,
-  down to stand straight; the arrow keys too, and Shift to brake. You make no tricks: line up on a kicker and one is done for you,
-  chosen at random among those that should come round in the time that jump will keep you in the air at your speed, milder or wilder as
-  the *Mild*–*Wild* slider at the lower right says. Under it, *To switch* (or *To regular*, `X`) turns you round on the snow, each time
-  the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A fall, or the foot of the run, counts down five seconds to a
-  new run (or Enter).
+- **Riding it yourself**, seen from behind: on a touch screen, the stick at the lower left steers, to either side to turn (carved, or
+  skidded out at its rim), up to tuck, down to stand straight. With a mouse or a touchpad, the pointer steers from wherever it is over
+  the picture, no button held: to either side of the middle to turn (skidded out at the sides of the faint guide drawn about the skier),
+  above it to tuck, below to stand straight; it takes the skier once it is brought within the guide, and lets it go, running straight,
+  when it leaves the picture. Held down, its button brakes; a right click (a tap with two fingers) turns you round; scrolled or
+  pinched, the view comes nearer or goes further off. The arrow keys too, and Shift to brake. You make no tricks: line up on a kicker
+  and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
+  speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *To switch* (or *To regular*, `X`) turns you
+  round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A fall, or the foot of the run,
+  counts down five seconds to a new run (or Enter, or a click).
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
 the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, *Play* (watch the demo or ride;

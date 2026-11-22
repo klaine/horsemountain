@@ -853,6 +853,11 @@ async function start() {
   const ask = { x: 0, y: 0 }, want = { x: 0, y: 0, keys: { up: false, down: false, left: false, right: false }, brake: false, brakeKey: false, auto: false };
   /** Where the rider's thumb holds the stick: across (-1 to 1, to the right positive) and up (1 tucked, -1 standing straight). */
   const stick = { x: 0, y: 0 };
+  /**
+   * Where a mouse or a touchpad points over the picture, asking as the stick does; whether it has taken the skier (`on`: until then,
+   * and once it is let go, the stick asks), and whether its button is held, braking.
+   */
+  const aim = { x: 0, y: 0, on: false, brake: false };
   const FLICK = 0.3;
   /** Where across the range a turn begins to skid (it skids wholly at its end), and how far the skis are pivoted across the way then. */
   const SKID_FROM = 0.72, SKID_TURN = deg(38);
@@ -1043,7 +1048,7 @@ async function start() {
     // (Out of the saddle: its own body now, in the world.)
     if (who === 'mounted') rider.add(jockey.model);
     for (const { body, doll } of crash.dolls) body.poseJoints(doll.joints());
-    tell(`Crashed: ${why}`, 'A new run in a moment, or Enter', true, 1e9);
+    tell(`Crashed: ${why}`, `A new run in a moment, or ${document.body.classList.contains('mouse') ? 'click' : 'Enter'}`, true, 1e9);
     reflect();
   };
 
@@ -1592,9 +1597,10 @@ async function start() {
     }
     return null;
   };
-  /** Riding, a step: what the stick asks, unless a trick is being made, which asks what it must. */
+  /** Riding, a step: what the stick or the pointer asks, unless a trick is being made, which asks what it must. */
   const askRide = () => {
-    want.auto = false; want.x = stick.x; want.y = stick.y;
+    const by = aim.on ? aim : stick;
+    want.auto = false; want.x = by.x; want.y = by.y; want.brake = aim.brake;
     if (crash) { rideTrick = null; return; }
     if (air) {
       if (rideTrick && !rideTrick.air) rideTrick.air = air;
@@ -1624,7 +1630,7 @@ async function start() {
   let t = 0, playing = true, rate = 1, view = 'cinema' as View, scrubbing = false;
   const rates: [string, number][] = [['¼×', 0.25], ['½×', 0.5], ['1×', 1]];
   const views: [string, View, string][] = [['Cinema', 'cinema', 'C'], ['Behind', 'behind', 'B'], ['Beside', 'beside', 'S'], ['Above', 'above', 'A'], ['Free', 'free', 'F']];
-  const modes: [string, Mode, string][] = [['Watch demo', 'watch', 'Watch the demo run, a trick off every kicker (R)'], ['Ride', 'ride', 'Ride it yourself: the stick steers, and a trick is given you at each kicker (R)']];
+  const modes: [string, Mode, string][] = [['Watch demo', 'watch', 'Watch the demo run, a trick off every kicker (R)'], ['Ride', 'ride', 'Ride it yourself: the stick or the pointer steers, and a trick is given you at each kicker (R)']];
   /** A button in the menu, in the bar or the cards of `parent`; a card says what it is under its name (`detail`). */
   const button = (parent: string, label: string, onclick: () => void, title?: string, detail?: string) => {
     const b = document.createElement('button'), host = $(parent);
@@ -1645,6 +1651,8 @@ async function start() {
     const inside = menuEl.contains(document.activeElement);
     menuOpen = open;
     menuEl.hidden = !open;
+    // (The pointer goes off to the menu: it lets the skier go, and takes it again only once brought back over it.)
+    if (open) letAimGo();
     document.body.classList.toggle('menu-open', open);
     menuButton.setAttribute('aria-expanded', String(open));
     // (The keys' focus taken into the menu, and given back to its button: on the panel itself, not on a button in it, so that Space
@@ -1751,6 +1759,7 @@ async function start() {
     $('choose').hidden = true; $('intro').hidden = true;
     if (m === mode) return;
     again = null;
+    letAimGo();
     if (m === 'ride') {
       // Ridden from where the demo run had got to, going as it went (or, if it was in the air there, from where it comes down).
       let i = clamp(Math.round(t / STEP), 0, demo.frames.length - 1);
@@ -1841,7 +1850,70 @@ async function start() {
     if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (v) setView(v[1]);
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; });
-  window.addEventListener('blur', () => { for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); });
+  window.addEventListener('blur', () => { for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
+
+  // Riding by mouse or touchpad (asked: "make better controls for desktop/laptop users, current is for touch screens. Mouse / touchpad
+  // control should be enough?"): the pointer steers from wherever it is over the picture, with no button held, so that a finger
+  // gliding on a touchpad is enough; where it is against the middle of the picture, where the views keep the skier, is where the
+  // thumb would hold the stick against its middle, out to `aimReach` either way: to either side turning, carved, and out past seven
+  // tenths of the way skidded; above tucked, below standing straight; any of them together, and past the reach as far as it goes. A
+  // guide drawn about the skier shows how far that is, where a turn skids, and the mark the pointer has become. The button held down
+  // brakes (as Shift does); a right click, a tap with two fingers on a touchpad, turns round to switch (X); a click once a run is over
+  // starts the next at once (Enter); scrolled or pinched, the view comes nearer or goes further off (*Distance*). The pointer takes the
+  // skier only once it is brought within the guide, so that left where the menu's buttons were, far out at a side, it does not throw
+  // the skier into a turn as riding goes on; and it lets the skier go, running straight, when it leaves the picture for a control or
+  // the window. With a mouse the stick is put away and the guide drawn; a finger on the screen brings the stick back.
+  const aimEl = $('aim'), aimDot = aimEl.querySelector('.dot') as HTMLElement;
+  /** How far from the middle of the picture the pointer asks the most, in pixels: some three tenths of the picture's shorter side. */
+  const aimReach = () => clamp(0.3 * Math.min(innerWidth, innerHeight), 120, 340);
+  let overPicture = false, shownReach = 0;
+  function letAimGo() { aim.on = aim.brake = false; aim.x = aim.y = 0; canvas.style.cursor = ''; }
+  const byMouse = (on: boolean) => { if (document.body.classList.contains('mouse') !== on) document.body.classList.toggle('mouse', on); if (!on) letAimGo(); };
+  byMouse(matchMedia('(hover: hover) and (pointer: fine)').matches);
+  addEventListener('pointerdown', (e) => byMouse(e.pointerType === 'mouse'), true);
+  addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') byMouse(true); }, true);
+  const aimAt = (e: PointerEvent) => {
+    const reach = aimReach(), nx = (e.clientX - innerWidth / 2) / reach, ny = (innerHeight / 2 - e.clientY) / reach;
+    const inside = Math.abs(nx) <= 1 && Math.abs(ny) <= 1;
+    if (inside) aim.on = true;
+    // (A little give about the middle, so that the skier runs straight without the pointer being held on a point.)
+    const give = (n: number) => Math.sign(n) * clamp((Math.abs(n) - 0.05) / 0.95, 0, 1);
+    if (aim.on) { aim.x = give(nx); aim.y = give(ny); }
+    // (Within the guide its mark is the pointer; outside it the mark stays at its edge, and the pointer is shown where it is.)
+    canvas.style.cursor = aim.on && inside ? 'none' : '';
+  };
+  const aiming = (e: PointerEvent) => e.pointerType === 'mouse' && mode === 'ride' && !menuOpen;
+  canvas.addEventListener('pointermove', (e) => { overPicture = true; if (aiming(e)) aimAt(e); });
+  canvas.addEventListener('pointerleave', () => { overPicture = false; letAimGo(); });
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!aiming(e) || e.button !== 0 || e.ctrlKey) return;
+    if (again !== null) { restart(); return; }
+    // (Held onto while the button is down, so that the brake is not let go of where the pointer crosses a control.)
+    aim.brake = true;
+    canvas.setPointerCapture(e.pointerId);
+    aimAt(e);
+  });
+  canvas.addEventListener('pointerup', () => { aim.brake = false; });
+  canvas.addEventListener('lostpointercapture', () => { aim.brake = false; });
+  canvas.addEventListener('contextmenu', (e) => { if (mode !== 'ride') return; e.preventDefault(); if (!menuOpen) start180(); });
+  // (Not in the free view, whose own turning about the skier takes the wheel; nor the cinematic, which keeps its own distances.)
+  canvas.addEventListener('wheel', (e) => {
+    if (view === 'free' || view === 'cinema') return;
+    e.preventDefault();
+    const px = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1);
+    // (A pinch comes as the wheel with Ctrl held, in much smaller steps.)
+    setDistance(distance * Math.exp(px * (e.ctrlKey ? 0.01 : 0.0015)));
+  }, { passive: false });
+  /** The guide, a frame on: its reach, the mark where the pointer (or, not aiming, the keys or a trick) asks the skier to go. */
+  const showAim = () => {
+    const reach = aimReach();
+    if (reach !== shownReach) { shownReach = reach; aimEl.style.setProperty('--reach', `${reach}px`); }
+    const x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
+    aimDot.style.transform = `translate(${(x * reach).toFixed(1)}px, ${(-y * reach).toFixed(1)}px)`;
+    // (Asking to be brought in, while the pointer is over the picture and has not taken the skier; put away while it lies fallen.)
+    aimEl.classList.toggle('lost', overPicture && !aim.on);
+    aimEl.classList.toggle('fallen', !!crash);
+  };
 
   // The view, following the skier. It keeps pace with the skier exactly down the slope, and eases only what the view does about it: how
   // far across the slope it follows (so that the turns swing the skier across the picture rather than swinging the view), which way it
@@ -2253,6 +2325,7 @@ async function start() {
       $('clock').textContent = `${ride.time.toFixed(0)} s riding`;
       document.body.classList.toggle('hinted', ride.time > 12);
       showStick();
+      showAim();
       showStance();
       // (A run over: fallen and lain still, or stopped at the foot of the run, and a new one counted down.)
       if (playing) {
