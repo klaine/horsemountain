@@ -76,11 +76,14 @@ export function groomedLand(snowMap: Texture): Land {
     for (let down = 0; down < TILE; down += rng.range(3, 7)) for (const side of [-1, 1]) {
       if (rng.chance(0.25)) continue;
       const h = rng.range(5, 11), left = side * rng.range(36, 100);
-      trees.push(new Matrix4().compose(onSlope(down, left).add(new Vector3(0, h * 0.42, 0)), new Quaternion(), new Vector3(h * 0.34, h, h * 0.34)));
+      // (Turned each its own way, by where it stands, so as not to draw on the slope's random numbers.)
+      trees.push(new Matrix4().compose(onSlope(down, left).add(new Vector3(0, -0.2, 0)), new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), (down * 7.3 + left * 3.1) % 6.28), new Vector3(h * 0.9, h * 0.86, h * 0.9)));
     }
     const marks: Matrix4[] = [];
     for (let down = 0; down < TILE; down += 25) for (const side of [-1, 1]) marks.push(new Matrix4().compose(onSlope(down, side * 30).add(new Vector3(0, 0.75, 0)), new Quaternion(), new Vector3(1, 1, 1)));
-    const firShape = new ConeGeometry(1, 1, 9), firPaint = new MeshStandardMaterial({ color: 0x24402f, roughness: 0.9 });
+    // (The snowy firs of the world's runs, in tiers with snow on their boughs, in place of the plain green cones the slope had: asked,
+    // "now find ways to improve visual impression without making the game much heavier"; some forty triangles more to a tree.)
+    const firShape = snowyFir(3, 6, true), firPaint = new MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
     for (let k = 0; k < 3; k++) {
       const fir = new InstancedMesh(firShape, firPaint, trees.length), poles = new InstancedMesh(POLE, POLE_PAINT, marks.length);
       trees.forEach((m, i) => fir.setMatrixAt(i, m));

@@ -61,7 +61,7 @@ change to the game.
 ## What is here
 
 - `game.html`, `game/slope.ts`: the page and its program (the loading screen, the opening, watching and riding, the demo run's pilot, the tricks given a
-  rider, the views, the picture's blur and resolution); `game/slopeLand.ts`: the land it goes down, the slice of the mountain or the
+  rider, the views, the sky and the light, the picture's blur, grade and resolution); `game/slopeLand.ts`: the land it goes down, the slice of the mountain or the
   groomed slope, its snow, firs, piste poles and the country round about.
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
   (`horse.ts`, made in code on a skeleton of its own; `horseBody.ts`, `horseSculpt.ts`, how it looks), the adventurer's clothes and

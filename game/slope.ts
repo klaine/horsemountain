@@ -40,11 +40,11 @@
  */
 import {
   ACESFilmicToneMapping, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
-  Fog, Group, HemisphereLight, IcosahedronGeometry, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
+  Group, HemisphereLight, IcosahedronGeometry, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
   PCFSoftShadowMap, PerspectiveCamera, Quaternion, RepeatWrapping, Scene, SkinnedMesh, SRGBColorSpace, Vector3,
 } from 'three';
-import { RenderPipeline, WebGPURenderer } from 'three/webgpu';
-import { abs, float, Fn, If, int, length, Loop, max, min, mix, mrt, output, pass, renderOutput, screenSize, smoothstep, uniform, uv, vec2, vec4, velocity } from 'three/tsl';
+import { MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
+import { abs, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, smoothstep, texture, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
 import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -274,21 +274,60 @@ async function start() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
   const scene = new Scene();
-  scene.background = new Color(0xa9c8e8);
   const camera = new PerspectiveCamera(50, 1, 0.1, 1200);
   const controls = new OrbitControls(camera, canvas);
   controls.enabled = false;
 
-  // Light: the sky's, and a sun low across the slope, so that the snow has a grain and the skier a shadow.
-  const sky = new HemisphereLight(0xd6e6ff, 0xf3f6fb, 1.15);
+  // Light: the sky's, and a sun low across the slope, so that the snow has a grain and the skier a shadow. (A clear day's: the sun warm
+  // and the sky blue, so that the snow in sun is white and in shade blue, and its shapes read; on the skier, the sky's blue from above
+  // and the snow's light thrown back from below, warm, which had left its underside near black.)
+  const sky = new HemisphereLight(0xc2d6ff, 0xfff4e8, 1.15);
   scene.add(sky);
-  const sun = new DirectionalLight(0xfff4e6, 2.3);
+  const sun = new DirectionalLight(0xffecd8, 2.7);
   const sunFrom = new Vector3(-0.55, 0.75, -0.35).normalize();
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 120 });
   sun.shadow.bias = -0.0004;
   scene.add(sun, sun.target);
+
+  // The sky (asked: "now find ways to improve visual impression without making the game much heavier"): it had been one flat blue.
+  // Now deep blue overhead, paling to a haze at the horizon; the air glowing warm about the sun, and the sun's disc; and high thin
+  // cloud, from a small picture of cloud read at two sizes over a plane above, drawn out along the horizon. Worked out only where the
+  // sky is seen, behind everything else. And the haze over what is far off takes its colour from the horizon behind it, the way it
+  // looks, warmer towards the sun: so that a far range fades into the sky behind it rather than into a grey.
+  const uSun = uniform(sunFrom), uFogNear = uniform(90), uFogFar = uniform(520);
+  type SkyN = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const skyAt = (dir: SkyN, disc: boolean): SkyN => {
+    // (As one sum, with no assignments: the haze reads it outside any function of the shader's.)
+    const h = clampNode(dir.y, 0, 1), toSun = max(dot(dir, uSun), 0);
+    const col: SkyN = mix(vec3(0.09, 0.24, 0.6), vec3(0.66, 0.77, 0.9), pow(float(1).sub(h), 5)).add(vec3(1, 0.84, 0.6).mul(pow(toSun, 5).mul(0.2).add(pow(toSun, 40).mul(0.45))));
+    return disc ? col.add(vec3(1, 0.93, 0.8).mul(smoothstep(0.99955, 0.9998, toSun).mul(24))) : col;
+  };
+  const cloudMap = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d')!, rng = new Rng('cloud');
+    g.fillStyle = '#000'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 70; i++) blot(g, 256, `rgba(255,255,255,${rng.range(0.05, 0.12)})`, rng.range(0, 256), rng.range(0, 256), rng.range(18, 60));
+    for (let i = 0; i < 160; i++) blot(g, 256, `rgba(255,255,255,${rng.range(0.03, 0.08)})`, rng.range(0, 256), rng.range(0, 256), rng.range(5, 16));
+    const t = new CanvasTexture(c); t.wrapS = t.wrapT = RepeatWrapping;
+    return t;
+  })();
+  scene.backgroundNode = Fn(() => {
+    const dir = positionWorldDirection, col = skyAt(dir, true).toVar();
+    // (Over a plane above, nearer the horizon further off: drawn out along it, as high cloud is seen.)
+    // (Its picture read once, both sizes of cloud painted into it: read twice, at two sizes, the sky cost a tenth of a frame of the
+    // groomed slope, half of it sky, drawn in software.)
+    const over = dir.xz.div(max(dir.y, 0.03).add(0.1));
+    const wisp = texture(cloudMap, over.mul(vec2(0.11, 0.3))).r;
+    const cloud = smoothstep(0.4, 0.72, wisp).mul(smoothstep(0.02, 0.16, dir.y)).mul(0.45);
+    col.assign(mix(col, vec3(1, 0.97, 0.93).mul(max(dot(dir, uSun), 0).mul(0.25).add(0.95)), cloud));
+    return vec4(col, 1);
+  })();
+  // (The haze's colour worked out at the corners of what is drawn and blended between them, not at every point: it changes slowly
+  // across the picture, and worked out at every point of every surface it cost a sixth of a frame of the groomed slope drawn in software.)
+  const level: SkyN = normalize(positionWorld.sub(cameraPosition).mul(vec3(1, 0, 1)).add(vec3(1e-4, 0, 0)));
+  scene.fogNode = fogOf(vertexStage(skyAt(vec3(level.x, 0.03, level.z), false)), rangeFogFactor(uFogNear, uFogFar));
 
   // The snow: groomed corduroy faintly lined along the run, a little uneven in tone; and loose snow off the run, unlined.
   const snowMap = (() => {
@@ -328,7 +367,7 @@ async function start() {
     // has it before its bake arrives.)
     snowUniforms.uSnow.value = 1;
     farUniforms.uFarSnow.value = 1;
-    const skyLight: [number, number, number] = [0.6, 0.68, 0.8];
+    const skyLight: [number, number, number] = [0.5, 0.65, 0.95];
     siteUniforms.uFallback.value.set(...skyLight);
     gameLook = { snow: makeSnowMaterial(turf, scree), far: makeFarMaterial({ light: query.get('relief') !== '1' }), sky: skyLight };
     return gameLook;
@@ -362,7 +401,7 @@ async function start() {
     // slope is, its snow was white all over and its shape could not be read.)
     sunFrom.set(...land.sun).normalize();
     sky.intensity = land.sky;
-    scene.fog = new Fog(0xc9dcee, land.fog[0], land.fog[1]);
+    uFogNear.value = land.fog[0]; uFogFar.value = land.fog[1];
     camera.far = land.fog[1] + 400;
     camera.updateProjectionMatrix();
     canvas.setAttribute('aria-label', land.length === Infinity ? 'A skier going down a groomed slope' : `A skier going down a run ${land.about}, ${land.name}`);
@@ -500,6 +539,37 @@ async function start() {
   putOn(jockey.model, 'mounted');
   const rider = new Group();
   scene.add(rider);
+  // The skier's edges lit (asked: "now find ways to improve visual impression without making the game much heavier"): seen against the
+  // sun, a horse's dark coat showed as a black shape on the snow, the side towards the eye in its own shade. The sun behind a body
+  // lights its edges, as it does a horse's coat and a rider's shoulders; the more the more the eye looks towards the sun, and the more
+  // the edge leans to it; and faintly from anywhere, so that the body stands off the snow. Its materials given that light of their own,
+  // the same materials made as the renderer's own kind (which it otherwise makes of them when first drawn), with the light added.
+  // (Worked out only where the skier is drawn: a few points of the picture.)
+  // (The light takes the colour of what it falls on, as the sun's does: lit the same pale gold everywhere, a bay's rounded chest came out
+  // beige and the red skis orange. And kept to the edges.)
+  const rimLight = (() => {
+    const edge = pow(float(1).sub(clampNode(dot(normalView, positionViewDirection), 0, 1)), 3.5);
+    const against = smoothstep(-0.2, 0.8, dot(normalize(positionWorld.sub(cameraPosition)), uSun));
+    const leaning = max(dot(normalWorld, uSun), 0).mul(0.6).add(0.4);
+    return diffuseColor.rgb.mul(2.8).add(0.05).mul(vec3(1, 0.88, 0.72)).mul(edge.mul(leaning).mul(against.mul(0.85).add(0.1)));
+  })();
+  const rimmed = new Map<Material, Material>();
+  const KEPT = ['name', 'color', 'roughness', 'metalness', 'map', 'normalMap', 'normalScale', 'roughnessMap', 'metalnessMap', 'aoMap', 'vertexColors', 'side', 'transparent', 'opacity', 'alphaTest', 'depthWrite', 'flatShading'] as const;
+  const rimOf = (src: Material): Material => {
+    if ([...rimmed.values()].includes(src)) return src;
+    let made = rimmed.get(src);
+    if (made) return made;
+    const kind = (src as { type: string }).type;
+    if (kind !== 'MeshStandardMaterial' && kind !== 'MeshLambertMaterial') return src;
+    const m = kind === 'MeshStandardMaterial' ? new MeshStandardNodeMaterial() : new MeshLambertNodeMaterial();
+    const from = src as unknown as Record<string, unknown>, to = m as unknown as Record<string, unknown>;
+    for (const k of KEPT) if (k in from && k in to) { const v = from[k] as { clone?: () => unknown }; to[k] = v && typeof v === 'object' && 'isColor' in v || (v && typeof v === 'object' && 'isVector2' in v) ? v.clone!() : v; }
+    m.emissiveNode = rimLight;
+    rimmed.set(src, m);
+    return m;
+  };
+  /** Every material of the skier's given its edge light (again after the horse's skis are changed, which makes them anew). */
+  const rimAll = (o: Object3D) => o.traverse((x) => { const m = x as Mesh; if (m.isMesh) m.material = Array.isArray(m.material) ? m.material.map(rimOf) : rimOf(m.material); });
   const basis = new Matrix4();
   /**
    * Stands the skier at `p`, upright to `up` (the snow's, under it), facing `facing` (radians to the left of the run's way at `f`);
@@ -559,6 +629,7 @@ async function start() {
       skis: () => horse.skiMiddles(), bodies: () => [horseBody, jockeyBody],
     },
   };
+  for (const o of [model, horse.model, jockey.model]) rimAll(o);
   // (The horse and its rider unless another is asked for (asked: "also make the horse & rider the default mode"): `?skier=person` or
   // `?skier=horse`.)
   let who: Who = (['person', 'horse', 'mounted'] as Who[]).find((w) => w === query.get('skier')) ?? 'mounted', skier = skiers[who];
@@ -1641,7 +1712,7 @@ async function start() {
   const setSkier = (w: Who, skis: HorseSkis = horse.skis) => {
     if (w === who && skis === horse.skis) return;
     skier.object.removeFromParent();
-    if (skis !== horse.skis) horse.setSkis(skis);
+    if (skis !== horse.skis) { horse.setSkis(skis); rimAll(horse.model); }
     who = w;
     skier = skiers[w];
     rider.add(skier.object);
@@ -1967,14 +2038,22 @@ async function start() {
   })();
   const soft = gaussianBlur(picture, vec2(1, 1), 3, { resolutionScale: 0.5 });
   const away = smoothstep(uFocus.mul(2.2), uFocus.mul(9), depthHere).mul(min(0.95, uBlur.mul(0.85)));
+  // (The finished picture graded as a photograph of a bright day is: its tones drawn a little apart, a little more colour, and its
+  // corners a little darker, which holds the eye on the middle. Worked out in the pass that is drawn anyway, for nothing more.)
+  const grade = (c: N): N => {
+    const curved: N = mix(c.rgb, c.rgb.mul(c.rgb).mul(float(3).sub(c.rgb.mul(2))), 0.22);
+    const grey: N = dot(curved, vec3(0.2126, 0.7152, 0.0722)), rich: N = mix(vec3(grey), curved, 1.12);
+    const edge: N = length(uv().sub(0.5).mul(vec2(1, 0.78)));
+    return vec4(rich.mul(mix(1, 0.8, smoothstep(0.32, 0.8, edge))), c.a);
+  };
   const pipeline = new RenderPipeline(renderer);
   if (msaa) pipeline.outputNode = mix(smeared, soft, away);
-  else { pipeline.outputColorTransform = false; pipeline.outputNode = fxaa(renderOutput(mix(smeared, soft, away))); }
+  else { pipeline.outputColorTransform = false; pipeline.outputNode = grade(fxaa(renderOutput(mix(smeared, soft, away)))); }
   // (With no blur, the scene alone, smoothed the same way: drawn straight to the canvas, it had its four times over, and cost more
   // than with the blur.)
   const sharp = new RenderPipeline(renderer), sharpPass = pass(scene, camera, { samples: msaa ? 4 : 0 });
   if (msaa) sharp.outputNode = sharpPass;
-  else { sharp.outputColorTransform = false; sharp.outputNode = fxaa(renderOutput(sharpPass)); }
+  else { sharp.outputColorTransform = false; sharp.outputNode = grade(fxaa(renderOutput(sharpPass))); }
   // (How much, by *Blur*: from none, the plain picture drawn, to twice as much; `?blur=` too.)
   let blurLevel = query.has('blur') ? clamp(Number(query.get('blur')) || 0, 0, 2) : 1;
   // Hiding the menus and the text, `H` too; the distance of the views from the skier. (Kept in this browser for next time, where it may.)
