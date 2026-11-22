@@ -34,7 +34,7 @@ rider, the horse alone, or a person on skis, an adventurer with a sword on its b
 riding from behind, and each keeps the one it was last left in; and its distance) and *Picture* (the game's snow or plain, how finely
 the picture is drawn, the blur). Escape or `H` closes it. `R` switches between watching and riding; `Space` pauses the demo.
 
-In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run), `?land=groomed`, `?snow=plain`, `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer),
+In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run), `?land=groomed`, `?snow=plain`, `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
 `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
 frames come), `?webgl` (WebGL 2 rather than WebGPU).
 
@@ -66,13 +66,16 @@ change to the game.
 
 - `game.html`, `game/slope.ts`: the page and its program (the loading screen, the opening, watching and riding, the demo run's pilot, the tricks given a
   rider, the views, the sky and the light, the picture's blur, grade and resolution); `game/slopeLand.ts`: the land it goes down, the slice of the mountain or the
-  groomed slope, its snow, firs, piste poles and the country round about.
+  groomed slope, its snow, firs, piste poles and the country round about; `game/slopeTrees.ts`: on a computer, the woods of the land
+  about the run as the game grows them (its walk over the world's `treesIn` and `growTrees`, in winter, and spruce where it would grow
+  oaks and ashes), whole near the eye, more simply further off and painted beyond, grown in blocks about the eye as it goes.
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
   (`horse.ts`, made in code on a skeleton of its own; `horseBody.ts`, `horseSculpt.ts`, how it looks; `horseCoat.ts`, its coat as hair, on a computer), the adventurer's clothes and
   sword (`outfit.ts`), skis and poles (`gear.ts`), a body gone limp (`ragdoll.ts`), posing (`posing.ts`), and the figures' files
   (`library.ts`).
 - `src/render/`: the game's materials for snow, rock and the far country (`siteMaterial.ts`), the textures they are painted from
-  (`textures.ts`), meshes (`geom/meshBuilder.ts`); `scene.ts` holds only the one type the materials name.
+  (`textures.ts`), meshes (`geom/meshBuilder.ts`); the game's trees, grown (`planting.ts`) and drawn as cards in levels
+  (`vegetation.ts`); `scene.ts` holds only the two types those name.
 - `src/core/`: the slice of the mountain as it is kept and read (`skiSlice.ts`), and the seeded random numbers (`rng.ts`).
 - `figures/`: the figures, by Quaternius, CC0 (see `figures/LICENSE.txt`): `clips.glb` (the mannequin and the clips), and
   `superhero-male.glb` (the body the adventurer is dressed on).

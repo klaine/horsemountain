@@ -20,6 +20,7 @@ import { glinting, snowGlints } from '../src/render/siteMaterial';
 import { MeshBuilder } from '../src/render/geom/meshBuilder';
 import { Rng } from '../src/core/rng';
 import { type Grid, gridAt, type SkiSlice } from '../src/core/skiSlice';
+import { sliceWoods, type Woods } from './slopeTrees';
 
 /** Where a point lies against the run: how far along it (`s`), how far to its left (`left`), and which way the run goes there. */
 export interface Frame { s: number; left: number; dx: number; dz: number }
@@ -49,6 +50,8 @@ export interface Land {
   keepAbout(x: number, z: number): void;
   /** Draws what is near the eye at (`x`, `z`) finely and the rest coarsely, where the land is made so. */
   lod?(x: number, z: number): void;
+  /** Grows the woods about the eye, where the land has the game's own trees (`slopeTrees.ts`); `seconds`, the page's clock, for the wind. */
+  trees?(eye: Vector3, seconds: number): void;
   /** How far the air's haze begins and is whole; where the sun is (towards it); and how strong the sky's light is. */
   fog: [number, number]; sun: [number, number, number]; sky: number;
 }
@@ -135,8 +138,11 @@ const COVER = { sea: 0, lake: 1, forest: 6 } as const;
  */
 export interface GameLook { snow: Material; far: Material; sky: [number, number, number] }
 
-/** The land of a world's ski run (`SkiSlice`), its scene's origin at the run's top; drawn with the game's materials if they are given. */
-export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture, game?: GameLook): Land {
+/**
+ * The land of a world's ski run (`SkiSlice`), its scene's origin at the run's top; drawn with the game's materials if they are given,
+ * and then, if `woods` is given (its textures' size), with the game's own trees in place of the snowy firs (`slopeTrees.ts`).
+ */
+export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture, game?: GameLook, woods?: number): Land {
   const [ox, oz] = slice.run.points[0], step = slice.run.step;
   const line = slice.run.points.map(([x, z]) => [x - ox, z - oz] as [number, number]), n = line.length, length = (n - 1) * step;
   // Each stretch of the line: where it starts and which way it goes.
@@ -493,7 +499,22 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   near3.castShadow = true;
   near3.name = 'firs'; far1.name = 'far firs';
   near3.computeBoundingSphere(); far1.computeBoundingSphere();
-  group.add(near3, far1);
+  group.add(far1);
+  // The game's own trees in place of the near firs, where they are asked for (`slopeTrees.ts`): on the land about the run, wherever the
+  // world has woods, but not on the run's snow nor within a few metres of it. (The firs are still dealt, so that what is dealt from the
+  // same random numbers after them comes out as it did.)
+  let woodsGrown: Woods | null = null;
+  if (woods && game) {
+    const onSnow = (x: number, z: number) => !Number.isNaN(gridAt(snow, x, z));
+    woodsGrown = sliceWoods({
+      box: [nearBox[0], nearBox[1], nearBox[2], nearBox[3]], heightAt: height, worldHeight,
+      steepAt: (x, z) => (Math.hypot(height(x + 2, z) - height(x - 2, z), height(x, z + 2) - height(x, z - 2)) / 4) * worldSlope(height(x, z)),
+      coverAt, cover: { data: slice.cover, nx: far.nx, nz: far.nz, x0: far.x0, z0: far.z0, cell: far.cell },
+      keepOff: (x, z) => onSnow(x, z) || onSnow(x + 3, z) || onSnow(x - 3, z) || onSnow(x, z + 3) || onSnow(x, z - 3),
+      seed: [...slice.world].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261) % 99991, sky: game.sky,
+    }, woods);
+    group.add(woodsGrown.group);
+  } else group.add(near3);
 
   // Where a kicker may stand: where the land falls away after its lip at least as steeply as a landing wants, and is not too steep
   // or too tilted across where it is built.
@@ -511,6 +532,7 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     drop: (y: number) => worldHeight(slice.run.heights[0]) - worldHeight(y),
     fall: worldHeight(slice.run.heights[0]) - worldHeight(slice.run.heights[slice.run.heights.length - 1]),
     length, half: slice.half, edges, height, frame, at, kickable, group, keepAbout: () => {}, lod, fog: [380, 5200], sun: [-0.6, 0.42, -0.5], sky: 0.8,
+    trees: woodsGrown ? (eye, seconds) => woodsGrown!.update(eye, seconds) : undefined,
   };
 }
 

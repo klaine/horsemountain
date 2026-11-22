@@ -363,6 +363,9 @@ async function start() {
   // for the plain look the page had before). Their textures are painted when first wanted, at 512 (`?tex=` another size).
   type SnowLook = 'game' | 'plain';
   let snowLook: SnowLook = query.get('snow') === 'plain' ? 'plain' : 'game', gameLook: GameLook | null = null;
+  // (The game's own trees on the land about the run, with its own materials, on a computer (`slopeTrees.ts`); the snowy firs on a phone
+  // or a tablet, where each point of the picture costs more. `?trees=game` or `?trees=plain`, either anywhere.)
+  const treesAsked = query.get('trees'), gameTrees = treesAsked ? treesAsked !== 'plain' : matchMedia('(hover: hover) and (pointer: fine)').matches;
   const gameLookOf = (): GameLook => {
     if (gameLook) return gameLook;
     const size = Number(query.get('tex')) || 512;
@@ -392,7 +395,7 @@ async function start() {
         await loading.stage('snow', `Laying the snow below ${peakOf(kind)}`);
       }
       // (Without its slice, the groomed slope.)
-      made = sliceText ? sliceLand(readSlice(sliceText), snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined) : await landOf('groomed');
+      made = sliceText ? sliceLand(readSlice(sliceText), snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined) : await landOf('groomed');
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap); }
     lands.set(key, made);
     return made;
@@ -2363,6 +2366,7 @@ async function start() {
     }
     land.keepAbout(rider.position.x, rider.position.z);
     land.lod?.(camera.position.x, camera.position.z);
+    land.trees?.(camera.position, now / 1000);
     if (kickersOn) placeKickers(at.down);
     placeView(at, dt);
     shiftView(dt);
@@ -2451,6 +2455,8 @@ async function start() {
     // (The views' distance from the skier, as the *Distance* slider sets it.)
     distance: (d: number) => setDistance(d),
     restart, time: () => t, ready: true,
+    // (The game's own trees on the land about the run, where it has them: where each stands, what it is, how tall.)
+    trees: () => (land.group.getObjectByName('woods')?.userData.trees ?? []) as { x: number; z: number; kind: string; tall: number }[],
     // (How long each stage of opening took, in milliseconds.)
     loadTimes: () => loading.times,
     // (The demo run as flown for the skier now: how long, its parts, the tricks it landed, how many times each kicker was flown again.)
