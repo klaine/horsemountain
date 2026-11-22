@@ -246,12 +246,12 @@ async function start() {
   const base = win.__figureBase ?? new URL('../figures/', location.href).href, slices = win.__slopeBase ?? new URL('../slopes/', location.href).href;
   // The runs to choose from, each a slice beside the page (`tools/skiRun.ts`, `PICK=3` for the third run kept in a world, and so on),
   // named for the peak it comes down below; `?world=` another slice to open on (`#w2-3` too, as the address keeps the choice).
-  const runs: { id: string; label: string; title: string }[] = [
-    { id: 'w2', label: 'Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side' },
-    { id: 'w2-3', label: 'Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay' },
+  const runs: { id: string; label: string; peak: string; title: string }[] = [
+    { id: 'w2', label: 'Silent Warden', peak: 'The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side' },
+    { id: 'w2-3', label: 'Pale Crown', peak: 'The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay' },
   ];
   const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
-  if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}` });
+  if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, peak: asked, title: `A run down the world ${asked}` });
   // (A land is a run, by its slice's name, or the groomed slope.)
   type LandKind = string;
   const hashed = location.hash.slice(1);
@@ -259,7 +259,7 @@ async function start() {
   const opensOn = query.get('land') === 'groomed' ? 'groomed' : asked ?? runs[0].id;
   let landKind: LandKind = hashed === 'groomed' || runs.some((r) => r.id === hashed) ? hashed : opensOn;
   if (landKind !== 'groomed' && !win.__slopeFiles?.[`${landKind}.json`]) void fetchCounted(`${slices}${landKind}.json`).catch(() => {});
-  const labelOf = (kind: LandKind) => runs.find((r) => r.id === kind)?.label ?? kind;
+  const peakOf = (kind: LandKind) => runs.find((r) => r.id === kind)?.peak ?? kind;
   if (!win.__figureFiles) for (const file of new Set(['clips.glb', (BODIES.find((b) => b.id === bodyId) ?? BODIES[0]).file])) void figureBytes(base, file, fetchCounted).catch(() => {});
   await loading.stage('start');
   const canvas = $<HTMLCanvasElement>('view');
@@ -345,7 +345,7 @@ async function start() {
       const sliceText = sliceTexts.get(kind);
       if (sliceText) {
         if (snowLook === 'game' && !gameLook) { await loading.stage('paint'); gameLookOf(); }
-        await loading.stage('snow', `Laying the snow below ${labelOf(kind)}`);
+        await loading.stage('snow', `Laying the snow below ${peakOf(kind)}`);
       }
       // (Without its slice, the groomed slope.)
       made = sliceText ? sliceLand(readSlice(sliceText), snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined) : await landOf('groomed');
@@ -1492,7 +1492,7 @@ async function start() {
   const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind !== 'groomed') void setLand(landKind, true); else reflect(); } }, title));
   const setLand = async (kind: LandKind, again = false) => {
     if (kind === landKind && !again) return;
-    await loading.busy(kind !== 'groomed' ? `Laying the snow below ${labelOf(kind)}` : 'Laying the groomed slope');
+    await loading.busy(kind !== 'groomed' ? `Laying the snow below ${peakOf(kind)}` : 'Laying the groomed slope');
     const next = await landOf(kind);
     loading.idle();
     for (const k of kickerAt.values()) if (k?.group) { k.group.removeFromParent(); k.group = undefined; }
@@ -2132,7 +2132,8 @@ async function start() {
     },
     // (What was drawn in the last frame.)
     drawn: () => ({ triangles: renderer.info.render.triangles, calls: renderer.info.render.drawCalls }),
-    setLand: (k: LandKind) => setLand(k),
+    // (A run by its slice's name, or `groomed`; `world` for the first run, as the page named it before it had two.)
+    setLand: (k: LandKind) => setLand(k === 'world' ? runs[0].id : k),
     // (The view from `d` metres to the left of the skier across the run, `up` over it and `back` up the run, carried along with it:
     // for pictures of a trick side on.)
     lookSide: (d: number, up: number, back = 0) => { const f = land.frame(rider.position.x, rider.position.z, ride.down); __look(runLeft(f).multiplyScalar(d).addScaledVector(UP, up).addScaledVector(runDir(f), -back)); },
