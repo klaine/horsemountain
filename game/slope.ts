@@ -31,8 +31,9 @@
  *
  * Where (asked: "now lets make this have a 100m wide nearland slice of our actual winter gameworld starting on high slopes at suitable
  * location, no buildings or locations"): a run found in the game's world, `w2` (`?world=` another, for which `tools/skiRun.ts` has
- * made a slice), down from the foot of its range across the upland below, a hundred metres broad, in winter (`slopeLand.ts`); or, with
- * `?land=groomed`, the groomed slope the page began with, a plane at sixteen degrees going on for ever. Everything that moves is
+ * made a slice), down from the foot of its range across the upland below, a hundred metres broad, in winter (`slopeLand.ts`); or a
+ * second run found there, below another peak (asked: "can we cheaply add a second found location as an option where to play?";
+ * `RUNS`); or, with `?land=groomed`, the groomed slope the page began with, a plane at sixteen degrees going on for ever. Everything that moves is
  * worked out in the world's own terms, over whatever land it is on: where it is, east and south, and how high the snow is there; the
  * pull of its weight down whatever way the snow falls under it; thrown off a kicker or a knoll as any body is, and landing on the
  * land as it lies. The run's line is only for the edges, the views and where the kickers stand.
@@ -195,7 +196,7 @@ const loading = (() => {
  * A file the page needs, fetched once and counted as it comes in. (Where the host packs it for the way, its size on arrival is not
  * said; then it is taken as about as large as the file is kept, and grown if it comes larger.)
  */
-const ABOUT: Record<string, number> = { 'clips.glb': 3.02e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6 };
+const ABOUT: Record<string, number> = { 'clips.glb': 3.02e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6 };
 const fetching = new Map<string, Promise<ArrayBuffer>>();
 const fetchCounted = (url: string): Promise<ArrayBuffer> => {
   let made = fetching.get(url);
@@ -243,10 +244,22 @@ async function start() {
   // the run is to be on it), the figures' clips and the skier's body. (Not where the page carries them in itself.)
   const win = window as unknown as { __figureBase?: string; __figureFiles?: object; __slopeBase?: string; __slopeFiles?: Record<string, string> };
   const base = win.__figureBase ?? new URL('../figures/', location.href).href, slices = win.__slopeBase ?? new URL('../slopes/', location.href).href;
-  const world = query.get('world') ?? 'w2', bodyId = query.get('body') ?? 'adventurer';
-  type LandKind = 'world' | 'groomed';
-  let landKind: LandKind = query.get('land') === 'groomed' || location.hash === '#groomed' ? 'groomed' : 'world';
-  if (landKind === 'world' && !win.__slopeFiles?.[`${world}.json`]) void fetchCounted(`${slices}${world}.json`).catch(() => {});
+  // The runs to choose from, each a slice beside the page (`tools/skiRun.ts`, `PICK=3` for the third run kept in a world, and so on),
+  // named for the peak it comes down below; `?world=` another slice to open on (`#w2-3` too, as the address keeps the choice).
+  const runs: { id: string; label: string; title: string }[] = [
+    { id: 'w2', label: 'Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side' },
+    { id: 'w2-3', label: 'Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay' },
+  ];
+  const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
+  if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}` });
+  // (A land is a run, by its slice's name, or the groomed slope.)
+  type LandKind = string;
+  const hashed = location.hash.slice(1);
+  // (Opened on what the address asks for: after a choice on the page, its end, `#groomed` or `#w2-3`, which the page sets.)
+  const opensOn = query.get('land') === 'groomed' ? 'groomed' : asked ?? runs[0].id;
+  let landKind: LandKind = hashed === 'groomed' || runs.some((r) => r.id === hashed) ? hashed : opensOn;
+  if (landKind !== 'groomed' && !win.__slopeFiles?.[`${landKind}.json`]) void fetchCounted(`${slices}${landKind}.json`).catch(() => {});
+  const labelOf = (kind: LandKind) => runs.find((r) => r.id === kind)?.label ?? kind;
   if (!win.__figureFiles) for (const file of new Set(['clips.glb', (BODIES.find((b) => b.id === bodyId) ?? BODIES[0]).file])) void figureBytes(base, file, fetchCounted).catch(() => {});
   await loading.stage('start');
   const canvas = $<HTMLCanvasElement>('view');
@@ -320,18 +333,19 @@ async function start() {
     gameLook = { snow: makeSnowMaterial(turf, scree), far: makeFarMaterial({ light: query.get('relief') !== '1' }), sky: skyLight };
     return gameLook;
   };
-  let sliceText: string | null | undefined;
+  const sliceTexts = new Map<string, string | null>();
   const landOf = async (kind: LandKind): Promise<Land> => {
-    const key = kind === 'world' ? `world:${snowLook}` : kind;
+    const key = kind !== 'groomed' ? `${kind}:${snowLook}` : kind;
     let made = lands.get(key);
     if (made) return made;
-    if (kind === 'world') {
-      const carried = win.__slopeFiles?.[`${world}.json`];
-      if (sliceText === undefined && !carried) await loading.busy('Fetching the mountain');
-      if (sliceText === undefined) sliceText = carried ?? await fetchCounted(`${slices}${world}.json`).then((b) => new TextDecoder().decode(b)).catch(() => null);
+    if (kind !== 'groomed') {
+      const carried = win.__slopeFiles?.[`${kind}.json`];
+      if (!sliceTexts.has(kind) && !carried) await loading.busy('Fetching the mountain');
+      if (!sliceTexts.has(kind)) sliceTexts.set(kind, carried ?? await fetchCounted(`${slices}${kind}.json`).then((b) => new TextDecoder().decode(b)).catch(() => null));
+      const sliceText = sliceTexts.get(kind);
       if (sliceText) {
         if (snowLook === 'game' && !gameLook) { await loading.stage('paint'); gameLookOf(); }
-        await loading.stage('snow', `Laying the snow on the run in ${world}`);
+        await loading.stage('snow', `Laying the snow below ${labelOf(kind)}`);
       }
       // (Without its slice, the groomed slope.)
       made = sliceText ? sliceLand(readSlice(sliceText), snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined) : await landOf('groomed');
@@ -1260,7 +1274,10 @@ async function start() {
         // second, or nine tenths for a single spin.)
         const short = lastT < (trick.kind === 'flip' || trick.halves > 2 ? 1 : trick.halves ? 0.9 : 0);
         if ((last !== trickKey(trick) || short) && again()) continue;
-        k++; settle = 0.7; from = null; gap180 = 0;
+        k++; from = null; gap180 = 0;
+        // (A moment straight before turning again; but none where the next kicker is so near that it wants lining up on already: off a
+        // fast landing, that moment took a third of the way to a kicker standing close after another, and it could not be lined up on.)
+        settle = kicked[k] && kicked[k].s + KICK.length - ride.down < 75 + 0.7 * ride.speed ? 0 : 0.7;
       } else if (settle > 0) {
         settle -= dt; want.x = 0; want.y = 0;
       } else if (kick && toLip < 75) {
@@ -1469,13 +1486,13 @@ async function start() {
   const whoButtons = whos.map(([label, w]) => button('skiers', label, () => setSkier(w)));
   // The land: the world's run, or the groomed slope; changed where the skier is, the demo run flown on the new land and riding
   // begun again from its top.
-  const landKinds: [string, LandKind, string][] = [['World run', 'world', `A run down the game's world, ${world}`], ['Groomed', 'groomed', 'A groomed slope at sixteen degrees, going on for ever']];
+  const landKinds: [string, LandKind, string][] = [...runs.map((r): [string, LandKind, string] => [r.label, r.id, r.title]), ['Groomed', 'groomed', 'A groomed slope at sixteen degrees, going on for ever']];
   const landButtons = landKinds.map(([label, k, title]) => button('lands', label, () => { void setLand(k); }, title));
   const snowLooks: [string, SnowLook, string][] = [['Game', 'game', "The game's own snow, rock and far country, in lighter winter forms"], ['Plain', 'plain', 'Plain snow and rock: lighter still']];
-  const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind === 'world') void setLand('world', true); else reflect(); } }, title));
+  const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind !== 'groomed') void setLand(landKind, true); else reflect(); } }, title));
   const setLand = async (kind: LandKind, again = false) => {
     if (kind === landKind && !again) return;
-    await loading.busy(kind === 'world' ? `Laying the snow on the run in ${world}` : 'Laying the groomed slope');
+    await loading.busy(kind !== 'groomed' ? `Laying the snow below ${labelOf(kind)}` : 'Laying the groomed slope');
     const next = await landOf(kind);
     loading.idle();
     for (const k of kickerAt.values()) if (k?.group) { k.group.removeFromParent(); k.group = undefined; }
@@ -1486,7 +1503,7 @@ async function start() {
     showLand();
     if (mode === 'ride') restart();
     else { await useDemo(); t = 0; placed = false; clearSpray(); }
-    try { history.replaceState(null, '', kind === 'groomed' ? '#groomed' : location.pathname + location.search); } catch { /* (not where the page may not change its address) */ }
+    try { history.replaceState(null, '', kind === opensOn ? location.pathname + location.search : `#${kind}`); } catch { /* (not where the page may not change its address) */ }
     reflect();
   };
   const skiButtons = skiSets.map(([label, k, title]) => button('skisets', label, () => setSkier(who, k), title));
@@ -1546,7 +1563,7 @@ async function start() {
     $('name').textContent = ['Grand Horse Mountain', land.short, { person: '', horse: 'horse', mounted: 'horse and rider' }[who], mode === 'ride' ? 'riding' : ''].filter(Boolean).join(' · ');
     landButtons.forEach((b, i) => b.classList.toggle('on', landKinds[i][1] === landKind));
     snowButtons.forEach((b, i) => b.classList.toggle('on', snowLooks[i][1] === snowLook));
-    $('snows').hidden = landKind !== 'world';
+    $('snows').hidden = landKind === 'groomed';
     $('of').textContent = land.fall === Infinity ? '' : ` of ${land.fall.toFixed(0)}`;
     document.body.classList.toggle('riding', mode === 'ride');
     placeHandy();
@@ -2068,7 +2085,7 @@ async function start() {
     // (Riding: what is happening in the air or on the ground, the kickers, and to put the skier anywhere going anyhow.)
     state: () => ({ air: air && { ...air }, crash: crash && { why: crash.why, still: stillFor(), at: fallenAt().toArray(), bodies: crash.dolls.map((d) => d.doll.middle().toArray()) }, told: { ...told } }),
     // (The `i`th kicker that stands, counting from the top; and where the skier is put, by how far down the run and across it.)
-    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: KICK.length }; },
+    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: KICK.length, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
     put: (o: Partial<typeof ride>) => { Object.assign(ride, o); if (o.down !== undefined || o.left !== undefined) { putAt(ride.down, ride.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); } placed = false; },
     land: () => ({ name: land.name, length: land.length, half: land.half, about: land.about }),
     setSkier: (w: Who, skis?: HorseSkis) => setSkier(w, skis), who: () => who,

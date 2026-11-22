@@ -21,12 +21,13 @@ come under it.
   new run (or Enter).
 
 *Show menus* (or `H`), at the top right, shows the rest: who goes down (the horse with its rider, the horse alone, or a person on
-skis, an adventurer with a sword on its back), the horse's skis (two long, or four short), the slope (the run down the mountain, or a
+skis, an adventurer with a sword on its back), the horse's skis (two long, or four short), the slope (two runs down the mountain, *Silent Warden*
+from beside its highest summit along a crest, or *Pale Crown*, longer, down a spur into the wooded foothills above a bay; or a
 groomed slope going on for ever), the snow (the game's materials, or plain), the view (*Cinema*, behind, beside, above, or turned by
 hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and riding from behind, and each keeps the one it was last left in) and its distance, the blur, and how finely the picture is drawn. `R` switches between watching and
 riding; `Space` pauses the demo; its timeline names its parts and can be dragged along.
 
-In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `?land=groomed`, `?snow=plain`,
+In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run), `?land=groomed`, `?snow=plain`,
 `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1`, `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
 frames come), `?webgl` (WebGL 2 rather than WebGPU).
 
@@ -68,7 +69,8 @@ change to the game.
 - `src/core/`: the slice of the mountain as it is kept and read (`skiSlice.ts`), and the seeded random numbers (`rng.ts`).
 - `figures/`: the figures, by Quaternius, CC0 (see `figures/LICENSE.txt`): `clips.glb` (the mannequin and the clips), and
   `superhero-male.glb` (the body the adventurer is dressed on).
-- `slopes/w2.json`: the slice of the mountain: a run found in a generated world and the land about it, a metre apart near the run.
+- `slopes/w2.json`, `slopes/w2-3.json`: the slices of the mountain: two runs found in a generated world, the first and the third its
+  search kept, and the land about each, a metre apart near the run (each fetched only when it is skied).
 
 ## Where it came from
 
