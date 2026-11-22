@@ -13,6 +13,9 @@ come under it.
   trick off each (a 720, a backflip, a backflip 360, a ski jumper's flight, a cork 540 that lands it switch, a switch 540 that brings
   it round again, a superman whip), with turns on the snow to switch and back on the way to the foot; filmed by a cinematic camera
   that cuts from shot to shot, cameras set down by each kicker for its jump.
+- **The orc hunt**, on a computer, once *Orcs & tommy gun* is on in the menu (*Orc hunt* there, or `O`): a second demo run, the horse
+  and its rider, the wildest trick each kicker will give them (a cork 720, a backflip 720, a 900 and a switch 900, a superman whip
+  backflip 360, a 1080...), and the rider shooting down the orcs coming up the run with a tommy gun as they go.
 - **Riding it yourself**, seen from behind: on a touch screen, the stick at the lower left steers, to either side to turn (carved, or
   skidded out at its rim), up to tuck, down to stand straight. With a mouse or a touchpad, the pointer steers from wherever it is over
   the picture, no button held: to either side of the middle to turn (skidded out at the sides of the faint guide drawn about the skier),
@@ -22,7 +25,10 @@ come under it.
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
   speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *To switch* (or *To regular*, `X`) turns you
   round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A fall, or the foot of the run,
-  counts down five seconds to a new run (or Enter, or a click).
+  counts down five seconds to a new run (or Enter, or a click). On a computer, with *Orcs & tommy gun* on in the menu (off at first),
+  the skier alone or the horse's rider carries a tommy gun in place of its poles, aimed at the guide's mark: held down, the button
+  fires it (and Shift brakes), and orcs come up the run in hordes to be shot down, red blood on the snow, how many counted at the top
+  left.
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
 the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, *Play* (watch the demo or ride;
@@ -34,7 +40,7 @@ rider, the horse alone, or a person on skis, an adventurer with a sword on its b
 riding from behind, and each keeps the one it was last left in; and its distance) and *Picture* (the game's snow or plain, how finely
 the picture is drawn, the blur). Escape or `H` closes it. `R` switches between watching and riding; `Space` pauses the demo.
 
-In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run), `?land=groomed`, `?snow=plain`, `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
+In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
 `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
 frames come), `?webgl` (WebGL 2 rather than WebGPU).
 
@@ -68,7 +74,9 @@ change to the game.
   rider, the views, the sky and the light, the picture's blur, grade and resolution); `game/slopeLand.ts`: the land it goes down, the slice of the mountain or the
   groomed slope, its snow, firs, piste poles and the country round about; `game/slopeTrees.ts`: on a computer, the woods of the land
   about the run as the game grows them (its walk over the world's `treesIn` and `growTrees`, in winter, and spruce where it would grow
-  oaks and ashes), whole near the eye, more simply further off and painted beyond, grown in blocks about the eye as it goes.
+  oaks and ashes), whole near the eye, more simply further off and painted beyond, grown in blocks about the eye as it goes;
+  `game/slopeGun.ts`, the tommy gun, its tracers, flash and sound; `game/slopeOrcs.ts`, the orcs coming up the run;
+  `game/slopeSplatter.ts`, their blood on the snow.
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
   (`horse.ts`, made in code on a skeleton of its own; `horseBody.ts`, `horseSculpt.ts`, how it looks; `horseCoat.ts`, its coat as hair, on a computer), the adventurer's clothes and
   sword (`outfit.ts`), skis and poles (`gear.ts`), a body gone limp (`ragdoll.ts`), posing (`posing.ts`), and the figures' files

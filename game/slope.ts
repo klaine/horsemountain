@@ -41,7 +41,7 @@
 import {
   ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
   Group, HemisphereLight, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
-  PCFSoftShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, RepeatWrapping, Scene, SkinnedMesh, SRGBColorSpace, Vector3,
+  PCFSoftShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, SRGBColorSpace, Vector2, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
 import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
@@ -57,6 +57,9 @@ import { horseCoatMaterial } from '../src/figures/horseCoat';
 import { Rng } from '../src/core/rng';
 import { readSlice } from '../src/core/skiSlice';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
+import { FORE_GRIP, Gunfire, GunSound, type Heard, MUZZLE, tommyGun } from './slopeGun';
+import { Horde } from './slopeOrcs';
+import { Splatter } from './slopeSplatter';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
 import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowUniforms } from '../src/render/siteMaterial';
 
@@ -544,7 +547,7 @@ async function start() {
   const horse = new Horse(query.get('skis') === 'four' ? 'four' : 'pair');
   const jockey = new Rider(source, idle);
   shade(jockey.model);
-  putOn(jockey.model, 'mounted');
+  const jockeyGear = putOn(jockey.model, 'mounted');
   const rider = new Group();
   scene.add(rider);
   // The skier's edges lit (asked: "now find ways to improve visual impression without making the game much heavier"): seen against the
@@ -1109,12 +1112,15 @@ async function start() {
    * the foot of the world's run; none while it goes.
    */
   let again: number | null = null;
+  /** What the tommy gun leaves about to be cleared away for a new run: its orcs, their blood and its rounds in flight (set where it is made). */
+  let clearGun: (() => void) | null = null;
   /** The run again from the top, going a little. */
   const restart = () => {
     resetRide();
     again = null;
     clearRideTracks();
     clearSpray();
+    clearGun?.();
     placed = false;
     reflect();
   };
@@ -1356,6 +1362,33 @@ async function start() {
     { kind: 'air', halves: 5, side: 1 }, { kind: 'air', halves: 1, side: -1, switch: true },
   ];
   /**
+   * The second demo run, the orc hunt (asked: "I need a second demo run then where the rider with a horse lands crazy tricks from the
+   * jumps but also shoots plenty of the orcs while at it"): the horse and its rider, the tommy gun in the rider's hands, the wildest
+   * trick each kicker will give it (a cork 720, a backflip 720, a 900 and a switch 900 to come round again, a superman whip backflip
+   * 360, a 1080...), and between them the orcs coming up the run, shot down as it goes (`armUp`, aimed for it). Each kicker's tricks
+   * wildest first: one that is not made at any speed gives way to the next (kickers differ, and a 900 off one is a 540 off another),
+   * each of them turning the same way and coming down in the same stance, so that what follows is taken as it was to be.
+   */
+  const spin = (halves: number, side: number, o: Partial<DemoTrick> = {}): DemoTrick => ({ kind: 'air', halves, side, ...o });
+  const flip = (halves: number, side: number, o: Partial<DemoTrick> = {}): DemoTrick => ({ kind: 'flip', halves, side, ...o });
+  const ORC_TRICKS: DemoTrick[][] = [
+    [spin(4, 1, { cork: true }), spin(4, 1), spin(2, 1)],
+    [flip(4, -1), flip(2, -1), flip(0, -1)],
+    [spin(5, 1), spin(3, 1, { cork: true }), spin(3, 1), spin(1, 1)],
+    [spin(5, -1, { switch: true }), spin(3, -1, { switch: true }), spin(1, -1, { switch: true })],
+    [flip(2, 1, { style: 'mute' }), flip(2, 1), flip(0, 1, { style: 'mute' })],
+    [spin(6, -1), spin(4, -1, { cork: true }), spin(4, -1)],
+    [flip(4, 1), flip(2, 1), flip(0, 1, { style: 'layout' })],
+    [spin(4, 1, { style: 'tail' }), spin(2, 1, { style: 'tail' }), spin(4, 1)],
+    [flip(4, -1), flip(2, -1, { style: 'mute' }), flip(2, -1)],
+    [spin(3, -1, { cork: true }), spin(3, -1), spin(1, -1)],
+    [spin(5, 1, { switch: true }), spin(3, 1, { switch: true }), spin(1, 1, { switch: true })],
+    [spin(6, 1), spin(4, 1, { cork: true }), spin(4, 1)],
+  ];
+  /** Which demo run is watched: the tricks', or the orc hunt; and each kicker's tricks for it, wildest first (the tricks' one each). */
+  let demoKind: 'tricks' | 'orcs' = 'tricks';
+  const demoTricks = (): DemoTrick[][] => (demoKind === 'orcs' ? ORC_TRICKS : DEMO_TRICKS.map((trick) => [trick]));
+  /**
    * Coming up to a kicker's lip `tLip` seconds off, with `trick` to make off it: the stance asked (each `null` where it is free). Tucked
    * from further out, which takes a while to sink into; tall for a flip; neither for the rest. Then turning, hard for a spin to be held
    * and a little for a 180, only in the last quarter of a second, or straight.
@@ -1395,12 +1428,14 @@ async function start() {
   interface Demo { frames: DemoFrame[]; parts: { label: string; from: number; to: number }[]; length: number; landed: string[]; tries: number[]; fell: string | null; flown: string[] }
   const demos = new Map<Land, Map<string, Demo>>();
   /** Which demo run a skier has: a horse's for each set of skis, as its tricks differ on them. */
-  const demoKey = () => (who === 'person' ? who : `${who} ${horse.skis}`);
+  const demoKey = () => `${demoKind} ${who === 'person' ? who : `${who} ${horse.skis}`}`;
   /** The kickers that stand on the run, from the top, as many as `n`. */
   const standing = (n: number) => { const out: Kicker[] = []; for (let i = 0; i < 60 && out.length < n; i++) { const k = kickerOf(i); if (k && k.s < land.length) out.push(k); } return out; };
   /** Flies the demo run on the land as it is, for the skier as it is. */
   const flyDemo = (): Demo => {
-    const kicked = standing(DEMO_TRICKS.length).filter((k) => k.s + 40 < land.length), was = kicks;
+    const TRICKS = demoTricks(), kicked = standing(TRICKS.length).filter((k) => k.s + 40 < land.length), was = kicks;
+    // (Which of each kicker's tricks it is making, wildest first: the next once one is not made at any speed.)
+    const rung: number[] = [], trickAt = (n: number) => TRICKS[n]?.[rung[n] ?? 0];
     // (Every kicker under it as it goes, without drawing any.)
     kicks = standing(kicked.length + 2);
     resetRide();
@@ -1414,9 +1449,10 @@ async function start() {
     let from: { k: number; step: number; ride: typeof ride; ask: typeof ask; here: Frame; frames: number; landed: number; phase: number } | null = null;
     /** Each kicker's flight, as it went: at what speed, off the lip how fast, and how it came down. */
     let off = '';
-    const note = (how: string) => { flown.push(`${demoName(DEMO_TRICKS[k])} at ${DEMO_SPEEDS[tries[k] ?? 0]}: ${off}${how}`); off = ''; };
+    const note = (how: string) => { flown.push(`${demoName(trickAt(k))} at ${DEMO_SPEEDS[tries[k] ?? 0]}: ${off}${how}`); off = ''; };
     const again = () => {
-      if (!from || from.k !== k || tries[k] >= DEMO_SPEEDS.length - 1) return false;
+      if (!from || from.k !== k) return false;
+      if (tries[k] >= DEMO_SPEEDS.length - 1) { if ((rung[k] ?? 0) + 1 >= TRICKS[k].length) return false; rung[k] = (rung[k] ?? 0) + 1; tries[k] = -1; }
       Object.assign(ride, structuredClone(from.ride));
       Object.assign(ask, from.ask);
       here = { ...from.here };
@@ -1432,7 +1468,7 @@ async function start() {
     const steer = (wantWay: number, gain = 2.6, most = 0.68) => clamp((ride.way - wantWay) * gain, -most, most);
     const dt = 1 / 120;
     for (let spent = 0; spent < 600 * 120; spent++, step++) {
-      const kick = kicked[k], trick = DEMO_TRICKS[k];
+      const kick = kicked[k], trick = trickAt(k);
       // (Where it is against the kicker ahead, in the kicker's own frame: how far along its ramp from its lip, and how far left of
       // its middle. Against the run instead, where the run bends near a kicker set across it, the skier seemed past the lip while
       // still on the ramp.)
@@ -1459,7 +1495,7 @@ async function start() {
         settle -= dt; want.x = 0; want.y = 0;
       } else if (kick && toLip < 75) {
         // Lining up on it, at the speed it is to be taken at; and at the lip, the stance that makes its trick.
-        if (!from || from.k !== k) { tries[k] ??= 0; last = ''; lastT = 0; from = { k, step, ride: structuredClone(ride), ask: { ...ask }, here: { ...here }, frames: frames.length, landed: landed.length, phase }; }
+        if (!from || from.k !== k) { tries[k] ??= 0; rung[k] ??= 0; last = ''; lastT = 0; from = { k, step, ride: structuredClone(ride), ask: { ...ask }, here: { ...here }, frames: frames.length, landed: landed.length, phase }; }
         const tLip = toLip / Math.max(ride.speed, 1), speed = DEMO_SPEEDS[tries[k]];
         // (Turned towards the kicker's middle, the nearer the more; its way and its offset against the kicker's own way.)
         const go = along(ride.way, here), kd = runDir(kick), kl = runLeft(kick), off = (ride.x - kick.x) * kl.x + (ride.z - kick.z) * kl.z;
@@ -1545,7 +1581,7 @@ async function start() {
   /** The demo run's tracks: each ski's middle every other frame, laid as it went; nothing while it is in the air. */
   const layWatchTracks = () => {
     const fs = demo.frames, was = kicks;
-    kicks = standing(DEMO_TRICKS.length + 2);
+    kicks = standing(demoTricks().length + 2);
     for (let i = 0, j = 0; i < fs.length && j < 3600; i += 2, j++) {
       const now = watchPose(i * STEP), spots = skier.skis(), f = land.at(now.down, now.left);
       watchSkis = spots.length;
@@ -1667,7 +1703,37 @@ async function start() {
     return b;
   };
   // (Choosing to ride closes the menu, which holds riding while it is open.)
-  const modeButtons = modes.map(([label, m, title]) => button('modes', label, () => { setMode(m); if (m === 'ride') setMenu(false); }, title));
+  const modeButtons = modes.map(([label, m, title]) => button('modes', label, () => { if (m === 'watch') setDemoKind('tricks'); setMode(m); if (m === 'ride') setMenu(false); }, title));
+  // The orc hunt, the second demo run (`ORC_TRICKS`), on a computer (where the tommy gun is): the horse and its rider, whom choosing it
+  // puts on the slope.
+  // (Its sound woken by the click that chose it, as a browser lets a page make sound only after one.)
+  const orcHuntButton = button('modes', 'Orc hunt', () => { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }, 'Watch the horse and its rider take crazy tricks off the kickers and shoot down the orcs coming up the run (O)');
+  orcHuntButton.id = 'orcHunt';
+  /**
+   * Orcs and the tommy gun, a choice of the menu's, on a computer, and not made at first (asked: "lets make the gun and orcs mode an option
+   * in the menu (not on by default)"): made, riding a human carries the gun and the orcs come up the run, and the orc hunt may be
+   * watched. (Kept in this browser for next time; `?orcs=1` or `?orcs=0` either way.)
+   */
+  let orcsOn = false;
+  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => setOrcs(k === 1), k ? 'Riding a human, carry a tommy gun and shoot the orcs coming up the run; and the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
+  const setOrcs = (on: boolean) => {
+    orcsOn = on;
+    keep('orcs', on ? '1' : '0');
+    // (The orcs' body dressed now, before any are wanted: dressing it takes a moment, which riding along would feel.)
+    if (on) void horde.prepare();
+    if (!on && demoKind === 'orcs') setDemoKind('tricks');
+    reflect();
+  };
+  /** Which demo run is watched; the orc hunt's with the horse and its rider. */
+  const setDemoKind = (k: 'tricks' | 'orcs') => {
+    if (k === 'orcs' && !orcsOn) return;
+    if (k === 'orcs' && who !== 'mounted') setSkier('mounted');
+    if (k === demoKind) return;
+    demoKind = k;
+    clearGun?.();
+    if (mode === 'watch') { t = 0; placed = false; clearSpray(); void useDemo(); }
+    reflect();
+  };
   // The menu: opened by its button or `H`, closed by its cross, `H` or Escape. Riding is held while it is open; watching goes on.
   const menuEl = $('menu'), menuButton = $('menuButton');
   let menuOpen = false;
@@ -1755,7 +1821,10 @@ async function start() {
   // (The stick and the trick controls lifted over the foot while the menus are shown.)
   const reflect = () => {
     $('play').textContent = playing ? 'Pause' : 'Play';
-    modeButtons.forEach((b, i) => b.classList.toggle('on', modes[i][1] === mode));
+    modeButtons.forEach((b, i) => b.classList.toggle('on', modes[i][1] === mode && (mode !== 'watch' || demoKind === 'tricks')));
+    orcHuntButton.classList.toggle('on', mode === 'watch' && demoKind === 'orcs');
+    orcHuntButton.hidden = !orcsOn;
+    orcsButtons.forEach((b, k) => b.classList.toggle('on', (k === 1) === orcsOn));
     rateButtons.forEach((b, i) => b.classList.toggle('on', rates[i][1] === rate));
     viewButtons.forEach((b, i) => { b.classList.toggle('on', views[i][1] === view); b.hidden = mode === 'ride' && views[i][1] === 'free'; });
     $('playback').hidden = mode === 'ride';
@@ -1874,6 +1943,7 @@ async function start() {
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
     if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (v) setView(v[1]);
+    else if (k === 'o' && orcsOn && document.body.classList.contains('mouse')) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; });
   window.addEventListener('blur', () => { for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
@@ -1914,13 +1984,14 @@ async function start() {
   canvas.addEventListener('pointerdown', (e) => {
     if (!aiming(e) || e.button !== 0 || e.ctrlKey) return;
     if (again !== null) { restart(); return; }
-    // (Held onto while the button is down, so that the brake is not let go of where the pointer crosses a control.)
-    aim.brake = true;
+    // (Held onto while the button is down, so that the brake, or the trigger, is not let go of where the pointer crosses a control.)
+    // (With the tommy gun, the button is its trigger, and Shift brakes.)
+    if (armed()) { firing = true; shotClock = SHOT; gunSound.wake(); } else aim.brake = true;
     canvas.setPointerCapture(e.pointerId);
     aimAt(e);
   });
-  canvas.addEventListener('pointerup', () => { aim.brake = false; });
-  canvas.addEventListener('lostpointercapture', () => { aim.brake = false; });
+  canvas.addEventListener('pointerup', () => { aim.brake = false; firing = false; });
+  canvas.addEventListener('lostpointercapture', () => { aim.brake = false; firing = false; });
   canvas.addEventListener('contextmenu', (e) => { if (mode !== 'ride') return; e.preventDefault(); if (!menuOpen) start180(); });
   // (Not in the free view, whose own turning about the skier takes the wheel; nor the cinematic, which keeps its own distances.)
   canvas.addEventListener('wheel', (e) => {
@@ -1939,6 +2010,135 @@ async function start() {
     // (Asking to be brought in, while the pointer is over the picture and has not taken the skier; put away while it lies fallen.)
     aimEl.classList.toggle('lost', overPicture && !aim.on);
     aimEl.classList.toggle('fallen', !!crash);
+  };
+
+  // The tommy gun (asked: "if the player is skiing with just the human, make the skier have a tommygun submachine gun that fires when
+  // left mouse button is clicked, aimed according to where the control dot is; desktop only"; "they would not have poles when skiing
+  // with the tommygun"; "the player can mow down and shoot at hordes of goblins crawling up the slope", orcs since; "enable this for the
+  // horse riding human as well"): riding on a computer, the skier alone or the horse's rider carries it in place of its poles, both
+  // hands on it on the snow, aimed at what the guide's mark is over in the picture (the snow there, or an orc), as far round as its arms
+  // let it; in the air, or thrown, in the right hand alone. Held down, the button fires it, some seven hundred rounds a minute; each
+  // round flies as a tracer and strikes the snow, throwing it up, or an orc, which falls (`slopeGun.ts`, `slopeOrcs.ts`). Orcs come up
+  // the run in hordes while it is carried, and how many have been brought down is counted.
+  const gunRng = new Rng('tommy gun'), gun = tommyGun(), gunfire = new Gunfire(scene, gunRng.fork('fire')), gunSound = new GunSound(gunRng.fork('sound'));
+  // (Struck, an orc spatters its blood over the snow, a great deal of it, and a pool spreads where it falls: `slopeSplatter.ts`.)
+  const splatter = new Splatter(scene, gunRng.fork('blood'), ground, (x, z) => normalAt(x, z, 0.5));
+  const horde = new Horde(library, scene, rimAll, (at, push, size) => { splatter.spray(at, push, 56); splatter.pool(at, gunRng.range(1.1, 1.6) * size); });
+  rimAll(gun);
+  gun.visible = false;
+  /** How long between rounds; how far into the next the trigger has got; how far the last round kicked the gun up (1, just fired). */
+  const SHOT = 60 / 700;
+  let firing = false, shotClock = 0, kick = 0;
+  /** Each human's poles, put away while it carries the gun. */
+  const poleSets: [Who, Object3D[]][] = [['person', gear.filter((p) => p.parent?.name.startsWith('hand_'))], ['mounted', jockeyGear]];
+  /** Whether the gun is carried: riding, on a computer, by a human (the skier alone, or the horse's rider). */
+  const armed = () => orcsOn && (mode === 'ride' || (mode === 'watch' && demoKind === 'orcs')) && who !== 'horse' && document.body.classList.contains('mouse');
+  const ray = new Raycaster(), ndc = new Vector2(), toLook = new Matrix4(), ZERO = new Vector3(), Y = new Vector3(0, 1, 0);
+  /** Where a line from `from` along `dir` (of length one) first meets the snow, within `most` metres; none, beyond. */
+  const snowAlong = (from: Vector3, dir: Vector3, most: number): number => {
+    const p = new Vector3();
+    let last = 0;
+    for (let t = 1; t <= most; t += t < 60 ? 1 : 3) {
+      p.copy(from).addScaledVector(dir, t);
+      if (p.y < ground(p.x, p.z)) {
+        let a = last, b = t;
+        for (let k = 0; k < 10; k++) { const m = (a + b) / 2; p.copy(from).addScaledVector(dir, m); if (p.y < ground(p.x, p.z)) b = m; else a = m; }
+        return (a + b) / 2;
+      }
+      last = t;
+    }
+    return Infinity;
+  };
+  /** Snow thrown up where a round strikes, or about an orc as it falls. */
+  const burst = (p: Vector3, puffs: number, grains: number) => {
+    for (let i = 0; i < puffs; i++) throwPuff(p.clone().addScaledVector(UP, 0.05), new Vector3(gunRng.range(-1, 1), gunRng.range(0.8, 2.2), gunRng.range(-1, 1)), 0.6);
+    for (let i = 0; i < grains; i++) throwGrain(p.clone().addScaledVector(UP, 0.05), new Vector3(gunRng.range(-1.5, 1.5), gunRng.range(1.5, 4), gunRng.range(-1.5, 1.5)));
+  };
+  /** A round fired from the muzzle as the gun points, a little astray: a tracer to where it strikes, and there an orc falls or the snow flies. */
+  const shoot = () => {
+    gun.updateMatrixWorld(true);
+    const from = gun.localToWorld(MUZZLE.clone()), dir = new Vector3(0, 0, 1).transformDirection(gun.matrixWorld);
+    dir.add(new Vector3(gunRng.range(-0.012, 0.012), gunRng.range(-0.012, 0.012), gunRng.range(-0.012, 0.012))).normalize();
+    const snowAt = snowAlong(from, dir, 400), met = horde.hit(from, dir, Math.min(snowAt, 400));
+    if (met) {
+      const orc = met.orc;
+      gunfire.fire(from, dir, met.t, () => {
+        const at = horde.middle(orc);
+        if (horde.fall(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6))) gunSound.grunt();
+        burst(at, 3, 10);
+      });
+    } else gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : 400, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
+    gunSound.shot();
+    kick = 1;
+  };
+  clearGun = () => { horde.clear(); gunfire.clear(); splatter.clear(); };
+  /** Where the orc hunt's demo run had got to last frame: gone back, or on by more than a moment (the timeline dragged), begun anew. */
+  let huntAt = 0;
+  /**
+   * The gun a frame on (`dt`, the page's own; nothing goes on while riding is held, or the demo run is paused), the skier where `now`
+   * says: put in the hands of whoever carries it, aimed; fired while the button is held; its rounds flown; the orcs come on. Put away,
+   * and its orcs with it, when it is not carried. Watching the orc hunt, aimed and fired for the rider: at the nearest orc ahead that can
+   * be seen from the muzzle, within a hundred metres, for as long as there is one.
+   */
+  const armUp = (dt: number, now: Now) => {
+    const on = armed(), human = who === 'person' ? live : who === 'mounted' ? jockey : null, watching = mode === 'watch';
+    document.body.classList.toggle('gun', on);
+    for (const [w, poles] of poleSets) for (const p of poles) p.visible = !(on && w === who);
+    $('tally').hidden = !on;
+    if (!on || !human) {
+      if (gun.visible || horde.about) { gun.visible = false; clearGun!(); }
+      firing = false;
+      return;
+    }
+    if (watching && (t < huntAt - 0.01 || t > huntAt + 1)) clearGun!();
+    huntAt = t;
+    const going = watching ? (playing && !scrubbing ? dt * rate : 0) : playing && !menuOpen ? dt : 0, holder = human.model.parent;
+    if (!holder) return;
+    if (gun.parent !== holder) holder.add(gun);
+    gun.visible = true;
+    const muzzle = gun.localToWorld(MUZZLE.clone()), go = along(now.way, here);
+    // In the air (or thrown, or in a turn of the whole body on the snow), the gun in the right hand alone, unfired.
+    const frame = watching ? demo.frames[Math.min(demo.frames.length - 1, Math.round(t / STEP))] : null;
+    const holding = watching ? !!frame && !frame.air && Math.abs((frame.c as RideControls).spin ?? 0) < 0.3 : !air && !crash && !ride.turn180;
+    let target: Vector3;
+    if (watching) {
+      // The nearest orc ahead to be seen from the muzzle; none, the gun held on the snow some way ahead, and not fired.
+      let best: Vector3 | null = null, most = 100;
+      for (const p of horde.where()) {
+        const at = p.clone().setY(p.y + 0.75), d = at.clone().sub(muzzle), far = d.length();
+        if (far < 8 || far > most || (d.x * go.x + d.z * go.z) / far < 0.35) continue;
+        if (snowAlong(muzzle, d.clone().normalize(), far) < far - 1) continue;
+        best = at; most = far;
+      }
+      target = best ?? rider.position.clone().addScaledVector(go, 30).setY(ground(rider.position.x + go.x * 30, rider.position.z + go.z * 30));
+      firing = !!best;
+    } else {
+      // What the guide's mark is over: the first orc or the snow along the line from the eye through it.
+      const reach = aimReach(), x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
+      ray.setFromCamera(ndc.set((x * reach) / (innerWidth / 2), (y * reach) / (innerHeight / 2)), camera);
+      const eye = ray.ray.origin, look = ray.ray.direction;
+      let far = Math.min(600, snowAlong(eye, look, 600));
+      const met = horde.hit(eye, look, far);
+      if (met) far = met.t;
+      target = eye.clone().addScaledVector(look, far);
+      if (target.distanceTo(muzzle) < 3) target = muzzle.clone().addScaledVector(look, 30);
+    }
+    // The gun turned to it from the muzzle, as far round as the arms let it (in the frame of what holds the human: a skier's own, a
+    // horse's saddle's).
+    const d = target.sub(muzzle).normalize().applyQuaternion(holder.getWorldQuaternion(new Quaternion()).invert());
+    const yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
+    d.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    const held = human.hold(holding ? d : null, FORE_GRIP);
+    gun.position.copy(held.grip).addScaledVector(held.dir, -0.02 * kick);
+    gun.quaternion.setFromRotationMatrix(toLook.lookAt(held.dir, ZERO, Y)).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.09 * kick));
+    // Fired while the button is held (or an orc is in its sights, watching), on the snow; the first round as it is pressed.
+    if (firing && holding && going > 0) for (shotClock += going; shotClock >= SHOT; shotClock -= SHOT) shoot();
+    kick *= Math.exp(-dt * 18);
+    gunfire.step(going, camera.quaternion);
+    splatter.step(going);
+    const v = !watching && air ? air.v.clone() : go.clone().multiplyScalar(now.speed);
+    horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
+    $('orcs').textContent = String(horde.downed);
   };
 
   // The view, following the skier. It keeps pace with the skier exactly down the slope, and eases only what the view does about it: how
@@ -2241,6 +2441,7 @@ async function start() {
   const keptBlur = kept('blur');
   setBlur(query.has('blur') || keptBlur === null ? blurLevel : Number(keptBlur));
   setDistance(Number(kept('distance') ?? 1) || 1);
+  setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
   // (Closed unless asked for, `?menus=1`: asked, "make the cinematic camera and hide menus enabled as default".)
   setMenu(query.get('menus') === '1');
 
@@ -2313,6 +2514,7 @@ async function start() {
 
   let then = performance.now(), benching = false, drawnFrames = 0;
   const fixedDt = Number(query.get('dt')) || 0;
+  let afterFrame: (() => void) | null = null;
   const frame = async () => {
     if (benching) { requestAnimationFrame(frame); return; }
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
@@ -2359,6 +2561,8 @@ async function start() {
         if (again !== null) { again -= dt; if (again <= 0) restart(); }
       }
     }
+    // (The tommy gun in the hands of whoever carries it, after the pose it was put in, and fired; or put away.)
+    armUp(dt, at);
     {
       const showing = mode === 'ride' && again !== null, box = $('countdown');
       if (box.hidden === showing) box.hidden = !showing;
@@ -2381,6 +2585,8 @@ async function start() {
       uFocus.value = Math.max(3, camera.position.distanceTo(rider.position));
       pipeline.render();
     } else sharp.render();
+    // (For a script making a video a frame at a time: told once each frame is drawn, `__slope.everyFrame`.)
+    afterFrame?.();
     requestAnimationFrame(frame);
   };
   const __look = (off: Vector3) => { view = 'free'; controls.enabled = true; const at = focus(); camera.position.copy(at).add(off); controls.target.copy(at).addScaledVector(UP, 0.9); controls.update(); lastRider.copy(at); placed = true; };
@@ -2455,6 +2661,15 @@ async function start() {
     // (The views' distance from the skier, as the *Distance* slider sets it.)
     distance: (d: number) => setDistance(d),
     restart, time: () => t, ready: true,
+    // (Which demo run is watched: the orc hunt, or the tricks'.)
+    hunt: (on: boolean) => { setDemoKind(on ? 'orcs' : 'tricks'); },
+    // (For a video made a frame at a time: told of each round and cry as it is made, their sound made afterwards, and told once each
+    // frame is drawn, with `?dt=` set; none, with nothing.)
+    heard: (fn: ((kind: Heard) => void) | null) => { gunSound.heard = fn; },
+    soundOf: (events: { kind: Heard; at: number }[], seconds: number) => gunSound.render(events, seconds),
+    everyFrame: (fn: (() => void) | null) => { afterFrame = fn; },
+    // (With the tommy gun: how many orcs are about, and how many have been brought down.)
+    orcs: () => ({ about: horde.about, downed: horde.downed, coming: horde.where().map((p) => { const s = p.clone().setY(p.y + 0.4).project(camera); return { at: p.toArray().map((v) => +v.toFixed(1)), screen: [+s.x.toFixed(3), +s.y.toFixed(3)] }; }) }),
     // (The game's own trees on the land about the run, where it has them: where each stands, what it is, how tall.)
     trees: () => (land.group.getObjectByName('woods')?.userData.trees ?? []) as { x: number; z: number; kind: string; tall: number }[],
     // (How long each stage of opening took, in milliseconds.)

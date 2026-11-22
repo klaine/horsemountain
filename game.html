@@ -230,6 +230,11 @@
     #where .hint { display: none; max-width: 34ch; color: var(--ink-dim); font-size: 12px; margin-top: 2px; }
     /* (Told for what is being used: a mouse or a touchpad, or a finger on the stick.) */
     body.mouse #where .hint .by-touch, body:not(.mouse) #where .hint .by-mouse { display: none; }
+    /* (Carrying the tommy gun, its own: the button fires it.) */
+    body.gun #where .hint .by-mouse, body:not(.gun) #where .hint .by-gun { display: none; }
+    /* (The orc hunt, the second demo run, only where the tommy gun is: on a computer.) */
+    body:not(.mouse) #orcHunt, body:not(.mouse) #orcsField { display: none; }
+    #tally b { color: #9fd45a; }
     body.riding #where .hint { display: block; }
     /* (Out of the way while a landing or a fall is told over the picture: on a phone the two would lie over each other.) */
     body.riding.telling #where .hint { display: none; }
@@ -277,8 +282,8 @@
   <div id="where" aria-live="polite">
     <div class="name" id="name">Downhill run</div>
     <div class="part" id="part">Long, wide turns</div>
-    <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span></div>
-    <div class="hint"><span class="by-touch">The stick at the lower left steers: aside to turn, up to tuck, down to stand straight. Line up on a kicker and a trick is done for you, milder or wilder by the slider at the lower right; under it, To switch turns you round.</span><span class="by-mouse">Point to steer: to either side of the middle to turn, out at the edges to skid; above it to tuck, below to stand straight. Hold the button to brake; right-click (or tap with two fingers) to turn round to switch. Line up on a kicker and a trick is done for you, milder or wilder by the slider at the lower right.</span></div>
+    <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span><span id="tally" hidden><b id="orcs">0</b> orcs down</span></div>
+    <div class="hint"><span class="by-touch">The stick at the lower left steers: aside to turn, up to tuck, down to stand straight. Line up on a kicker and a trick is done for you, milder or wilder by the slider at the lower right; under it, To switch turns you round.</span><span class="by-mouse">Point to steer: to either side of the middle to turn, out at the edges to skid; above it to tuck, below to stand straight. Hold the button to brake; right-click (or tap with two fingers) to turn round to switch. Line up on a kicker and a trick is done for you, milder or wilder by the slider at the lower right.</span><span class="by-gun">Orcs are coming up the slope. Point to steer and aim: to either side of the middle to turn, above it to tuck, below to stand straight; the tommy gun fires at the mark. Hold the button to fire; Shift brakes; right-click (or tap with two fingers) to turn round.</span></div>
   </div>
   <button id="menuButton" type="button" aria-expanded="false" aria-controls="menu" title="Menu (H)"><span class="bars" aria-hidden="true"></span>Menu</button>
   <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
@@ -300,6 +305,7 @@
     <div class="scroll">
       <h2>Play</h2>
       <div class="seg big" id="modes"></div>
+      <div class="field" id="orcsField"><span class="label">Orcs &amp; tommy gun</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and the tommy gun"></div></div>
       <div id="playback">
         <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
         <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
@@ -317,7 +323,7 @@
       <div class="field" id="snows"><span class="label">Snow</span><div class="seg" role="group" aria-label="Snow"></div></div>
       <div class="field"><span class="label">Resolution</span><div class="seg" id="resolutions" role="group" aria-label="Resolution"></div></div>
       <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
-      <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views. Riding: point to steer, hold the button to brake, right-click (a two-finger tap) to turn round, scroll or pinch to come nearer or go further off, click to start again; or the arrows steer, <kbd>Shift</kbd> brakes, <kbd>X</kbd> turns round, <kbd>Enter</kbd> starts again.</p>
+      <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>O</kbd> the orc hunt · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views. Riding: point to steer, hold the button to brake, right-click (a two-finger tap) to turn round, scroll or pinch to come nearer or go further off, click to start again; carrying the tommy gun (the skier alone, or the horse's rider), the button fires it at the mark and <kbd>Shift</kbd> brakes; or the arrows steer, <kbd>Shift</kbd> brakes, <kbd>X</kbd> turns round, <kbd>Enter</kbd> starts again.</p>
     </div>
   </div>
   <div id="status" class="waiting" role="progressbar" aria-label="Loading Grand Horse Mountain" aria-valuemin="0" aria-valuemax="100">

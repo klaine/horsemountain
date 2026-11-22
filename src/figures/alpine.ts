@@ -767,6 +767,24 @@ export class Rider {
     P.reachArm(hand, now.lerp(onSki, w), elbow.normalize());
   }
   /**
+   * A gun in both hands, after the pose it is in, aimed along `dir` (in the frame of what holds it): its grip in the right fist, low
+   * at the right side of the chest and a little ahead, the left hand on its fore grip along the barrel, the elbows down. Without `dir`,
+   * held in the right hand alone as the pose has the arm, along the forearm (in the air, gone limp). Gives back where the grip is and
+   * which way the gun points, in the frame of what holds it, to put the gun there.
+   */
+  hold(dir: Vector3 | null, fore = 0.3): { grip: Vector3; dir: Vector3 } {
+    return this.alone(() => {
+      const P = this.P;
+      if (!dir) { const hand = P.at('hand_r'); return { grip: hand, dir: hand.clone().sub(P.at('lowerarm_r')).normalize() }; }
+      const d = dir.clone().normalize(), shoulder = P.at('upperarm_r'), chest = P.at('spine_03');
+      // (Under the right shoulder, between it and the chest's middle, and a little ahead along the aim.)
+      const grip = shoulder.clone().lerp(chest, 0.25).add(new Vector3(0, -0.26, 0)).addScaledVector(d, 0.2);
+      P.reachArm('r', grip, new Vector3(-0.45, -0.85, -0.2).normalize());
+      P.reachArm('l', grip.clone().addScaledVector(d, fore), new Vector3(0.45, -0.85, 0).normalize());
+      return { grip, dir: d };
+    });
+  }
+  /**
    * Gone limp: its skeleton put through joints placed in the frame of what holds it (`Poser.poseJoints`), as a ragdoll has them
    * (`ragdoll.ts`).
    */
