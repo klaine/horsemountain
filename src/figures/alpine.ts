@@ -479,6 +479,17 @@ export function lifeAt(t: number): { breath: number; look: number; shift: number
 export function riderPose(h0: number, c: RideControls): AlpinePose {
   const { s, ski, tuck, brake, tall } = c, skid = c.skid ?? 0;
   const a = carvePose(h0, s, ski, -rad(32) * s * (1 - 0.4 * skid) - rad(48) * brake, c.flickL, c.flickR);
+  // Carving deep (asked: "make the maximum carving angles larger"): out past six tenths of the turns' lean, the skis swung further out
+  // from under the body and higher on their edges, the hips let down towards the snow and the inside hip dropped, as a racer's are in
+  // the tightest carves, the chest kept more upright over the outside ski. (Not in the turns' own pose, `turnsPose`, which sets how
+  // high the hips ride.)
+  const deep = Math.sign(s) * Math.max(0, Math.abs(s) - 0.6) * (1 - skid);
+  if (deep) {
+    a.hips -= 0.14 * Math.abs(deep);
+    a.pelvisRoll -= rad(12) * deep;
+    a.chestRoll += rad(5) * deep;
+    both(a, (_k, _arm, f) => { f.x -= 0.2 * deep; f.edge -= rad(22) * deep; });
+  }
   // Skidding a turn: a little lower and back, the feet pushed ahead to drive the tails round, the arms out for balance.
   if (skid) {
     a.hips -= 0.04 * skid;

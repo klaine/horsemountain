@@ -520,8 +520,12 @@ export function horseRidePose(c: RideControls): HorsePose {
   a.neck = rad(8);
   a.head = rad(6);
   a.tail = 0.15 + 0.1 * Math.abs(s);
-  const edge = -rad(28) * s * (1 - 0.4 * skid) - rad(22) * brake;
-  for (const k of ['l', 'r'] as const) a.skis[k] = { x: -0.08 * s, z: 0, up: 0, yaw: ski, pitch: 0, edge };
+  // Carving deep (asked: "make the maximum carving angles larger"): out past six tenths of the turns' lean, laid further in over skis
+  // further out from under it and higher on their edges, lower, as a skier is (`riderPose`).
+  const deep = Math.sign(s) * Math.max(0, Math.abs(s) - 0.6) * (1 - skid);
+  a.height -= 0.12 * Math.abs(deep); a.bodyX += 0.16 * deep; a.roll -= rad(18) * deep;
+  const edge = -rad(28) * s * (1 - 0.4 * skid) - rad(22) * deep - rad(22) * brake;
+  for (const k of ['l', 'r'] as const) a.skis[k] = { x: -0.08 * s - 0.1 * deep, z: 0, up: 0, yaw: ski, pitch: 0, edge };
   a.head += rad(14) * nod; a.neck += rad(6) * nod;
   // The tuck.
   a.height -= 0.26 * tuck; a.pitch += rad(4) * tuck; a.neck += rad(46) * tuck; a.head -= rad(30) * tuck; a.ears += tuck; a.tail += 0.7 * tuck;

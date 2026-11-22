@@ -145,8 +145,8 @@
     #stick { position: fixed; left: var(--gutter-l); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); z-index: 2; width: 132px; height: 132px; touch-action: none; }
     #stick .base { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle, rgba(11, 10, 9, .25), rgba(11, 10, 9, .55));
       border: 1.5px solid var(--edge); box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
-      /* (Out past 0.72 of the way to either side, where a turn is skidded rather than carved.) */
-      background-image: linear-gradient(to right, var(--skid) 0 14%, transparent 14% 86%, var(--skid) 86%), radial-gradient(circle, rgba(11, 10, 9, .25), rgba(11, 10, 9, .55)); }
+      /* (Out past 0.8 of the way to either side, where a turn is skidded rather than carved.) */
+      background-image: linear-gradient(to right, var(--skid) 0 10%, transparent 10% 90%, var(--skid) 90%), radial-gradient(circle, rgba(11, 10, 9, .25), rgba(11, 10, 9, .55)); }
     #stick .knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: var(--brass);
       border: 2px solid var(--on-brass); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); pointer-events: none; }
     #stick .say { position: absolute; left: 50%; transform: translateX(-50%); font: 600 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--ink);
@@ -167,7 +167,7 @@
       transform: translate(-50%, -50%); pointer-events: none; --line: rgba(18, 22, 30, .3); }
     body.riding.mouse:not(.menu-open) #aim { display: block; }
     #aim.fallen { display: none !important; }
-    #aim .skid { position: absolute; top: 12%; bottom: 12%; width: 14%; border-style: solid; border-color: var(--line); border-width: 0;
+    #aim .skid { position: absolute; top: 12%; bottom: 12%; width: 10%; border-style: solid; border-color: var(--line); border-width: 0;
       background: linear-gradient(to bottom, transparent, var(--skid) 30% 70%, transparent); }
     #aim .skid.l { left: 0; border-right-width: 1px; }
     #aim .skid.r { right: 0; border-left-width: 1px; }

@@ -53,6 +53,7 @@ import { putOn } from '../src/figures/gear';
 import { type AirControls, type RideControls, Rider } from '../src/figures/alpine';
 import { type BodySpec, type Ground, HUMAN, humanSpec, JOINTS, Ragdoll } from '../src/figures/ragdoll';
 import { Horse, horseAirPose, horseRidePose, type HorseSkis, saddlePose } from '../src/figures/horse';
+import { horseCoatMaterial } from '../src/figures/horseCoat';
 import { Rng } from '../src/core/rng';
 import { readSlice } from '../src/core/skiSlice';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
@@ -629,6 +630,15 @@ async function start() {
       skis: () => horse.skiMiddles(), bodies: () => [horseBody, jockeyBody],
     },
   };
+  // The horse's coat as hair on a computer (`horseCoat.ts`), with the same edge light; its plain coat on a phone or a tablet, where the
+  // horse is drawn in fewer points and each costs more. (`?coat=hair` or `?coat=plain`, either anywhere.)
+  const coatAsked = query.get('coat');
+  if (coatAsked ? coatAsked !== 'plain' : matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    const coat = horseCoatMaterial();
+    coat.emissiveNode = rimLight;
+    rimmed.set(coat, coat);
+    horse.mesh.material = coat;
+  }
   for (const o of [model, horse.model, jockey.model]) rimAll(o);
   // (The horse and its rider unless another is asked for (asked: "also make the horse & rider the default mode"): `?skier=person` or
   // `?skier=horse`.)
@@ -860,7 +870,15 @@ async function start() {
   const aim = { x: 0, y: 0, on: false, brake: false };
   const FLICK = 0.3;
   /** Where across the range a turn begins to skid (it skids wholly at its end), and how far the skis are pivoted across the way then. */
-  const SKID_FROM = 0.72, SKID_TURN = deg(38);
+  const SKID_FROM = 0.8, SKID_TURN = deg(38);
+  /**
+   * How hard a turn is held at `x` across the range (asked: "make the maximum carving angles larger"): as far as it is pushed, and out
+   * past `CARVE_DEEP` twice as fast, up to where it skids, so that the deepest carve, higher on its edges, comes round more than a
+   * quarter tighter than it did. (Short of `CARVE_DEEP` as it was, where the demo run's pilot carves between the kickers; only the
+   * hard turn it sets a big spin off with on a ramp's last metres is carved harder and skidded less.)
+   */
+  const CARVE_DEEP = 0.68;
+  const carveOf = (x: number) => x + Math.sign(x) * clamp(Math.abs(x) - CARVE_DEEP, 0, SKID_FROM - CARVE_DEEP);
   /** How long from now until something at `p` going at `v` comes down onto the snow, its weight bringing it down as it goes. */
   const timeToSnow = (p: Vector3, v: Vector3) => {
     const q = p.clone(), w = v.clone(), dt = 1 / 60;
@@ -1188,7 +1206,7 @@ async function start() {
     // go, their tails sliding out, so that the turn comes round quicker than a carve can, flatter on the snow and less leant, scraping
     // and throwing snow and losing speed as it does.
     ride.skid += (smooth((Math.abs(ask.x) - SKID_FROM) / (0.97 - SKID_FROM)) * (1 - ride.brake) - ride.skid) * ease(dt, 5);
-    const turning = -ask.x * clamp(ride.speed / 9, 0.5, 1.2) * (1 - 0.35 * ride.tuck) * (1 - ride.brake) * (1 + 0.6 * ride.skid);
+    const turning = -carveOf(ask.x) * clamp(ride.speed / 9, 0.5, 1.2) * (1 - 0.35 * ride.tuck) * (1 - ride.brake) * (1 + 0.6 * ride.skid);
     const pivot = Math.sign(turning) * SKID_TURN * ride.skid;
     ride.way = clamp(ride.way + turning * dt, -1.9, 1.9);
     // The skiable path's edges, marked by its poles: turned back towards its middle near them (the nearer, the narrower the path), and
@@ -1231,8 +1249,9 @@ async function start() {
     keepOn();
     ride.y = ground(ride.x, ride.z);
     ride.out = bumpAt(ride.x, ride.z);
-    // The lean into the turn that speed and turning ask, as `makeDownhillRun` reckons it; and the inside pole flicked as a turn begins.
-    const lean = clamp(Math.atan((ride.speed * turning) / G) / ((48 * Math.PI) / 180), -1.3, 1.3) * (1 - ride.brake) * (1 - 0.4 * ride.skid);
+    // The lean into the turn that speed and turning ask, as `makeDownhillRun` reckons it (up to half as far again as the turns' own,
+    // where the deepest carves lie: `riderPose`, `horseRidePose`); and the inside pole flicked as a turn begins.
+    const lean = clamp(Math.atan((ride.speed * turning) / G) / ((48 * Math.PI) / 180), -1.5, 1.5) * (1 - ride.brake) * (1 - 0.4 * ride.skid);
     ride.lean += (lean - ride.lean) * ease(dt, 10);
     const side = Math.abs(ride.lean) > 0.2 ? Math.sign(ride.lean) : 0;
     if (side && side !== ride.leanSide) { if (side > 0) ride.flickL = FLICK; else ride.flickR = FLICK; }
@@ -1817,7 +1836,7 @@ async function start() {
   line.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { t = clamp(t + (e.key === 'ArrowRight' ? 1 : -1), 0, demo.length - 0.01); clearSpray(); e.preventDefault(); } });
 
   // Riding by the stick at the lower left, under the thumb: where it is held against its middle, as far as its rim; to either side
-  // turning, carved, and out past seven tenths of the way skidded; up tucked, down standing straight. Let go of, it springs back to its
+  // turning, carved, and out past eight tenths of the way skidded; up tucked, down standing straight. Let go of, it springs back to its
   // middle, and the skier eases back to its plain stance, going straight. (By mouse too, dragged.)
   const stickEl = $('stick'), knob = stickEl.querySelector('.knob') as HTMLElement;
   let stickHeld: number | null = null;
@@ -1855,7 +1874,7 @@ async function start() {
   // Riding by mouse or touchpad (asked: "make better controls for desktop/laptop users, current is for touch screens. Mouse / touchpad
   // control should be enough?"): the pointer steers from wherever it is over the picture, with no button held, so that a finger
   // gliding on a touchpad is enough; where it is against the middle of the picture, where the views keep the skier, is where the
-  // thumb would hold the stick against its middle, out to `aimReach` either way: to either side turning, carved, and out past seven
+  // thumb would hold the stick against its middle, out to `aimReach` either way: to either side turning, carved, and out past eight
   // tenths of the way skidded; above tucked, below standing straight; any of them together, and past the reach as far as it goes. A
   // guide drawn about the skier shows how far that is, where a turn skids, and the mark the pointer has become. The button held down
   // brakes (as Shift does); a right click, a tap with two fingers on a touchpad, turns round to switch (X); a click once a run is over
