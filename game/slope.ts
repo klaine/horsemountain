@@ -1416,8 +1416,13 @@ async function start() {
     placeHandy();
   };
   $('play').onclick = () => { playing = !playing; reflect(); };
-  // (Free: the view turned about the skier by hand, and carried along with it; only watching, as riding the pointer steers.)
-  const setView = (v: View) => { view = mode === 'ride' && v === 'free' ? 'behind' : v; controls.enabled = view === 'free'; camera.up.set(0, 1, 0); placed = false; reflect(); };
+  // (Free: the view turned about the skier by hand, and carried along with it; only watching, as riding the stick steers.)
+  const setView = (v: View) => { view = mode === 'ride' && v === 'free' ? 'behind' : v; viewFor[mode] = view; controls.enabled = view === 'free'; camera.up.set(0, 1, 0); placed = false; reflect(); };
+  /**
+   * The view each mode was last left in, taken up again on coming back to it: watching, the cinematic view to begin with; riding,
+   * from behind (asked: "make behind view default for player controlled runs"), where the rider sees the way ahead it steers on.
+   */
+  const viewFor: Record<Mode, View> = { watch: 'cinema', ride: 'behind' };
   const setMode = (m: Mode) => {
     // (Any mode chosen otherwise answers the opening's question.)
     $('choose').hidden = true; $('intro').hidden = true;
@@ -1449,7 +1454,7 @@ async function start() {
     // (Back to watching: the demo run for the skier there is now, flown if a new skier was chosen while riding.)
     if (m === 'watch') { seat(); void useDemo(); }
     clearSpray();
-    setView(view);
+    setView(viewFor[m]);
     placed = false;
   };
   /**
@@ -1813,6 +1818,8 @@ async function start() {
   fit();
   // (The cinematic view unless another is asked for, `?view=behind`, `beside` or `above`.)
   setView(views.find(([, v]) => v === query.get('view'))?.[1] ?? 'cinema');
+  // (Riding, from behind, unless asked otherwise, `?rideView=cinema` or another.)
+  viewFor.ride = views.find(([, v]) => v === query.get('rideView') && v !== 'free')?.[1] ?? 'behind';
   showKickers(true);
   wildInput.value = kept('wild') ?? '0.5';
   await useDemo();

@@ -9,7 +9,7 @@ It opens on its title over the demo run, and asks: *Watch demo run*, or *Send it
   trick off each (a 720, a backflip, a backflip 360, a ski jumper's flight, a cork 540 that lands it switch, a switch 540 that brings
   it round again, a superman whip), with turns on the snow to switch and back on the way to the foot; filmed by a cinematic camera
   that cuts from shot to shot, cameras set down by each kicker for its jump.
-- **Riding it yourself**: the stick at the lower left steers, to either side to turn (carved, or skidded out at its rim), up to tuck,
+- **Riding it yourself**, seen from behind: the stick at the lower left steers, to either side to turn (carved, or skidded out at its rim), up to tuck,
   down to stand straight; the arrow keys too, and Shift to brake. You make no tricks: line up on a kicker and one is done for you,
   chosen at random among those that should come round in the time that jump will keep you in the air at your speed, milder or wilder as
   the *Mild*–*Wild* slider at the lower right says. Under it, *To switch* (or *To regular*, `X`) turns you round on the snow, each time
@@ -19,11 +19,11 @@ It opens on its title over the demo run, and asks: *Watch demo run*, or *Send it
 *Show menus* (or `H`), at the top right, shows the rest: who goes down (the horse with its rider, the horse alone, or a person on
 skis, an adventurer with a sword on its back), the horse's skis (two long, or four short), the slope (the run down the mountain, or a
 groomed slope going on for ever), the snow (the game's materials, or plain), the view (*Cinema*, behind, beside, above, or turned by
-hand; `C`, `B`, `S`, `A`, `F`) and its distance, the blur, and how finely the picture is drawn. `R` switches between watching and
+hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and riding from behind, and each keeps the one it was last left in) and its distance, the blur, and how finely the picture is drawn. `R` switches between watching and
 riding; `Space` pauses the demo; its timeline names its parts and can be dragged along.
 
 In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `?land=groomed`, `?snow=plain`,
-`?view=behind` (or `beside`, `above`), `?menus=1`, `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
+`?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1`, `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
 frames come), `?webgl` (WebGL 2 rather than WebGPU).
 
 ## Working on it
