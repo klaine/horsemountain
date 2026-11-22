@@ -1,0 +1,17 @@
+{
+  "name": "horsemountain",
+  "version": "1.0.0",
+  "description": "Grand Horse Mountain: a horse and its rider, or a skier, down a run on a winter mountain, watched or ridden",
+  "scripts": {
+    "dev": "vite --open /game.html",
+    "build": "node tools/build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": { "type": "git", "url": "git+https://github.com/klaine/horsemountain.git" },
+  "homepage": "https://horsemountain.klaine.net",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "dependencies": { "three": "^0.187.0" },
+  "devDependencies": { "@types/three": "^0.187.0", "typescript": "^7.0.2", "vite": "^8.3.8" }
+}

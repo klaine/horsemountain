@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Grand Horse Mountain</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Cormorant+Garamond:ital,wght@1,600&display=swap" />
+  <meta name="claude:viewport-fit-sides" content="cover" />
+  <style>
+    /* A run down a world's mountainside or a groomed slope, watched or ridden: the picture fills the screen; what the skier is doing and how fast at the top left, the run's
+       parts as a timeline along the foot with the controls over it. The labs' own dark sheet and brass, over bright snow, in both themes:
+       a tool's single look, set explicitly. */
+    :root {
+      color-scheme: dark;
+      --ground: #0b0a09;
+      --sheet: rgba(11, 10, 9, .78);
+      --chip: rgba(11, 10, 9, .6);
+      --band: rgba(232, 226, 214, .12);
+      --band-strong: rgba(232, 226, 214, .22);
+      --ink: #e8e2d6;
+      --ink-dim: rgba(232, 226, 214, .62);
+      --rule: rgba(232, 226, 214, .2);
+      --edge: rgba(232, 226, 214, .42);
+      --brass: #e0b070;
+      --brass-wash: rgba(224, 176, 112, .3);
+      --warn: #e07050;
+      --on-brass: #1a1408;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --serif: ui-serif, Georgia, "Times New Roman", serif;
+      --ring: rgba(255, 255, 255, .85);
+      --ring-shade: rgba(20, 30, 45, .25);
+      --skid: rgba(224, 176, 112, .2);
+      --hit: 28px;
+      --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+      --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+    }
+    @media (pointer: coarse) { :root { --hit: 34px; } }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    [hidden] { display: none !important; }
+    body { background: var(--ground); color: var(--ink); font: 13px/1.45 var(--sans); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    #view { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+
+    #where { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: var(--gutter-l); display: grid; gap: 2px; padding: 10px 14px 11px;
+      background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; min-width: 0; max-width: calc(100vw - 32px); box-sizing: border-box; }
+    #where .name { font: 600 11px/1.2 var(--serif); letter-spacing: .14em; text-transform: uppercase; color: var(--brass); }
+    #where .part { font: 600 20px/1.2 var(--sans); color: var(--ink); text-wrap: balance; }
+    #where .numbers { display: flex; gap: 14px; flex-wrap: wrap; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+    #where .numbers b { color: var(--ink); font-weight: 600; }
+
+    #foot { position: fixed; left: 0; right: 0; bottom: 0; display: grid; gap: 8px;
+      padding: 10px var(--gutter-r) calc(12px + env(safe-area-inset-bottom, 0px)) var(--gutter-l);
+      background: linear-gradient(to top, var(--sheet) 60%, transparent); }
+    #controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+    .group { display: flex; gap: 4px; align-items: center; }
+    .group .label { font: 600 10px/1 var(--serif); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-dim); margin-right: 4px; }
+    button { font: inherit; color: var(--ink); background: var(--chip); border: 1px solid var(--edge); border-radius: 3px; padding: 2px 10px; min-height: var(--hit); cursor: pointer; touch-action: manipulation; }
+    button:hover { border-color: var(--brass); }
+    button:focus-visible, #line:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+    button.on { background: var(--brass); color: var(--on-brass); border-color: var(--brass); }
+    #play { min-width: 74px; font-weight: 600; }
+
+    #line { position: relative; height: 40px; border-radius: 3px; overflow: hidden; background: var(--chip); border: 1px solid var(--rule); cursor: pointer; touch-action: none; }
+    #line .band { position: absolute; top: 0; bottom: 0; border-right: 1px solid var(--rule); background: var(--band); display: flex; align-items: center; padding: 0 6px; box-sizing: border-box; min-width: 0; }
+    #line .band.now { background: var(--brass-wash); }
+    #line .band span { font-size: 11px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #line .band.now span { color: var(--ink); }
+    #line .head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--brass); pointer-events: none; }
+    #line .ticks { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; pointer-events: none;
+      background-image: repeating-linear-gradient(to right, var(--band-strong) 0 1px, transparent 1px calc(100% / var(--ticks, 9))); }
+    @media (max-width: 640px) { #line .band span { display: none; } #where .part { font-size: 17px; } .group .label { display: none; }
+      /* (On a phone, the hint goes once it has been ridden a while: it covers too much of the picture.) */
+      body.riding.hinted #where .hint { display: none; } }
+
+    /* Riding (asked: "lets simplify controls so that bottom left has thumb control for steering and tucked/straight on one control (doesnt
+       control the tricks), then on bottom right there is a slider that goes from Mild -> Wild ... below that we have the switch stance
+       button"): a stick for the thumb at the lower left; at the lower right how wild the tricks are, and the stance. Lifted over the foot
+       while the menus are shown (--lift, set from the script). */
+    #stick { position: fixed; left: var(--gutter-l); bottom: calc(30px + var(--lift, 0px) + env(safe-area-inset-bottom, 0px)); z-index: 2; width: 132px; height: 132px; touch-action: none; }
+    #stick .base { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle, rgba(11, 10, 9, .25), rgba(11, 10, 9, .55));
+      border: 1.5px solid var(--edge); box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
+      /* (Out past 0.72 of the way to either side, where a turn is skidded rather than carved.) */
+      background-image: linear-gradient(to right, var(--skid) 0 14%, transparent 14% 86%, var(--skid) 86%), radial-gradient(circle, rgba(11, 10, 9, .25), rgba(11, 10, 9, .55)); }
+    #stick .knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: var(--brass);
+      border: 2px solid var(--on-brass); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); pointer-events: none; }
+    #stick .say { position: absolute; left: 50%; transform: translateX(-50%); font: 600 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--ink);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, .6); pointer-events: none; }
+    #stick .up { top: -16px; }
+    #stick .down { bottom: -16px; }
+    #tricky { position: fixed; right: var(--gutter-r); bottom: calc(30px + var(--lift, 0px) + env(safe-area-inset-bottom, 0px)); z-index: 2; display: grid; gap: 8px; justify-items: stretch;
+      padding: 10px 12px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; width: min(230px, calc(100vw - 132px - 64px)); box-sizing: border-box; }
+    #tricky .wild { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
+    #tricky .wild span { font: 600 10px/1 var(--serif); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); }
+    #tricky input { width: 100%; min-width: 0; accent-color: var(--brass); min-height: var(--hit); margin: 0; }
+    #stance { font-weight: 700; min-height: 40px; }
+
+    /* A run over: a fall, or the foot of the run, and a new one counted down over the picture. */
+    /* (Under what is told of the run's end, clear of it.) */
+    #countdown { position: fixed; left: 50%; top: calc(16% + 96px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 3; text-align: center; pointer-events: none;
+      padding: 12px 26px 14px; background: var(--sheet); border: 1px solid var(--brass); border-radius: 6px; }
+    #countdown .small { display: block; font: 600 11px/1.2 var(--serif); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); }
+    #countdown b { display: block; font: 900 46px/1.05 "Cinzel", var(--serif); color: var(--brass); font-variant-numeric: tabular-nums; }
+
+    /* The opening (asked: "Game opening shows a brief grand title: HORSE / Mountain ... the demo runs on the background and after the
+       title a dialog show decision"; then: "the opening title should be "Grand Horse Mountain" with the Grand Horse on first line and
+       Mountain on second row"): the title rising out of the snow and going, then the choice. (Its first line sized to stay one line
+       across a phone.) */
+    #intro { position: fixed; inset: 0; z-index: 4; display: grid; place-items: center; pointer-events: none;
+      background: radial-gradient(ellipse at 50% 45%, rgba(11, 10, 9, .05), rgba(11, 10, 9, .45)); transition: opacity 1.1s ease; }
+    #intro.gone { opacity: 0; }
+    #intro .title { display: grid; justify-items: center; line-height: 1; text-align: center; animation: rise 1.6s cubic-bezier(.2, .7, .2, 1) both; }
+    #intro .horse { font: 900 clamp(30px, 8.8vw, 140px)/0.95 "Cinzel", var(--serif); letter-spacing: .1em; margin-right: -.1em; white-space: nowrap; color: #fbf7ee;
+      text-shadow: 0 2px 0 rgba(120, 80, 30, .5), 0 8px 30px rgba(0, 0, 0, .45); }
+    #intro .mountain { font: italic 600 clamp(34px, 8vw, 88px)/1 "Cormorant Garamond", var(--serif); color: var(--brass); margin-top: .05em;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, .55); animation: rise 1.6s .35s cubic-bezier(.2, .7, .2, 1) both; }
+    #intro .rule { width: min(60vw, 420px); height: 1px; margin: .6em 0 .5em; background: linear-gradient(to right, transparent, var(--brass), transparent);
+      animation: grow 1.4s .2s ease both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(22px) scale(.97); letter-spacing: .3em; } to { opacity: 1; transform: none; } }
+    @keyframes grow { from { transform: scaleX(0); opacity: 0; } to { transform: none; opacity: 1; } }
+    /* (Centred by its margins, not by a transform: the animation it rises in by takes the transform over.) */
+    #choose { position: fixed; inset: 0; margin: auto; height: fit-content; z-index: 5; display: grid; gap: 10px; justify-items: center;
+      padding: 22px 26px 24px; background: var(--sheet); border: 1px solid var(--brass); border-radius: 8px; box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
+      width: min(380px, calc(100vw - 32px)); box-sizing: border-box; animation: rise .6s ease both; }
+    #choose .what { font: 900 22px/1.15 "Cinzel", var(--serif); letter-spacing: .1em; color: var(--ink); text-align: center; text-wrap: balance; }
+    #choose .why { color: var(--ink-dim); text-align: center; text-wrap: balance; margin-bottom: 6px; }
+    #choose .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+    #choose button { min-height: 48px; font-weight: 700; font-size: 14px; }
+    @media (max-width: 380px) { #choose .two { grid-template-columns: 1fr; } }
+    #where .hint { display: none; max-width: 34ch; color: var(--ink-dim); font-size: 12px; margin-top: 2px; }
+    body.riding #where .hint { display: block; }
+    /* (Out of the way while a landing or a fall is told over the picture: on a phone the two would lie over each other.) */
+    body.riding.telling #where .hint { display: none; }
+    #restart { font-weight: 600; }
+
+    /* What has just happened: a landing named, or a fall, over the upper middle of the picture. */
+    #told { position: fixed; left: 50%; top: calc(16% + env(safe-area-inset-top, 0px)); transform: translate(-50%, -6px); padding: 8px 18px 9px; text-align: center;
+      background: var(--sheet); border: 1px solid var(--brass); border-radius: 4px; max-width: calc(100vw - 32px); box-sizing: border-box;
+      opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; }
+    #told.shown { opacity: 1; transform: translate(-50%, 0); }
+    #told.bad { border-color: var(--warn); }
+    #told .text { display: block; font: 600 20px/1.25 var(--sans); color: var(--ink); text-wrap: balance; }
+    #told .small { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+    /* Hiding the menus and the text, for a clear picture: only this button stays, in the top right corner. */
+    #bare { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); right: var(--gutter-r); z-index: 2; font-weight: 600; background: var(--sheet); }
+    body.bare #where, body.bare #foot { display: none !important; }
+    body.bare #bare { opacity: .55; }
+    body.bare #bare:hover, body.bare #bare:focus-visible { opacity: 1; }
+    #distance, #blur { width: 110px; accent-color: var(--brass); min-height: var(--hit); margin: 0; }
+    #distanceOut, #blurOut { min-width: 3.2em; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+    #status { position: fixed; inset: 0; display: grid; place-items: center; color: var(--ink); font: 600 14px/1.4 var(--sans); background: var(--ground); }
+    #status[hidden] { display: none; }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <canvas id="view" tabindex="0" aria-label="A skier going down a groomed slope"></canvas>
+  <div id="where" aria-live="polite">
+    <div class="name" id="name">Downhill run</div>
+    <div class="part" id="part">Long, wide turns</div>
+    <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span></div>
+    <div class="hint">Steer with the stick at the lower left: to either side to turn, carved, or skidded at its edges; up to tuck, down to stand straight. The arrow keys steer too; Shift brakes. Line up on a kicker and a trick is done for you off it, one that should land at your speed, milder or wilder as the slider at the lower right says; under it, To switch and To regular turn you round on the snow (or X).</div>
+  </div>
+  <button id="bare" type="button" title="Hide the menus and the text (H)">Hide menus</button>
+  <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
+  <div id="stick" hidden role="group" aria-label="Steer: to either side to turn, up to tuck, down to stand straight"><div class="base"></div><div class="knob"></div><span class="say up">Tuck</span><span class="say down">Straight</span></div>
+  <div id="tricky" hidden>
+    <div class="wild"><span>Mild</span><input id="wild" type="range" min="0" max="1" step="0.01" value="0.5" aria-label="How wild the tricks off the kickers are, from mild to wild"><span>Wild</span></div>
+    <button id="stance" type="button" title="Turn round on the snow: a pop, a nose butter, a smooth 180 or a tail butter, in turn (X)">To switch</button>
+  </div>
+  <div id="countdown" hidden aria-live="polite"><span class="small">New run in</span><b>5</b></div>
+  <div id="intro" hidden><div class="title"><span class="horse">GRAND HORSE</span><span class="rule"></span><span class="mountain">Mountain</span></div></div>
+  <div id="choose" hidden role="dialog" aria-modal="true" aria-labelledby="chooseWhat">
+    <div class="what" id="chooseWhat">Grand Horse Mountain</div>
+    <div class="why">Watch a run down the mountain, or take it yourself.</div>
+    <div class="two"><button id="watchDemo" type="button">Watch demo run</button><button id="sendIt" type="button" class="on">Send it myself!</button></div>
+  </div>
+  <div id="foot">
+    <div id="controls">
+      <div class="group" id="modes"><span class="label">Mode</span></div>
+      <div class="group" id="lands"><span class="label">Slope</span></div>
+      <div class="group" id="snows"><span class="label">Snow</span></div>
+      <div class="group" id="skiers"><span class="label">Skier</span></div>
+      <div class="group" id="skisets" hidden><span class="label">Skis</span></div>
+      <div class="group"><button id="play" type="button">Pause</button></div>
+      <div class="group" id="restarts" hidden><button id="restart" type="button" title="Start the run again from the top (Enter)">Restart run</button></div>
+      <div class="group" id="rates"><span class="label">Speed</span></div>
+      <div class="group" id="views"><span class="label">View</span></div>
+      <div class="group"><span class="label">Distance</span><input id="distance" type="range" min="0.5" max="3" step="0.05" value="1" aria-label="How far the view is from the skier"><span id="distanceOut">1.0×</span></div>
+      <div class="group" id="resolutions"><span class="label">Resolution</span></div>
+      <div class="group"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><span id="blurOut">1.0×</span></div>
+    </div>
+    <div id="line" tabindex="0" role="slider" aria-label="Where in the run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
+  </div>
+  <div id="status">Making the run…</div>
+  <script type="module" src="./game/slope.ts"></script>
+</body>
+</html>

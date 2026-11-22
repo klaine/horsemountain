@@ -1,0 +1,8 @@
+The figures in this folder are by Quaternius (https://quaternius.com), from the free Standard versions of
+the Universal Animation Library (version 3), the Universal Animation Library 2 and the Universal Base Characters.
+
+License: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+They were brought into this form by tools/figures.ts: the clips of both libraries put on one skeleton, tracks that stay at rest and
+keys that add nothing dropped, and the base characters' textures made smaller.
