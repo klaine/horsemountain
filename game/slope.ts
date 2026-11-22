@@ -265,7 +265,11 @@ async function start() {
   await loading.stage('start');
   const canvas = $<HTMLCanvasElement>('view');
   // (Its picture is drawn through a pipeline of its own, smoothed there: the canvas's own four times over is not wanted.)
-  const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl') });
+  // (How far off each point is kept as the reverse of the usual, nearest the most and the furthest nothing, which a depth kept as a
+  // floating-point number tells apart alike near and far (asked: "i see flickering materials along the edges of the near and far land
+  // types"): kept the usual way, from a tenth of a metre out to five kilometres, two surfaces less than half a metre apart a kilometre
+  // off could not be told apart, and the land at its three grains, where one lies over another, flickered through each other.)
+  const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl'), reversedDepthBuffer: true });
   await renderer.init();
   // (How finely: see *Resolution*, below.)
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));

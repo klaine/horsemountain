@@ -297,13 +297,20 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   const plainUv = (x: number, z: number): [number, number] => [x / 23, z / 23];
   const underSnow = (x: number, z: number) => (Number.isNaN(gridAt(snow, x, z)) ? 0 : -1.2);
   const nearBox = [near.x0, near.z0, near.x0 + (near.nx - 1) * near.cell, near.z0 + (near.nz - 1) * near.cell];
-  const underNear = (x: number, z: number) => (x > nearBox[0] + 24 && x < nearBox[2] - 24 && z > nearBox[1] + 24 && z < nearBox[3] - 24 ? -8 : 0);
+  /** How far inside the land about the run a point is, in metres from its nearest edge (less than nothing, outside it). */
+  const intoNear = (x: number, z: number) => Math.min(x - nearBox[0], nearBox[2] - x, z - nearBox[1], nearBox[3] - z);
+  // (The country sunk the further in the deeper, a sixth of a metre for each, down to eight: so that a square of it reaching in under
+  // the land about the run from beyond its edge is sunk under it, but at the edge itself, where the two meet, by two thirds of a metre
+  // at the most, which the land about the run's skirt hides. Under it all, none is drawn, as `inNear` says. Sunk nowhere within twenty-four metres of the edge, as it was, the two lay at
+  // the same height there, each its own grain, and flickered through each other along all its edges, the country's colours over the
+  // snow's.)
+  const underNear = (x: number, z: number) => -Math.min(8, Math.max(0, intoNear(x, z)) / 6);
   // Where a finer grid lies over a coarser one, the coarser has a hole: not drawn there at all, rather than drawn sunk out of sight.
   // (Sunk, every point of the picture there was worked out twice or three times over, the land about the run under the run's snow and
   // the country under both; it was a third and more of what a frame cost.) A square of the coarser is left out where all its corners
   // lie under the finer; where it reaches out from under it, it is kept, sunk where it is under, as before.
   const inSlice = (x: number, z: number) => !Number.isNaN(gridAt(snow, x, z));
-  const inNear = (x: number, z: number) => underNear(x, z) < 0;
+  const inNear = (x: number, z: number) => intoNear(x, z) > 0;
   function covered(g: Grid, i: number, j: number, hole?: (x: number, z: number) => boolean) {
     if (!hole) return false;
     const x = g.x0 + i * g.cell, z = g.z0 + j * g.cell;
