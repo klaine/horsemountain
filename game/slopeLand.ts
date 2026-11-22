@@ -14,6 +14,9 @@ import {
   PlaneGeometry, Quaternion, type Texture, Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MeshStandardNodeMaterial } from 'three/webgpu';
+import { float } from 'three/tsl';
+import { glinting, snowGlints } from '../src/render/siteMaterial';
 import { MeshBuilder } from '../src/render/geom/meshBuilder';
 import { Rng } from '../src/core/rng';
 import { type Grid, gridAt, type SkiSlice } from '../src/core/skiSlice';
@@ -64,7 +67,7 @@ export function groomedLand(snowMap: Texture): Land {
   const W = 252, L = 720, map = snowMap.clone();
   map.repeat.set(W / 9, L / 9);
   map.needsUpdate = true;
-  const snow = new Mesh(new PlaneGeometry(W, L), new MeshStandardMaterial({ color: 0xffffff, map, roughness: 0.92 }));
+  const snow = new Mesh(new PlaneGeometry(W, L), glintingSnow({ map, roughness: 0.92 }));
   snow.geometry.rotateX(-Math.PI / 2).rotateX(ANGLE);
   snow.receiveShadow = true;
   group.add(snow);
@@ -315,8 +318,8 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     const pisteMap = snowMap.clone();
     pisteMap.needsUpdate = true;
     const pisteMats = [
-      new MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: pisteMap, roughness: 0.92 }),
-      new MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: powderMap, roughness: 0.95 }),
+      glintingSnow({ vertexColors: true, map: pisteMap, roughness: 0.92 }, 0.28),
+      glintingSnow({ vertexColors: true, map: powderMap, roughness: 0.95 }),
     ];
     runOf = (g) => { const m = new Mesh(gridMesh(g, () => 0, pisteUv, 1.5, true, offPiste), pisteMats); m.receiveShadow = true; return m; };
     const powder = (offset: number) => new MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: powderMap, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: offset, polygonOffsetUnits: offset });
@@ -508,6 +511,16 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
  * A fir laden with snow: `tiers` cones one over another, dark green below each and white over, for a tree a metre high (scaled); open
  * underneath, which is never seen; with a trunk under it, or (far off, where it would not be seen) none.
  */
+/**
+ * Snow that glints near the eye, as the game's snow does (`snowGlints`, `glinting`): here and there a grain of ice that flashes the sun
+ * where its face turns it to the eye (asked: "a bit of snow sparkle ... also close by groomed / snow surface?"); fewer on packed snow.
+ */
+function glintingSnow(o: { map: Texture; roughness: number; vertexColors?: boolean }, share = 0.45): MeshStandardNodeMaterial {
+  const m = new MeshStandardNodeMaterial({ color: 0xffffff, ...o });
+  glinting(m, snowGlints(float(share)));
+  return m;
+}
+
 function snowyFir(tiers: number, sides: number, trunked: boolean): BufferGeometry {
   const parts: BufferGeometry[] = [], green = new Color(0.07, 0.15, 0.1), white = new Color(0.9, 0.93, 0.97), c = new Color();
   for (let t = 0; t < tiers; t++) {

@@ -39,12 +39,12 @@
  * land as it lies. The run's line is only for the edges, the views and where the kickers stand.
  */
 import {
-  ACESFilmicToneMapping, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
-  Group, HemisphereLight, IcosahedronGeometry, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
-  PCFSoftShadowMap, PerspectiveCamera, Quaternion, RepeatWrapping, Scene, SkinnedMesh, SRGBColorSpace, Vector3,
+  ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
+  Group, HemisphereLight, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
+  PCFSoftShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, RepeatWrapping, Scene, SkinnedMesh, SRGBColorSpace, Vector3,
 } from 'three';
-import { MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
-import { abs, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, smoothstep, texture, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
+import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
+import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
 import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -689,33 +689,108 @@ async function start() {
   };
   const clearRideTracks = () => { rideLaid = 0; for (const m of rideTracks) m.geometry.setDrawRange(0, 0); };
 
-  // Snow thrown up from the skis' downhill edges while they slide sideways to slow down.
-  const SPRAY = 260, spray = new InstancedMesh(new IcosahedronGeometry(0.06, 0), new MeshStandardMaterial({ color: 0xffffff, roughness: 1 }), SPRAY);
-  spray.frustumCulled = false;
-  scene.add(spray);
-  const flakes = Array.from({ length: SPRAY }, () => ({ p: new Vector3(), v: new Vector3(), life: 0 }));
-  let nextFlake = 0;
-  const hidden = new Matrix4().makeScale(0, 0, 0), m4 = new Matrix4(), size = new Vector3(), noTurn = new Quaternion();
+  // Snow thrown up from the skis' edges (asked: "maybe the flying snow from skidded turns and braking could be improved to something
+  // nicer with a bit of snow sparkle?"; it had been white chips of a solid). A cloud of powder: puffs, each a picture of soft blots
+  // turned to the eye, thrown out, slowed by the air and settling slowly, swelling and thinning as they hang. And grains of ice in it,
+  // a few centimetres of light each, that twinkle as they tumble and catch the sun, falling as grains do and lying a moment where they
+  // land. Thrown while the skis slide sideways (a skidded turn, braking), the more the faster; a few grains off the edges of a turn
+  // carved hard; and a burst where a jump lands. (Two draws, of quads only; what they cost is how much of the picture the puffs cover.)
+  const PUFFS = 220, GRAINS = 640;
+  const puffMap = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d')!, rng = new Rng('puff');
+    for (let i = 0; i < 7; i++) {
+      const x = 32 + rng.range(-9, 9), y = 32 + rng.range(-9, 9), r = rng.range(10, 20), grad = g.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, `rgba(255,255,255,${rng.range(0.35, 0.6)})`); grad.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+    }
+    return new CanvasTexture(c);
+  })();
+  const puffShape = new PlaneGeometry(1, 1), grainShape = new PlaneGeometry(1, 1);
+  const puffFade = new InstancedBufferAttribute(new Float32Array(PUFFS), 1), grainLight = new InstancedBufferAttribute(new Float32Array(GRAINS * 2), 2);
+  puffShape.setAttribute('aFade', puffFade);
+  grainShape.setAttribute('aGrain', grainLight);
+  const puffPaint = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+  puffPaint.colorNode = vec3(1, 1.02, 1.07);
+  puffPaint.opacityNode = texture(puffMap, uv()).a.mul(attribute('aFade', 'float')).mul(0.5);
+  // (Each grain's light: how much of it is left, and when in its tumble it turns its face to the sun, a flash of light far brighter
+  // than the snow, added to the picture.)
+  const grainPaint = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending });
+  const grainOf = attribute('aGrain', 'vec2'), twinkle = pow(sin(time.mul(21).add(grainOf.y.mul(57))).mul(0.5).add(0.5), 10);
+  grainPaint.colorNode = vec3(1, 0.96, 0.88).mul(twinkle.mul(9).add(0.35)).mul(grainOf.x);
+  grainPaint.opacityNode = smoothstep(0.5, 0.06, length(uv().sub(0.5)));
+  const puffs = new InstancedMesh(puffShape, puffPaint, PUFFS), grains = new InstancedMesh(grainShape, grainPaint, GRAINS);
+  for (const m of [puffs, grains]) { m.frustumCulled = false; m.renderOrder = 2; scene.add(m); }
+  type Bit = { p: Vector3; v: Vector3; age: number; life: number; size: number; grow: number; down: boolean };
+  const bits = (n: number): Bit[] => Array.from({ length: n }, () => ({ p: new Vector3(), v: new Vector3(), age: 0, life: 0, size: 0, grow: 0, down: false }));
+  const puffBits = bits(PUFFS), grainBits = bits(GRAINS);
+  let nextPuff = 0, nextGrain = 0, sprayAir = false;
+  const hidden = new Matrix4().makeScale(0, 0, 0), m4 = new Matrix4(), size = new Vector3();
   const sprayRng = new Rng('spray');
-  const stepSpray = (dt: number, now: Now | null) => {
-    if (now && now.skid > 0.45 && now.speed > 3.5) {
-      // (Thrown on along the way it goes, and out the way the skis slide sideways: to the outside of a skidded turn.)
+  const throwPuff = (from: Vector3, v: Vector3, big = 1) => {
+    const b = puffBits[nextPuff++ % PUFFS];
+    b.p.copy(from); b.v.copy(v); b.age = 0; b.life = sprayRng.range(0.6, 1.1); b.size = sprayRng.range(0.18, 0.32) * big; b.grow = sprayRng.range(0.35, 0.75) * big;
+  };
+  const throwGrain = (from: Vector3, v: Vector3) => {
+    const i = nextGrain++ % GRAINS, b = grainBits[i];
+    b.p.copy(from); b.v.copy(v); b.age = 0; b.life = sprayRng.range(0.6, 1.4); b.size = sprayRng.range(0.03, 0.055); b.down = false;
+    grainLight.setY(i, sprayRng.range(0, 1));
+  };
+  /** Where the snow is thrown from, about a ski's spot, and how: on along the way it goes, up, and out the way the skis slide. */
+  const thrown = (spot: Vector3, go: Vector3, aside: Vector3, slide: Vector3, speed: number, up: [number, number]) => {
+    const from = onSnow(spot.clone()).addScaledVector(go, 0.3).addScaledVector(aside, sprayRng.range(-0.6, 0.6)).addScaledVector(UP, 0.05);
+    const v = go.clone().multiplyScalar(speed * sprayRng.range(0.45, 0.95)).addScaledVector(UP, sprayRng.range(...up)).addScaledVector(aside, sprayRng.range(-1.4, 1.4)).addScaledVector(slide, speed * sprayRng.range(0.2, 0.6));
+    return { from, v };
+  };
+  /** The spray stepped on by `dt` (none while paused), and thrown from the skis by what they are doing now (`now`; none in the air). */
+  const stepSpray = (dt: number, now: Now | null, inAir: boolean) => {
+    if (dt > 0 && now) {
       const go = along(now.way, here), skiAlong = along(now.ski, here), slide = go.clone().addScaledVector(skiAlong, -go.dot(skiAlong)), spots = skier.skis(), aside = runLeft(here);
-      for (let i = 0; i < Math.round(now.speed * 0.9); i++) {
-        const f = flakes[nextFlake++ % SPRAY], from = onSnow(spots[i % spots.length].clone());
-        f.p.copy(from).addScaledVector(go, 0.35).addScaledVector(aside, sprayRng.range(-0.8, 0.8)).addScaledVector(UP, 0.04);
-        f.v.copy(go).multiplyScalar(now.speed * sprayRng.range(0.5, 1)).addScaledVector(UP, sprayRng.range(1.2, 3.2)).addScaledVector(aside, sprayRng.range(-1.5, 1.5)).addScaledVector(slide, now.speed * sprayRng.range(0.2, 0.6));
-        f.life = sprayRng.range(0.5, 0.9);
+      // (So many a second, whatever the frames' pace: a share of one carried to the next frame by chance.)
+      const many = (perSecond: number) => Math.floor(perSecond * dt + sprayRng.range(0, 1));
+      if (now.skid > 0.45 && now.speed > 3.5) {
+        for (let i = many(now.speed * 12); i > 0; i--) { const t = thrown(spots[i % spots.length], go, aside, slide, now.speed, [0.3, 1.5]); throwPuff(t.from, t.v); }
+        for (let i = many(now.speed * 32); i > 0; i--) { const t = thrown(spots[i % spots.length], go, aside, slide, now.speed, [1.4, 3.6]); throwGrain(t.from, t.v); }
+      } else if (now.skid > 0.12 && now.speed > 9) {
+        for (let i = many(now.speed * 3); i > 0; i--) { const t = thrown(spots[i % spots.length], go, aside, slide, now.speed * 0.6, [0.6, 1.8]); throwGrain(t.from, t.v); }
+      }
+      // (A jump landed: a burst about the skis, out to every side, as far as the speed throws it.)
+      if (sprayAir && !inAir && now.speed > 4) {
+        for (let i = 0; i < 14; i++) {
+          const spot = spots[i % spots.length], out = new Vector3(sprayRng.range(-1, 1), 0, sprayRng.range(-1, 1)).normalize();
+          throwPuff(onSnow(spot.clone()).addScaledVector(UP, 0.1), out.multiplyScalar(sprayRng.range(1, 3)).addScaledVector(go, now.speed * sprayRng.range(0.3, 0.7)).addScaledVector(UP, sprayRng.range(0.6, 1.8)), 1.4);
+        }
+        for (let i = 0; i < 60; i++) {
+          const spot = spots[i % spots.length], out = new Vector3(sprayRng.range(-1, 1), 0, sprayRng.range(-1, 1)).normalize();
+          throwGrain(onSnow(spot.clone()).addScaledVector(UP, 0.05), out.multiplyScalar(sprayRng.range(1, 4)).addScaledVector(go, now.speed * sprayRng.range(0.3, 0.8)).addScaledVector(UP, sprayRng.range(1, 3.5)));
+        }
       }
     }
-    flakes.forEach((f, i) => {
-      if (f.life <= 0) { spray.setMatrixAt(i, hidden); return; }
-      f.life -= dt; f.v.y -= G * dt; f.p.addScaledVector(f.v, dt);
-      spray.setMatrixAt(i, m4.compose(f.p, noTurn, size.setScalar(Math.max(0, f.life) * 1.6)));
+    if (dt > 0) sprayAir = inAir;
+    // Each turned to the eye. Puffs slowed by the air and settling slowly, swelling and thinning; grains falling, lying where they land.
+    const drag = Math.exp(-2.6 * dt), grainDrag = Math.exp(-0.7 * dt);
+    puffBits.forEach((b, i) => {
+      if (b.age >= b.life) { puffs.setMatrixAt(i, hidden); puffFade.setX(i, 0); return; }
+      b.age += dt; b.v.multiplyScalar(drag); b.v.y -= 0.35 * G * dt; b.p.addScaledVector(b.v, dt);
+      const k = Math.min(1, b.age / b.life);
+      puffs.setMatrixAt(i, m4.compose(b.p, camera.quaternion, size.setScalar(b.size + b.grow * Math.sqrt(k))));
+      puffFade.setX(i, smooth(b.age / 0.08) * (1 - k) ** 1.4);
     });
-    spray.instanceMatrix.needsUpdate = true;
+    grainBits.forEach((b, i) => {
+      if (b.age >= b.life) { grains.setMatrixAt(i, hidden); grainLight.setX(i, 0); return; }
+      b.age += dt;
+      if (!b.down) {
+        b.v.multiplyScalar(grainDrag); b.v.y -= 0.8 * G * dt; b.p.addScaledVector(b.v, dt);
+        const g = ground(b.p.x, b.p.z) + 0.02;
+        if (b.p.y < g && b.v.y < 0) { b.p.y = g; b.down = true; b.life = Math.min(b.life, b.age + sprayRng.range(0.2, 0.6)); }
+      }
+      grains.setMatrixAt(i, m4.compose(b.p, camera.quaternion, size.setScalar(b.size)));
+      grainLight.setX(i, 1 - (b.age / b.life) ** 3);
+    });
+    puffs.instanceMatrix.needsUpdate = grains.instanceMatrix.needsUpdate = true;
+    puffFade.needsUpdate = grainLight.needsUpdate = true;
   };
-  const clearSpray = () => { for (const f of flakes) f.life = 0; };
+  const clearSpray = () => { for (const b of [...puffBits, ...grainBits]) b.age = b.life = 0; sprayAir = false; };
 
   // ---------------------------------------------------------------- riding: the skier as the pointer and the slope have it
   /**
@@ -2157,7 +2232,7 @@ async function start() {
       at = watchPose(t);
       here = { ...land.at(at.down, at.left), s: at.down, left: at.left };
       showWatchTracks(t);
-      stepSpray(playing && !scrubbing ? dt * rate : 0, playing && !scrubbing ? at : null);
+      stepSpray(playing && !scrubbing ? dt * rate : 0, playing && !scrubbing ? at : null, demo.frames[Math.min(demo.frames.length - 1, Math.round(t / STEP))]?.air ?? false);
       const parts = demo.parts, part = parts.find((p) => t >= p.from && t < p.to) ?? parts[parts.length - 1];
       if (part && part.label !== shownPart) { shownPart = part.label; $('part').textContent = part.label; bands.forEach((b, i) => b.classList.toggle('now', parts[i] === part)); }
       $('clock').textContent = `${t.toFixed(1)} s of ${demo.length.toFixed(0)}`;
@@ -2172,7 +2247,7 @@ async function start() {
       for (let i = 0; i < steps; i++) { askRide(); at = stepRide(dt / steps); }
       const onSnow = !air && !crash;
       if (playing && onSnow) layRide(at);
-      stepSpray(playing ? dt : 0, playing && onSnow ? at : null);
+      stepSpray(playing && !menuOpen ? dt : 0, playing && onSnow ? at : null, !!air);
       const doing = doingNow();
       if (doing !== shownPart) { shownPart = doing; $('part').textContent = doing; }
       $('clock').textContent = `${ride.time.toFixed(0)} s riding`;

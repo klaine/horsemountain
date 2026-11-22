@@ -25,7 +25,7 @@ import type { PaveFrame } from './scene';
 type N = any;
 const {
   Break, Fn, If, Loop, abs, attribute, cameraPosition, clamp, cos, cross, dFdx, dFdy, dot, exp, float, floor, fract, fwidth, ivec2, length, materialRoughness, max, min, mix,
-  normalMap, normalView, normalViewGeometry, normalWorld, normalWorldGeometry, normalize, positionView, positionWorld, pow, select, sin, smoothstep, step, texture, transformNormalToView,
+  normalMap, normalView, normalViewGeometry, normalWorld, normalWorldGeometry, normalize, positionView, positionViewDirection, positionWorld, pow, select, sin, smoothstep, step, texture, transformNormalToView,
   time, uniform, uv, vec2, vec3, vec4, vertexColor,
 } = TSL as N;
 
@@ -218,14 +218,29 @@ const irradianceOf = (wn: N, bk: N): N => mix(uFallback.mul(float(0.55).add(wn.y
  *  - reflections of the sky are multiplied by `sky` (they belong only where the sky can be seen),
  *    and all gleam by `gleam` (ground and dry rock throw back almost none).
  */
+/**
+ * The sun flashing off grains of ice (`snowGlints`), added to what a surface throws back of it: where a grain's face is turned so that
+ * it sends the sun to the eye, within some three degrees, a flash far brighter than the snow about it; nothing otherwise. Of the sun's light
+ * as it reaches the surface, so that grains in shadow do not flash.
+ */
+const glintFlash = (data: N, g: Glints): void => {
+  const facet: N = transformNormalToView(g.facet), half: N = normalize(data.lightDirection.add(positionViewDirection));
+  const flash: N = pow(max(dot(facet, half), 0), 400).mul(max(dot(facet, data.lightDirection), 0)).mul(g.amount).mul(60);
+  data.reflectedLight.directSpecular.addAssign(data.lightColor.mul(flash));
+};
+/** Where grains of ice lie on snow and which way each faces (`snowGlints`). */
+export interface Glints { amount: N; facet: N }
+
 class BakedLighting extends (PhysicalLightingModel as N) {
-  constructor(private readonly o: { irradiance: N; sun?: N; sky?: N; gleam?: N }) {
+  constructor(private readonly o: { irradiance: N; sun?: N; sky?: N; gleam?: N; glint?: Glints }) {
     super();
   }
 
   direct(data: N, builder: N): void {
-    if (this.o.sun && data.lightNode?.light?.isDirectionalLight) data = { ...data, lightColor: data.lightColor.mul(this.o.sun) };
+    const sunlit = data.lightNode?.light?.isDirectionalLight;
+    if (this.o.sun && sunlit) data = { ...data, lightColor: data.lightColor.mul(this.o.sun) };
     super.direct(data, builder);
+    if (this.o.glint && sunlit) glintFlash(data, this.o.glint);
   }
 
   indirect(builder: N): void {
@@ -242,8 +257,39 @@ class BakedLighting extends (PhysicalLightingModel as N) {
     }
   }
 }
-const lit = (m: MeshStandardNodeMaterial, o: { irradiance: N; sun?: N; sky?: N; gleam?: N }): void => {
+const lit = (m: MeshStandardNodeMaterial, o: { irradiance: N; sun?: N; sky?: N; gleam?: N; glint?: Glints }): void => {
   (m as N).setupLightingModel = () => new BakedLighting(o);
+};
+
+/**
+ * Sunlit snow's glints (asked: "a bit of snow sparkle ... also close by groomed / snow surface?"): in `share` of the cells of four
+ * centimetres near the eye, a grain of ice, a round spot within its cell, its face turned its own way, as much as seventy degrees off
+ * the surface's. Each flashes where its face turns the sun to the eye (`glintFlash`), and as the eye moves others flash: they twinkle.
+ * None past twenty-five metres, where a cell is smaller than a point of the picture. Only the flash takes the grain's face: the snow's
+ * own shading keeps the surface's, so that the grains turned from the sun do not speckle it dark. (Turned no more than some twenty
+ * degrees, only those looked at against the sun could flash, the sun and the eye both being low; and none were seen.)
+ */
+export const snowGlints = (share: N): Glints => {
+  const P: N = positionWorld.mul(26), cell: N = floor(P);
+  const hash = (k: [number, number, number], s: number): N => fract(sin(dot(cell, vec3(...k))).mul(s));
+  const spot: N = one(smoothstep(0.14, 0.36, length(fract(P).sub(0.5))));
+  const amount: N = step(one(share), hash([12.9898, 78.233, 37.719], 43758.5453)).mul(spot).mul(one(smoothstep(12, 26, length(positionView))));
+  const lean: N = vec3(hash([39.3468, 11.135, 83.155], 24634.6345).sub(0.5), 0, hash([73.156, 52.235, 9.151], 43758.5453).sub(0.5)).mul(4.2);
+  return { amount, facet: normalize(normalWorld.add(lean)) };
+};
+class GlintLighting extends (PhysicalLightingModel as N) {
+  constructor(private readonly g: Glints) {
+    super();
+  }
+
+  direct(data: N, builder: N): void {
+    super.direct(data, builder);
+    if (data.lightNode?.light?.isDirectionalLight) glintFlash(data, this.g);
+  }
+}
+/** A standard material's own lighting, with the sun flashing off grains of snow on it (`snowGlints`). */
+export const glinting = (m: MeshStandardNodeMaterial, g: Glints): void => {
+  (m as N).setupLightingModel = () => new GlintLighting(g);
 };
 
 /**
@@ -1215,10 +1261,9 @@ export function makeSnowMaterial(turf: TextureSet, scree: TextureSet): MeshStand
     const tilt: N = mix(drifted, corduroy, groomed).mul(snowy).add(vec2(mid.sub(0.5).mul(0.15)).mul(one(snowy)));
     m.normalNode = normalMap(vec3(tilt, 1).mul(0.5).add(0.5));
   }
-  // (And here and there a grain catches the sun: a glint, near the eye, from a crystal turned just so; fewer on packed snow.)
-  const glint: N = step(mix(0.992, 0.997, groomed), fract(sin(dot(floor(P.mul(26)), vec3(12.9898, 78.233, 37.719))).mul(43758.5453))).mul(one(smoothstep(4, 14, far))).toVar();
-  m.roughnessNode = mix(float(0.95), mix(mix(0.66, 0.58, groomed), 0.08, glint), snowy);
-  lit(m, { irradiance: irradianceOf(normalWorldGeometry, bk), sun: one(underHill(bk)), sky: mix(0.3, smoothstep(0, 0.5, bk.x), uBake), gleam: mix(0.12, 0.55, snowy) });
+  m.roughnessNode = mix(float(0.95), mix(0.66, 0.58, groomed), snowy);
+  // (And the sun flashing off grains of ice in it, more on loose snow than packed: `snowGlints`.)
+  lit(m, { irradiance: irradianceOf(normalWorldGeometry, bk), sun: one(underHill(bk)), sky: mix(0.3, smoothstep(0, 0.5, bk.x), uBake), gleam: mix(0.12, 0.55, snowy), glint: snowGlints(mix(0.45, 0.28, groomed).mul(snowy)) });
   return m;
 }
 
