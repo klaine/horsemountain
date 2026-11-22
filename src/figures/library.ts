@@ -50,20 +50,31 @@ export interface Rigged {
 const HIPS = 'pelvis', ROOT = 'root';
 
 /**
- * A figure's file: from the page itself where it carries them; else fetched from the folder, as it is or, where a host serves only
- * text beside a page (`__figureText`), written out as text (`clips.glb.txt`).
+ * How a figure's file is fetched, given its address: plainly; or, where a page fetches its files itself (to say how far it has got as
+ * they come in, `lab/slope.ts`), as the page does.
  */
-async function loadFile(loader: GLTFLoader, base: string, name: string): Promise<GLTF> {
+export type FetchBytes = (url: string) => Promise<ArrayBuffer>;
+const fetchBytes: FetchBytes = async (url) => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status}`);
+  return res.arrayBuffer();
+};
+
+/**
+ * A figure's file, as bytes: from the page itself where it carries them; else fetched from the folder, as it is or, where a host serves
+ * only text beside a page (`__figureText`), written out as text (`clips.glb.txt`). (A page may ask for its files early, to fetch them
+ * all at once, with a `fetchFile` that keeps what it fetched.)
+ */
+export async function figureBytes(base: string, name: string, fetchFile: FetchBytes = fetchBytes): Promise<ArrayBuffer> {
   const g = globalThis as { __figureFiles?: Record<string, string>; __figureText?: boolean };
   let text = g.__figureFiles?.[name];
-  if (!text && g.__figureText) {
-    const res = await fetch(base + name + '.txt');
-    if (!res.ok) throw new Error(`${name}: ${res.status}`);
-    text = await res.text();
-  }
-  if (!text) return loader.loadAsync(base + name);
-  const bytes = Uint8Array.from(atob(text.trim()), (c) => c.charCodeAt(0));
-  return loader.parseAsync(bytes.buffer, '');
+  if (!text && g.__figureText) text = new TextDecoder().decode(await fetchFile(base + name + '.txt'));
+  if (!text) return fetchFile(base + name);
+  return Uint8Array.from(atob(text.trim()), (c) => c.charCodeAt(0)).buffer;
+}
+
+async function loadFile(loader: GLTFLoader, base: string, name: string, fetchFile?: FetchBytes): Promise<GLTF> {
+  return loader.parseAsync(await figureBytes(base, name, fetchFile), base);
 }
 
 /** The height of a model's hips as it stands rigged, at rest. */
@@ -79,22 +90,24 @@ export class FigureLibrary {
   private readonly sources = new Map<string, Promise<GLTF>>();
   private readonly made = new Map<string, Promise<Object3D>>();
 
-  private constructor(private readonly base: string, private readonly loader: GLTFLoader, readonly clips: AnimationClip[], private readonly hips: number, mannequin: GLTF) {
+  private constructor(private readonly base: string, private readonly loader: GLTFLoader, readonly clips: AnimationClip[], private readonly hips: number, mannequin: GLTF,
+    private readonly fetchFile?: FetchBytes) {
     this.sources.set('mannequin', Promise.resolve(mannequin));
   }
 
   /**
    * Loads the clips (with the male mannequin) from `base`, the folder that holds the figures' files. (A page that is one file, with no
-   * folder beside it, carries them in itself, written out in `__figureFiles`: see `tools/buildingLabPage.mjs`.)
+   * folder beside it, carries them in itself, written out in `__figureFiles`: see `tools/buildingLabPage.mjs`.) Its files are fetched
+   * by `o.fetch` where it is given (see `figureBytes`).
    */
-  static async load(base: string): Promise<FigureLibrary> {
+  static async load(base: string, o: { fetch?: FetchBytes } = {}): Promise<FigureLibrary> {
     const loader = new GLTFLoader();
-    const gltf = await loadFile(loader, base, 'clips.glb');
+    const gltf = await loadFile(loader, base, 'clips.glb', o.fetch);
     // (With the run and the sprint, and three clips of skiing, made on the mannequin from its idle's first frame: see `gait.ts` and
     // `skiing.ts`.)
     const idle = gltf.animations.find((c) => c.name === 'Idle_Loop');
     const made = idle ? [...[RUN, SPRINT].map((s) => makeRun(gltf.scene, idle, s).clip), ...makeSkiClips(gltf.scene, idle)] : [];
-    return new FigureLibrary(base, loader, [...gltf.animations, ...made], hipsOf(gltf.scene), gltf);
+    return new FigureLibrary(base, loader, [...gltf.animations, ...made], hipsOf(gltf.scene), gltf, o.fetch);
   }
 
   get names(): string[] { return this.clips.map((c) => c.name); }
@@ -112,7 +125,7 @@ export class FigureLibrary {
     let made = this.made.get(key);
     if (!made) {
       let file = this.sources.get(kind.file === 'clips.glb' ? 'mannequin' : kind.file);
-      if (!file) { file = loadFile(this.loader, this.base, kind.file); this.sources.set(kind.file, file); }
+      if (!file) { file = loadFile(this.loader, this.base, kind.file, this.fetchFile); this.sources.set(kind.file, file); }
       made = file.then((gltf) => (kind.dress === 'adventurer' ? dressAdventurer(gltf.scene, undefined, o) : gltf.scene));
       this.made.set(key, made);
     }

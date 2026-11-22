@@ -47,7 +47,7 @@ import { abs, float, Fn, If, int, length, Loop, max, min, mix, mrt, output, pass
 import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { FigureLibrary } from '../src/figures/library';
+import { BODIES, FigureLibrary, figureBytes } from '../src/figures/library';
 import { putOn } from '../src/figures/gear';
 import { type AirControls, type RideControls, Rider } from '../src/figures/alpine';
 import { type BodySpec, type Ground, HUMAN, humanSpec, JOINTS, Ragdoll } from '../src/figures/ragdoll';
@@ -105,10 +105,150 @@ const kickerShape = (u: number, x: number) => {
 /** The demo run's frames are kept a thirtieth of a second apart. */
 const STEP = 1 / 30;
 
+/**
+ * The loading screen (`#status`): how far the page has got in opening, as a bar, the files coming in and the stages of making the run
+ * each a share of it; what is being done said under it, and how much of the files has come. Later, while a slope is made or a demo run
+ * flown, the same screen says so, with the bar sweeping.
+ */
+type Stage = 'start' | 'paint' | 'snow' | 'moves' | 'dress' | 'demo' | 'shaders';
+const loading = (() => {
+  const box = $('status'), fill = box.querySelector<HTMLElement>('.fill')!, say = box.querySelector<HTMLElement>('.say')!, bytes = box.querySelector<HTMLElement>('.bytes')!;
+  // (Each stage's share of the work, about as long as each took opening the world's run, where painting the textures and making the
+  // shaders were the most of it, drawn without a graphics card. The files, fetched all at once while the work goes on, are two fifths
+  // of the bar; the work the rest.)
+  const STAGES: [Stage, number, string][] = [
+    ['start', 0.04, 'Waking the graphics'], ['paint', 0.16, 'Painting the snow and the rock'], ['snow', 0.1, 'Laying the snow on the run'],
+    ['moves', 0.09, 'Teaching the rider to ski'], ['dress', 0.11, 'Dressing the rider, saddling the horse'], ['demo', 0.15, 'Flying the demo run'],
+    ['shaders', 0.35, 'Making the shaders'],
+  ];
+  const FILES = 0.4, whole = STAGES.reduce((a, [, w]) => a + w, 0);
+  const files = new Map<string, { got: number; of: number }>();
+  const times: [string, number][] = [];
+  let opening = true, stage = -1, shown = 0, said = '', began = performance.now();
+  const mb = (n: number) => (n / 1e6).toFixed(1);
+  const show = () => {
+    let got = 0, of = 0;
+    for (const f of files.values()) { got += f.got; of += f.of; }
+    if (opening) {
+      const work = STAGES.slice(0, Math.max(0, stage)).reduce((a, [, w]) => a + w, 0) / whole;
+      // (Never back: a file whose size was not known ahead can grow as it comes. Before the first stage nothing has been asked for yet;
+      // after it, all there is to fetch has been.)
+      shown = Math.max(shown, FILES * (of > 0 ? got / of : stage >= 1 ? 1 : 0) + (1 - FILES) * work);
+      fill.style.transform = `scaleX(${shown.toFixed(4)})`;
+      box.setAttribute('aria-valuenow', (shown * 100).toFixed(0));
+    } else {
+      // (Later, the bar filled by a file as it comes; sweeping while the work is not counted.)
+      const coming = of > 0 && got < of;
+      box.classList.toggle('waiting', !coming);
+      if (coming) fill.style.transform = `scaleX(${(got / of).toFixed(4)})`;
+    }
+    const text = got < of ? `Fetched ${mb(got)} of ${mb(of)} MB` : '';
+    if (text !== said) { said = text; bytes.textContent = text; }
+  };
+  /** A moment for the page to be drawn, before work that holds it up. */
+  const paint = () => new Promise<void>((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 80); });
+  /** Work after opening (a slope, a demo run): the screen over the picture while it is done, the bar sweeping. */
+  const busy = (text: string): Promise<void> => {
+    if (opening) { say.textContent = text; return paint(); }
+    box.hidden = false; box.classList.remove('gone', 'failed'); box.classList.add('waiting'); say.textContent = text;
+    fill.style.transform = 'scaleX(0)';
+    show();
+    return paint();
+  };
+  return {
+    busy,
+    /** The stage of opening now begun, said, and a moment for it to be shown; after opening, said as other work is. */
+    stage(name: Stage, text?: string): Promise<void> {
+      const i = STAGES.findIndex(([n]) => n === name), now = performance.now();
+      if (i < 0) return paint();
+      if (!opening) return busy(text ?? STAGES[i][2]);
+      if (stage >= 0) times.push([STAGES[stage][0], Math.round(now - began)]);
+      began = now; stage = Math.max(stage, i);
+      box.classList.remove('waiting');
+      say.textContent = text ?? STAGES[i][2];
+      show();
+      return paint();
+    },
+    /** So much of a file fetched, of so much. */
+    count(url: string, got: number, of: number) { files.set(url, { got, of }); show(); },
+    /** That work done. */
+    idle() { if (!opening) box.hidden = true; },
+    /** Opened: the bar filled, and the screen faded away. */
+    done() {
+      if (!opening) return;
+      times.push([STAGES[stage]?.[0] ?? '', Math.round(performance.now() - began)]);
+      // (What comes later is counted alone.)
+      opening = false; shown = 1; files.clear();
+      fill.style.transform = 'scaleX(1)';
+      box.setAttribute('aria-valuenow', '100');
+      box.classList.add('gone');
+      setTimeout(() => { if (box.classList.contains('gone')) { box.hidden = true; box.classList.remove('gone'); } }, 750);
+    },
+    /** Could not open, or could not go on: said, and the screen kept. */
+    fail(text: string) { opening = false; box.hidden = false; box.classList.remove('gone', 'waiting'); box.classList.add('failed'); say.textContent = text; bytes.textContent = ''; },
+    /** How long each stage of opening took, in milliseconds (for weighing their shares). */
+    get times() { return times; },
+  };
+})();
+
+/**
+ * A file the page needs, fetched once and counted as it comes in. (Where the host packs it for the way, its size on arrival is not
+ * said; then it is taken as about as large as the file is kept, and grown if it comes larger.)
+ */
+const ABOUT: Record<string, number> = { 'clips.glb': 3.02e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6 };
+const fetching = new Map<string, Promise<ArrayBuffer>>();
+const fetchCounted = (url: string): Promise<ArrayBuffer> => {
+  let made = fetching.get(url);
+  if (made) return made;
+  const name = url.split('?')[0].split('/').pop() ?? url, plain = name.replace(/\.txt$/, '');
+  // (Counted from when it is asked for, not from when it begins to come: until then the bar would take it for fetched.)
+  let of = (ABOUT[plain] ?? 1.5e6) * (plain === name ? 1 : 4 / 3);
+  loading.count(url, 0, of);
+  made = (async () => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${name}: ${res.status}`);
+      const told = Number(res.headers.get('content-length')) || 0, packed = !!res.headers.get('content-encoding');
+      if (told && !packed) of = told;
+      loading.count(url, 0, of);
+      if (!res.body) { const all = await res.arrayBuffer(); loading.count(url, all.byteLength, all.byteLength); return all; }
+      const reader = res.body.getReader(), parts: Uint8Array[] = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value); got += value.length; of = Math.max(of, got);
+        loading.count(url, got, of);
+      }
+      loading.count(url, got, got);
+      const all = new Uint8Array(got);
+      let at = 0;
+      for (const p of parts) { all.set(p, at); at += p.length; }
+      return all.buffer;
+    } catch (e) {
+      // (Not counted any longer: what comes of it is for whoever asked for it.)
+      loading.count(url, 0, 0);
+      throw e;
+    }
+  })();
+  fetching.set(url, made);
+  return made;
+};
+
 /** Where the skier is and what it is doing, now: watched or ridden. */
 interface Now { down: number; left: number; speed: number; way: number; ski: number; skid: number; tuck: number; brake: number }
 
 async function start() {
+  // The files the run is made of, all asked for at once from the first, and counted as they come in: the slice of the world's land (when
+  // the run is to be on it), the figures' clips and the skier's body. (Not where the page carries them in itself.)
+  const win = window as unknown as { __figureBase?: string; __figureFiles?: object; __slopeBase?: string; __slopeFiles?: Record<string, string> };
+  const base = win.__figureBase ?? new URL('../figures/', location.href).href, slices = win.__slopeBase ?? new URL('../slopes/', location.href).href;
+  const world = query.get('world') ?? 'w2', bodyId = query.get('body') ?? 'adventurer';
+  type LandKind = 'world' | 'groomed';
+  let landKind: LandKind = query.get('land') === 'groomed' || location.hash === '#groomed' ? 'groomed' : 'world';
+  if (landKind === 'world' && !win.__slopeFiles?.[`${world}.json`]) void fetchCounted(`${slices}${world}.json`).catch(() => {});
+  if (!win.__figureFiles) for (const file of new Set(['clips.glb', (BODIES.find((b) => b.id === bodyId) ?? BODIES[0]).file])) void figureBytes(base, file, fetchCounted).catch(() => {});
+  await loading.stage('start');
   const canvas = $<HTMLCanvasElement>('view');
   // (Its picture is drawn through a pipeline of its own, smoothed there: the canvas's own four times over is not wanted.)
   const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl') });
@@ -161,8 +301,7 @@ async function start() {
 
   // The land: a world's run, from its slice beside the page; or the groomed slope (`?land=groomed`, or when the slice cannot be had).
   // (Its slice is fetched from beside the page, or, in a page made whole, carried in it.)
-  type LandKind = 'world' | 'groomed';
-  const world = query.get('world') ?? 'w2', lands = new Map<string, Land>();
+  const lands = new Map<string, Land>();
   // The world's run drawn with the game's own materials for land, in their lighter winter forms (`GameLook`; *Snow*, `?snow=plain`
   // for the plain look the page had before). Their textures are painted when first wanted, at 512 (`?tex=` another size).
   type SnowLook = 'game' | 'plain';
@@ -187,18 +326,19 @@ async function start() {
     let made = lands.get(key);
     if (made) return made;
     if (kind === 'world') {
-      const carried = (window as unknown as { __slopeFiles?: Record<string, string> }).__slopeFiles?.[`${world}.json`];
-      const base = (window as unknown as { __slopeBase?: string }).__slopeBase ?? new URL('../slopes/', location.href).href;
-      if (sliceText === undefined) sliceText = carried ?? await fetch(`${base}${world}.json`).then((r) => (r.ok ? r.text() : null)).catch(() => null);
+      const carried = win.__slopeFiles?.[`${world}.json`];
+      if (sliceText === undefined && !carried) await loading.busy('Fetching the mountain');
+      if (sliceText === undefined) sliceText = carried ?? await fetchCounted(`${slices}${world}.json`).then((b) => new TextDecoder().decode(b)).catch(() => null);
+      if (sliceText) {
+        if (snowLook === 'game' && !gameLook) { await loading.stage('paint'); gameLookOf(); }
+        await loading.stage('snow', `Laying the snow on the run in ${world}`);
+      }
       // (Without its slice, the groomed slope.)
       made = sliceText ? sliceLand(readSlice(sliceText), snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined) : await landOf('groomed');
-    } else made = groomedLand(snowMap);
+    } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap); }
     lands.set(key, made);
     return made;
   };
-  let landKind: LandKind = query.get('land') === 'groomed' || location.hash === '#groomed' ? 'groomed' : 'world';
-  $('status').textContent = landKind === 'world' ? `Laying the snow on the run in ${world}…` : 'Making the run…';
-  await new Promise((r) => setTimeout(r, 30));
   let land = await landOf(landKind);
   /** Shows a land: its snow and country, and the air's haze as far as it reaches. */
   const showLand = () => {
@@ -324,12 +464,14 @@ async function start() {
   const showKickers = (on: boolean) => { kickersOn = on; placeKickers(ride.down); };
 
   // The skier: the adventurer, posed live (`Rider`), ridden or as the demo run was kept, with its downhill skis and poles.
-  const base = (window as unknown as { __figureBase?: string }).__figureBase ?? new URL('../figures/', location.href).href;
-  const library = await FigureLibrary.load(base);
+  if (!win.__figureFiles) await loading.busy('Fetching the rider');
+  // (The clips that come with the file, and those made from them: the run, the sprint and the skiing.)
+  const library = await FigureLibrary.load(base, { fetch: async (url) => { const bytes = await fetchCounted(url); if (url.includes('clips.glb')) await loading.stage('moves'); return bytes; } });
+  await loading.stage('dress');
   const idle = library.clips.find((c) => c.name === 'Idle_Loop')!;
   // (The skier, and a horse's rider, an adventurer: a ranger's clothes on a base body, `src/figures/outfit.ts`; `?body=mannequin`
   // for the plain mannequin, or any other body's name.)
-  const source = await library.source(query.get('body') ?? 'adventurer', { sword: 'back' });
+  const source = await library.source(bodyId, { sword: 'back' });
   const live = new Rider(source, idle), model = live.model;
   const shade = (m: Object3D) => m.traverse((o) => { if ((o as Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; if ((o as SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; } });
   shade(model);
@@ -1333,11 +1475,9 @@ async function start() {
   const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind === 'world') void setLand('world', true); else reflect(); } }, title));
   const setLand = async (kind: LandKind, again = false) => {
     if (kind === landKind && !again) return;
-    $('status').hidden = false;
-    $('status').textContent = kind === 'world' ? `Laying the snow on the run in ${world}…` : 'Making the run…';
-    await new Promise((r) => setTimeout(r, 30));
+    await loading.busy(kind === 'world' ? `Laying the snow on the run in ${world}` : 'Laying the groomed slope');
     const next = await landOf(kind);
-    $('status').hidden = true;
+    loading.idle();
     for (const k of kickerAt.values()) if (k?.group) { k.group.removeFromParent(); k.group = undefined; }
     kickerAt.clear();
     kicks = [];
@@ -1382,13 +1522,9 @@ async function start() {
    * laid along the foot and its tracks on the snow.
    */
   const useDemo = async () => {
-    if (!demos.get(land)?.has(demoKey())) {
-      $('status').hidden = false;
-      $('status').textContent = 'Flying the demo run…';
-      await new Promise((r) => setTimeout(r, 30));
-    }
+    if (!demos.get(land)?.has(demoKey())) await loading.busy('Flying the demo run');
     const d = demoFor();
-    $('status').hidden = true;
+    loading.idle();
     if (d !== demo) { demo = d; buildTimeline(); t = Math.min(t, demo.length - 0.01); }
     layWatchTracks();
     showWatchTracks(mode === 'watch' ? t : null);
@@ -1822,9 +1958,11 @@ async function start() {
   viewFor.ride = views.find(([, v]) => v === query.get('rideView') && v !== 'free')?.[1] ?? 'behind';
   showKickers(true);
   wildInput.value = kept('wild') ?? '0.5';
+  await loading.stage('demo');
   await useDemo();
   reflect();
-  $('status').hidden = true;
+  // (The first frames make the shaders, which can take some seconds: the screen goes once two have been drawn.)
+  await loading.stage('shaders');
 
   // The opening (asked: "Game opening shows a brief grand title: HORSE / Mountain; the demo runs on the background and after the title a
   // dialog show decision: "Watch demo run" / "Send it myself!" (which switches to player controlled run)"; the title then made "Grand
@@ -1847,13 +1985,14 @@ async function start() {
     if (shown > 3.8 && drawn > 26) { introFrames = -1; if (!intro.hidden) { intro.hidden = true; if (mode === 'watch') { choose.hidden = false; $('sendIt').focus(); } } }
   };
 
-  let then = performance.now(), benching = false;
+  let then = performance.now(), benching = false, drawnFrames = 0;
   const fixedDt = Number(query.get('dt')) || 0;
   const frame = async () => {
     if (benching) { requestAnimationFrame(frame); return; }
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
     const now = performance.now(), dt = fixedDt || Math.min(0.1, (now - then) / 1000);
     stepIntro(now);
+    if (drawnFrames >= 0 && ++drawnFrames > 2) { drawnFrames = -1; loading.done(); }
     adapt(now - then);
     then = now;
     let at: Now;
@@ -1985,10 +2124,12 @@ async function start() {
     // (The views' distance from the skier, as the *Distance* slider sets it.)
     distance: (d: number) => setDistance(d),
     restart, time: () => t, ready: true,
+    // (How long each stage of opening took, in milliseconds.)
+    loadTimes: () => loading.times,
     // (The demo run as flown for the skier now: how long, its parts, the tricks it landed, how many times each kicker was flown again.)
     demo: () => ({ length: demo.length, parts: demo.parts, landed: demo.landed, tries: demo.tries, fell: demo.fell, flown: demo.flown }),
   };
   requestAnimationFrame(frame);
 }
 
-start().catch((e) => { const s = $('status'); s.hidden = false; s.textContent = `The run could not be made: ${(e as Error)?.message ?? e}`; console.error(e); });
+start().catch((e) => { loading.fail(`The run could not be made: ${(e as Error)?.message ?? e}`); console.error(e); });

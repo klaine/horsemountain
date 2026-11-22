@@ -3,7 +3,11 @@
 A horse and its rider skiing down a mountain in winter: watched, or ridden. Play it at
 **https://horsemountain.klaine.net** (GitHub Pages, from `main`).
 
-It opens on its title over the demo run, and asks: *Watch demo run*, or *Send it myself!*
+It opens on its title over the demo run, and asks: *Watch demo run*, or *Send it myself!* Until then, while it loads, a screen says
+how far it has got: a bar that fills as its files come in (all fetched at once, some 5.5 MB: the slice of the mountain, the figures'
+clips, the rider's body), and as the run is made, stage by stage (painting the snow and rock, laying the snow, teaching the rider to
+ski, dressing the rider and saddling the horse, flying the demo run, making the shaders), with what is being done and how much has
+come under it.
 
 - **The demo run** goes down the mountain from beside its highest summit, carving between seven kickers built on the snow and taking a
   trick off each (a 720, a backflip, a backflip 360, a ski jumper's flight, a cork 540 that lands it switch, a switch 540 that brings
@@ -52,7 +56,7 @@ change to the game.
 
 ## What is here
 
-- `game.html`, `game/slope.ts`: the page and its program (the opening, watching and riding, the demo run's pilot, the tricks given a
+- `game.html`, `game/slope.ts`: the page and its program (the loading screen, the opening, watching and riding, the demo run's pilot, the tricks given a
   rider, the views, the picture's blur and resolution); `game/slopeLand.ts`: the land it goes down, the slice of the mountain or the
   groomed slope, its snow, firs, piste poles and the country round about.
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
