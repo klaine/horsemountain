@@ -3474,7 +3474,12 @@ async function start() {
   restartButton.onclick = () => { restart(); setMenu(false); };
   // The stance: turned round on the snow to switch, or back to regular, by the next of the ground 180s; named for where it goes.
   const stanceButton = $('stance');
-  stanceButton.onclick = () => { start180(); };
+  // (Turned on the finger's touch, not its click (asked: "multi touch need to be enabled to be able to click 180 while steering on
+  // mobile"): a phone makes no click of a tap while another finger is down, as the thumb on the stick is; so a touch turns it as it
+  // lands, and the click that may follow it is let pass. A mouse, or the keyboard, by the click.)
+  let stanceTouched = -Infinity;
+  stanceButton.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse') return; e.preventDefault(); stanceTouched = performance.now(); start180(); });
+  stanceButton.onclick = () => { if (performance.now() - stanceTouched > 800) start180(); };
   let stanceShown = '';
   // (The button says only "180"; where it goes, in its name for a screen reader, and lit while riding switch.)
   const showStance = () => { const to = ride.switch ? '180 to regular' : '180 to switch'; if (to !== stanceShown) { stanceShown = to; stanceButton.setAttribute('aria-label', to); stanceButton.classList.toggle('switch', ride.switch); } };
