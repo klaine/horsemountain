@@ -13,7 +13,7 @@ come under it.
   trick off each (a 720, a backflip, a backflip 360, a ski jumper's flight, a cork 540 that lands it switch, a switch 540 that brings
   it round again, a superman whip), with turns on the snow to switch and back on the way to the foot; filmed by a cinematic camera
   that cuts from shot to shot, cameras set down by each kicker for its jump.
-- **The orc hunt**, on a computer, once *Orcs & tommy gun* is on in the menu (*Orc hunt* there, or `O`): a second demo run, the horse
+- **The orc hunt**, once *Orcs & tommy gun* is on in the menu (*Orc hunt* there, or `O`): a second demo run, the horse
   and its rider, the wildest trick each kicker will give them (a cork 720, a backflip 720, a 900 and a switch 900, a superman whip
   backflip 360, a 1080...), and the rider shooting down the orcs coming up the run with a tommy gun as they go.
 - **Riding it yourself**, seen from behind: on a phone or a tablet, tipping it steers, from however it is held as each run begins:
@@ -49,9 +49,10 @@ come under it.
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
   Enter, a click, or on a phone a tap, begins the next run at once. Riding wins points, counted at the top left and thrown up over the picture where
   they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the
-  longer in the air, and its length; the most won in one run on each slope is kept in the browser, and shown beside them. On a computer, with *Orcs & tommy gun* on in the menu (off at first), the skier alone or the
-  horse's rider carries a tommy gun in place of its poles, aimed at the guide's mark: held down, the button fires it (and Shift
-  brakes), and orcs come up the run in hordes to be shot down, red blood on the snow, how many counted at the top left; each shot
+  longer in the air, and its length; the most won in one run on each slope is kept in the browser, and shown beside them. With *Orcs & tommy gun* on in the menu (off at first), the skier alone or the
+  horse's rider carries a tommy gun in place of its poles: on a computer aimed at the guide's mark, held down, the button firing it (and
+  Shift braking); on a phone or a tablet, a finger held on the picture fires it there, an orc near the finger aimed at itself, while
+  tilting or the stick steers (fewer orcs at a time there). Orcs come up the run in hordes to be shot down, red blood on the snow, how many counted at the top left; each shot
   down a hundred points and a white cross where the round struck, each run down a hundred and fifty, and a double, a triple, for
   each downed hard on the last.
 

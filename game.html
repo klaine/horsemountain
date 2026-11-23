@@ -258,8 +258,8 @@
     @media (prefers-reduced-motion: reduce) { #pops .pop { animation: popFade 1s ease-out forwards; } @keyframes popFade { 70% { opacity: 1; } 100% { opacity: 0; } } }
     /* (In the menu, the ways back three to a row, each by the name the question gives it.) */
     #menu .seg.rows { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
-    /* (The orc hunt, the second demo run, only where the tommy gun is: on a computer. Steering by tilting, only where there is no mouse.) */
-    body:not(.mouse) #orcHunt, body:not(.mouse) #orcsField, body.mouse #tiltField { display: none; }
+    /* (Steering by tilting, only where there is no mouse.) */
+    body.mouse #tiltField { display: none; }
     #tally b { color: #9fd45a; }
     #restart { font-weight: 600; }
 
@@ -272,6 +272,43 @@
     #told .text { display: block; font: 600 20px/1.25 var(--sans); color: var(--ink); text-wrap: balance; }
     #told .small { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 
+
+    /* A phone held sideways (asked: "I think in horizontal mode on phone, the onscreen text boxes still take too much space?"): the
+       picture is some 370 points high, and what was over it took a third of it. Each made smaller and tighter: what the skier is doing in
+       two short lines (where and who are in the menu), the stick and the tricks smaller and lower, the menu's button a chip, what has just
+       happened in a smaller box, the question of the way back in one tight block of names. */
+    @media (max-height: 500px) and (orientation: landscape) {
+      #where { top: calc(6px + env(safe-area-inset-top, 0px)); padding: 4px 9px 5px; gap: 0; border-radius: 6px; max-width: min(460px, calc(100vw - var(--gutter-l) - var(--gutter-r) - 100px)); }
+      #where .name, #where #clock { display: none; }
+      #where .part { font-size: 14px; }
+      #where .numbers { font-size: 11px; gap: 0 9px; }
+      #menuButton { top: calc(6px + env(safe-area-inset-top, 0px)); min-height: 32px; padding: 0 11px 0 10px; gap: 7px; font-size: 12px; }
+      #stick { width: 100px; height: 100px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+      #stick .knob { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+      #stick .say { font-size: 9px; }
+      #stick .up { top: -13px; }
+      #stick .down { bottom: -13px; }
+      #tricky { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); padding: 6px 8px; gap: 5px; width: min(180px, calc(100vw - 100px - 64px)); border-radius: 6px; }
+      #tricky .cap { display: none; }
+      #tricky .wild span { font-size: 9px; }
+      #tricky input { min-height: 24px; }
+      #stance { min-height: 30px; font-size: 12px; }
+      #told { top: calc(58px + env(safe-area-inset-top, 0px)); padding: 4px 12px 5px; }
+      #told .text { font-size: 15px; }
+      #told .small { font-size: 11px; }
+      #pops .pop { font-size: 19px; }
+      #pops .pop.trick { font-size: 24px; }
+      #backTo { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); padding: 8px 10px; gap: 6px; width: min(640px, calc(100vw - 32px)); }
+      #backTo .what { font-size: 13px; }
+      #backTo .ways { grid-template-columns: repeat(4, 1fr); gap: 4px; }
+      #backTo .ways button { min-height: 34px; padding: 3px 8px; }
+      #backTo .ways button b { font-size: 12.5px; }
+      #backTo .ways button span { display: none; }
+      #backTo .remember { min-height: 24px; font-size: 12px; }
+      #choose { padding: 14px 18px 16px; gap: 6px; }
+      #choose .what { font-size: 18px; }
+      #choose button { min-height: 40px; }
+    }
 
     /* Loading (asked: "add some kind of loading progress indicator that is shown when entering the page and it still loads"): the name
        over a bar that fills as the files come in and the run is made, what is being done under it, and how much of the files has come.

@@ -3185,7 +3185,7 @@ async function start() {
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
     if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (v) setView(v[1]);
-    else if (k === 'o' && orcsOn && document.body.classList.contains('mouse')) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
+    else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; });
   window.addEventListener('blur', () => { for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
@@ -3221,12 +3221,32 @@ async function start() {
     canvas.style.cursor = aim.on && inside ? 'none' : '';
   };
   const aiming = (e: PointerEvent) => e.pointerType === 'mouse' && mode === 'ride' && !menuOpen;
+  /**
+   * Shooting by touch (asked: "ok can we enable the guns and orcs mode also for mobile players"; "would it be then steer by tilt and aim
+   * and shoot by clicking?"): steered by tilting (or the stick, with a thumb), a finger held on the picture fires the gun at what is
+   * under it, and dragged, the gun follows it; let go, it stops. An orc within a fingertip of where it is held is aimed at itself, as a
+   * finger is broad and an orc far up the run small. Where the finger is, across and up the picture (-1 to 1); which, held.
+   */
+  const finger = { id: -1, x: 0, y: 0 };
+  const fingerAt = (e: PointerEvent) => { finger.x = (e.clientX / innerWidth) * 2 - 1; finger.y = 1 - (e.clientY / innerHeight) * 2; };
+  const fingerOff = (e: PointerEvent) => { if (e.pointerId === finger.id) { finger.id = -1; firing = false; } };
+  canvas.addEventListener('pointermove', (e) => { if (e.pointerId === finger.id) fingerAt(e); });
+  canvas.addEventListener('pointerup', fingerOff);
+  canvas.addEventListener('pointercancel', fingerOff);
+  canvas.addEventListener('lostpointercapture', fingerOff);
   canvas.addEventListener('pointermove', (e) => { overPicture = true; if (aiming(e)) aimAt(e); });
   canvas.addEventListener('pointerleave', () => { overPicture = false; letAimGo(); });
   canvas.addEventListener('pointerdown', (e) => {
     // (By touch, a tap on the picture while the run's end is at its work begins the next run at once, as a click does and Enter: a
     // phone has no Enter. Not in its first moment, where a finger may still be coming off the picture.)
     if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && cat && cat.t > 0.4) { restart(); return; }
+    // (By touch, carrying the gun: a finger held on the picture fires it there, `finger`.)
+    if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && !cat && armed()) {
+      finger.id = e.pointerId; fingerAt(e);
+      firing = true; shotClock = SHOT; gunSound.wake();
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
     if (!aiming(e) || e.button !== 0 || e.ctrlKey) return;
     if (cat) { restart(); return; }
     // (Held onto while the button is down, so that the brake, or the trigger, is not let go of where the pointer crosses a control.)
@@ -3271,15 +3291,17 @@ async function start() {
   // (Struck, an orc spatters its blood over the snow, a great deal of it, and a pool spreads where it falls: `slopeSplatter.ts`.)
   const splatter = new Splatter(scene, gunRng.fork('blood'), ground, (x, z) => normalAt(x, z, 0.5));
   const horde = new Horde(library, scene, rimAll, (at, push, size) => { splatter.spray(at, push, 56); splatter.pool(at, gunRng.range(1.1, 1.6) * size); });
+  // (Fewer at a time on a phone or a tablet, where each is a good deal more to draw: half as many.)
+  if (!matchMedia('(hover: hover) and (pointer: fine)').matches) horde.most = 14;
   rimAll(gun);
   gun.visible = false;
   /** How long between rounds; how far into the next the trigger has got; how far the last round kicked the gun up (1, just fired). */
   const SHOT = 60 / 700;
-  let firing = false, shotClock = 0, kick = 0;
+  let firing = false, shotClock = 0, kick = 0, gunHinted = false;
   /** Each human's poles, put away while it carries the gun. */
   const poleSets: [Who, Object3D[]][] = [['person', gear.filter((p) => p.parent?.name.startsWith('hand_'))], ['mounted', jockeyGear]];
   /** Whether the gun is carried: riding, on a computer, by a human (the skier alone, or the horse's rider). */
-  const armed = () => orcsOn && (mode === 'ride' || (mode === 'watch' && demoKind === 'orcs')) && who !== 'horse' && document.body.classList.contains('mouse');
+  const armed = () => orcsOn && (mode === 'ride' || (mode === 'watch' && demoKind === 'orcs')) && who !== 'horse';
   const ray = new Raycaster(), ndc = new Vector2(), toLook = new Matrix4(), ZERO = new Vector3(), Y = new Vector3(0, 1, 0);
   /** Where a line from `from` along `dir` (of length one) first meets the snow, within `most` metres; none, beyond. */
   const snowAlong = (from: Vector3, dir: Vector3, most: number): number => {
@@ -3334,6 +3356,8 @@ async function start() {
   const armUp = (dt: number, now: Now) => {
     const on = armed(), human = who === 'person' ? live : who === 'mounted' ? jockey : null, watching = mode === 'watch';
     document.body.classList.toggle('gun', on);
+    // (Riding with it by touch for the first time, how it is fired, said.)
+    if (on && mode === 'ride' && !gunHinted && !document.body.classList.contains('mouse') && !cat && !crash) { gunHinted = true; tell('Tommy gun', 'hold a finger on the picture to fire there', false, 3.5); }
     for (const [w, poles] of poleSets) for (const p of poles) p.visible = !(on && w === who);
     $('tally').hidden = !on;
     if (!on || !human) {
@@ -3364,9 +3388,20 @@ async function start() {
       target = best ?? rider.position.clone().addScaledVector(go, 30).setY(ground(rider.position.x + go.x * 30, rider.position.z + go.z * 30));
       firing = !!best;
     } else {
-      // What the guide's mark is over: the first orc or the snow along the line from the eye through it.
+      // What the guide's mark is over (or, by touch, the finger held on the picture, `finger`): the first orc or the snow along the
+      // line from the eye through it.
       const reach = aimReach(), x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
-      ray.setFromCamera(ndc.set((x * reach) / (innerWidth / 2), (y * reach) / (innerHeight / 2)), camera);
+      ndc.set((x * reach) / (innerWidth / 2), (y * reach) / (innerHeight / 2));
+      if (finger.id >= 0) {
+        ndc.set(finger.x, finger.y);
+        // (An orc within some forty-five points of the finger aimed at itself, the nearest to it.)
+        let near = 45 * 45;
+        for (const p of horde.where()) {
+          const s = p.clone().setY(p.y + 0.75).project(camera), dx = (s.x - finger.x) * innerWidth / 2, dy = (s.y - finger.y) * innerHeight / 2;
+          if (s.z < 1 && dx * dx + dy * dy < near) { near = dx * dx + dy * dy; ndc.set(s.x, s.y); }
+        }
+      }
+      ray.setFromCamera(ndc, camera);
       const eye = ray.ray.origin, look = ray.ray.direction;
       let far = Math.min(600, snowAlong(eye, look, 600));
       const met = horde.hit(eye, look, far);

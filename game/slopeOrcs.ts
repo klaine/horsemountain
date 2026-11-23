@@ -56,6 +56,8 @@ export class Horde {
   private kind: Promise<{ body: Object3D; moves: Map<string, { clip: AnimationClip }> }> | null = null;
   /** How many have been brought down this run. */
   downed = 0;
+  /** How many there may be at once, coming, fallen and waiting; a horde comes while fewer than two fifths of as many are coming. */
+  most = MOST;
   /** `onFall`, told where each falls (its middle), how it was thrown and how large it is, for its blood to be spilt. */
   constructor(private readonly library: FigureLibrary, private readonly scene: Scene, private readonly dress: (o: Object3D) => void, private readonly onFall?: (at: Vector3, push: Vector3, size: number) => void) {}
 
@@ -110,12 +112,12 @@ export class Horde {
 
   /** A frame on, by `dt`: more come where there are too few ahead; each comes on, or lies where it fell. */
   update(dt: number, g: HordeGround, q: Quarry): void {
-    if (this.orcs.length < MOST && !this.making) { this.making = true; void this.make().finally(() => { this.making = false; }); }
+    if (this.orcs.length < this.most && !this.making) { this.making = true; void this.make().finally(() => { this.making = false; }); }
     // A horde comes, from well ahead, when there are too few coming.
     // (Where from is drawn by chance only when a horde may come: drawn every frame, which hordes came where went by how many frames
     // had been drawn, and the orc hunt was never twice the same.)
     const coming = this.orcs.filter((b) => b.state === 'come').length, free = this.orcs.filter((b) => b.state === 'gone');
-    const s0 = coming < 10 && free.length >= 3 ? q.down + this.rng.range(...AHEAD) : Infinity;
+    const s0 = coming < Math.round(this.most * 0.4) && free.length >= 3 ? q.down + this.rng.range(...AHEAD) : Infinity;
     if (s0 < g.length - 40) {
       const [lo, hi] = g.edges(s0), mid = this.rng.range(lo + 3, hi - 3), n = Math.min(free.length, this.rng.int(4, 9));
       for (let k = 0; k < n; k++) {
