@@ -85,7 +85,11 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   it climbs away over the mountain with you hanging from it, kicking, and lets you go short of the top, so that you fall, your
   parachute opens and lets you down onto your skis there. Or the ground cracks and a tower of ice rises out of it under you, a ski
   jump's in-run of ice and snow falling from its top toward the top of the run; you drop in, crouched as a ski jumper is, take off
-  from its table and fly all the way back as a ski jumper flies, laid out over your skis, and your parachute lets you down at the top. The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
+  from its table and fly all the way back as a ski jumper flies, laid out over your skis, and your parachute lets you down at the top.
+  And choosing another run while you ride one (on the map, `M`), you are taken there the same way: the new run is made while you ride
+  on, *Off to* it said over the picture, and then one of the ways that carry you through the air (the one you keep, if it is one, or
+  one by chance) takes you to its top where it lies in the world, kilometres off, over the country between; the old run is let go of
+  once you are down. The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
   Enter, a click, or on a phone a tap, begins the next run at once. Riding wins points, thrown up over the picture where
   they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the

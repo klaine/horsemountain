@@ -195,7 +195,10 @@ const loading = (() => {
   /** A moment for the page to be drawn, before work that holds it up. */
   const paint = () => new Promise<void>((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 80); });
   /** Work after opening (a slope, a demo run): the screen over the picture while it is done, the bar sweeping. */
+  /** Made quietly, the screen not shown (`hush`): a run made while the rider rides on to it. */
+  let hushed = false;
   const busy = (text: string): Promise<void> => {
+    if (hushed) return paint();
     if (opening) { say.textContent = text; return paint(); }
     box.hidden = false; box.classList.remove('gone', 'failed'); box.classList.add('waiting'); say.textContent = text;
     fill.style.transform = 'scaleX(0)';
@@ -204,6 +207,7 @@ const loading = (() => {
   };
   return {
     busy,
+    hush(on: boolean) { hushed = on; },
     /** The stage of opening now begun, said, and a moment for it to be shown; after opening, said as other work is. */
     stage(name: Stage, text?: string): Promise<void> {
       const i = STAGES.findIndex(([n]) => n === name), now = performance.now();
@@ -457,6 +461,10 @@ async function start() {
   // The land: a world's run, from its slice beside the page; or the groomed slope (`?land=groomed`, or when the slice cannot be had).
   // (Its slice is fetched from beside the page, or, in a page made whole, carried in it.)
   const lands = new Map<string, Land>();
+  /** Where each run's top lies in the world, level (`landOf`): the scene is laid about it. */
+  const topOf = new WeakMap<Land, Vector3>();
+  /** How far the land now ridden is stood from where it was laid (ridden off to from another, `trip`), and where its top lies in the world. */
+  let landShift = new Vector3(), landTop: Vector3 | null = null;
   /**
    * What has been taken out of the scene, to be let go of on the graphics card at the start of the next frame: a land left, the
    * inside-out land's old sheets, a kicker taken down. (Not at once: the frame before may still be making its shaders ready, `warmSoon`,
@@ -512,11 +520,14 @@ async function start() {
       made = slice ? sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined) : await landOf('groomed');
       // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
       if (slice && where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
+      // (Where its top lies in the world: each run's land is laid with its own top at the middle of the scene.)
+      if (slice) topOf.set(made, new Vector3(slice.run.points[0][0], 0, slice.run.points[0][1]));
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
     lands.set(key, made);
     return made;
   };
   let land = await landOf(landKind);
+  landTop = topOf.get(land) ?? null;
   /** Shows a land: its snow and country, and the air's haze as far as it reaches. */
   const showLand = () => {
     for (const l of lands.values()) l.group.removeFromParent();
@@ -1663,6 +1674,8 @@ async function start() {
   let clearGun: (() => void) | null = null;
   /** The run again from the top, going a little. */
   const restart = () => {
+    // (Come down at another run's top: that the run now, the old let go of.)
+    if (trip?.swapped) arrive();
     // (The land as it lies first: the ride begins again at its top.)
     showEnding = false;
     unflip();
@@ -1678,6 +1691,100 @@ async function start() {
     reflect();
   };
 
+  // ---------------------------------------------------------------- riding off to another run
+  /**
+   * Another run chosen while riding (asked: "can we use these transitions also when switching a run? first we load the new run after
+   * player selection while at the current spot, then transition then landing and remove old place from memory"): the new run's land
+   * made where the rider is, riding on, the loading screen not shown; once it is made and the rider is on the snow, taken there by one of
+   * the ways back to the top that carry it (the one the player keeps, if it is one, or one by chance; not the cart nor the land turned
+   * inside out, which ride back up the run ridden): to the new run's top where it lies in the world, from the run ridden. Past halfway
+   * the old land put away and the new one shown; down at its top, the run begun there, and the old one let go of.
+   *
+   * Each run's land is laid with its own top at the middle of the scene; so the new one is stood where it lies from the old one
+   * (`shifted`), and stays there, the scene laid about the old run's top, until a run is chosen in the menu again.
+   */
+  let trip: { kind: LandKind; land: Land | null; base: Land | null; from: Land; way: Ending; top: Vector3; downhill: Vector3; started: boolean; swapped: boolean; start: Vector3 } | null = null;
+  /** A land stood `off` from where it was laid: what it is asked and what it says moved by as much, and what is drawn of it. */
+  const shiftedLand = (base: Land, off: Vector3): Land => {
+    const group = new Group(), ox = off.x, oz = off.z, out = (p: Vector3) => p.clone().sub(off);
+    group.position.copy(off);
+    group.add(base.group);
+    return {
+      ...base, group,
+      height: (x, z) => base.height(x - ox, z - oz),
+      snowAt: base.snowAt && ((x, z) => base.snowAt!(x - ox, z - oz)),
+      treeNear: base.treeNear && ((x, z, r) => { const t = base.treeNear!(x - ox, z - oz, r); return t && { ...t, x: t.x + ox, z: t.z + oz }; }),
+      roam: base.roam && ((x, z) => base.roam!(x - ox, z - oz)),
+      frame: (x, z, hint) => base.frame(x - ox, z - oz, hint),
+      at: (s_, left) => { const a = base.at(s_, left); return { ...a, x: a.x + ox, z: a.z + oz }; },
+      keepAbout: (x, z) => base.keepAbout(x - ox, z - oz),
+      lod: base.lod && ((x, z) => base.lod!(x - ox, z - oz)),
+      trees: base.trees && ((eye, seconds) => base.trees!(out(eye), seconds)),
+    };
+  };
+  /** The ways that carry the rider through the air, which can take it to another run. */
+  const carries = (e: Ending) => e !== 'invert' && e !== 'cart' && e !== 'revert';
+  /** Off to run `kind`: its land made quietly where the rider is; the way there chosen. */
+  const travelTo = async (kind: LandKind) => {
+    const from = land, label = runs.find((r) => r.id === kind)?.label ?? kind;
+    const rng = endRng.fork(`trip ${kind} ${ride.time.toFixed(2)}`), flying = ENDINGS.filter(carries);
+    const way: Ending = backBy !== 'ask' && backBy !== 'random' && carries(backBy) ? backBy : rng.pick(flying);
+    trip = { kind, land: null, base: null, from, way, top: new Vector3(), downhill: new Vector3(), started: false, swapped: false, start: new Vector3() };
+    tell(`Off to ${label}`, 'making the mountain ready', false, 2.5);
+    loading.hush(true);
+    let base: Land;
+    try { base = await landOf(kind); } finally { loading.hush(false); }
+    const fromTop = landTop, toTop = topOf.get(base);
+    if (!trip || !fromTop || !toTop) { trip = null; void setLand(kind); return; }
+    // (Stood where it lies from the land ridden, as that one is stood.)
+    const off = landShift.clone().add(toTop.clone().sub(fromTop)), stood = shiftedLand(base, off), top = stood.at(0, 0);
+    stood.group.visible = false;
+    scene.add(stood.group);
+    Object.assign(trip, { land: stood, base, top: new Vector3(top.x, stood.height(top.x, top.z), top.z), downhill: runDir(stood.frame(top.x, top.z, 0)) });
+    warmWith.add(stood.group);
+    warmSoon();
+  };
+  /**
+   * Riding off to another run, a step on: once its land is made, and the rider is on the snow (or fallen), taken by the way chosen;
+   * past halfway there, the old land put away and the new one shown.
+   */
+  const stepTravel = () => {
+    const t = trip;
+    if (!t?.land || mode !== 'ride') return;
+    if (!t.started && !cat && !air && !carting && !inside) {
+      t.started = true; backOnto = null; ending = t.way;
+      t.start.copy(focus());
+      WAYS[t.way].begin();
+      return;
+    }
+    if (t.started && !t.swapped && cat?.held && cat.at.distanceTo(t.top) < cat.at.distanceTo(t.start)) {
+      // (The old land put away; the new one shown, lit as it is, its kickers its own.)
+      t.from.group.visible = false;
+      t.land.group.visible = true;
+      land = t.land;
+      sunFrom.set(...land.sun).normalize();
+      sky.intensity = land.sky;
+      uFogNear.value = land.fog[0]; uFogFar.value = land.fog[1];
+      camera.far = land.fog[1] + 400;
+      camera.updateProjectionMatrix();
+      dropKickers();
+      t.swapped = true;
+    }
+  };
+  /** Down at the new run's top: it the run ridden now, the old one let go of. */
+  const arrive = () => {
+    const t = trip!, old = t.from;
+    trip = null;
+    landKind = t.kind;
+    landShift = (t.land!.group.position as Vector3).clone();
+    landTop = topOf.get(t.base!) ?? null;
+    old.group.removeFromParent();
+    for (const [key, l] of lands) if (l !== t.base && key !== 'groomed') { if (l.dispose) toLetGo.push(l.dispose); demos.delete(l); lands.delete(key); }
+    demos.delete(old);
+    for (const k of [...sliceTexts.keys()]) if (k !== t.kind) { sliceTexts.delete(k); fetching.delete(`${slices}${k}.json`); }
+    buildFold();
+    try { history.replaceState(null, '', t.kind === opensOn ? location.pathname + location.search : `#${t.kind}`); } catch { /* (not where the page may not change its address) */ }
+  };
   /** Thrown back onto the piste out of bounds (`backOnto`), down there at `to`: the run going on from it, its time, points and tracks kept. */
   const resumeAt = (to: { s: number; left: number }) => {
     const time = ride.time;
@@ -1953,8 +2060,10 @@ async function start() {
   /** What every run's end begins with, `down` the run with its middle at `at`: where the run begins and the way down it; the view as it is. */
   const endingFrom = (down: number, at: Vector3): Omit<Catapult, 'by' | 'arm' | 'whirl' | 'blast' | 'saucer' | 'snowman' | 'plane' | 'ice' | 'flip' | 'cart' | 'takes' | 'gather'> => {
     // (Out of bounds, the nearest snow of the marked piste instead of the top, `backOnto`.)
-    const top = backOnto ? land.at(backOnto.s, backOnto.left) : land.at(0, 0), landing = new Vector3(top.x, ground(top.x, top.z), top.z);
-    const downhill = runDir(land.frame(top.x, top.z, backOnto?.s ?? 0));
+    const top = backOnto ? land.at(backOnto.s, backOnto.left) : land.at(0, 0);
+    // (Riding off to another run, its top, where it lies: `trip`.)
+    const landing = trip?.land ? trip.top.clone() : new Vector3(top.x, ground(top.x, top.z), top.z);
+    const downhill = trip?.land ? trip.downhill.clone() : runDir(land.frame(top.x, top.z, backOnto?.s ?? 0));
     const look = camera.getWorldDirection(new Vector3()).multiplyScalar(10).add(camera.position);
     return {
       t: 0, from: null, held: false, fly: null, flown: 0, letGo: new Quaternion(), landing, downhill, down, at: at.clone(), spun: null, tumble: { flip: 0, spin: 0 },
@@ -2170,7 +2279,7 @@ async function start() {
     const way = over.clone().sub(catches).setY(0);
     if (way.lengthSq() < 1) way.copy(toTop);
     way.normalize();
-    const far = Math.hypot(over.x - catches.x, over.z - catches.z), speed = clamp(far / 6, 45, 90);
+    const far = Math.hypot(over.x - catches.x, over.z - catches.z), speed = Math.max(clamp(far / 6, 45, 90), far / 12);
     // (Let go of short of the top by as far as its drop carries it on.)
     const drop = dropFrom(speed, over.y - hang - (begun.landing.y + mid)), lets = over.clone().addScaledVector(way, -drop.on[drop.on.length - 1]);
     const from = catches.clone().addScaledVector(way, -speed * PLANE_T.comes).addScaledVector(UP, 14).addScaledVector(across, -side * 25);
@@ -3914,7 +4023,10 @@ async function start() {
     dropKickers();
     landKind = kind;
     resetScore();
+    // (Laid at the middle of the scene again: whatever land was stood elsewhere, ridden off to, taken out of it.)
+    land.group.removeFromParent();
     land = next;
+    landShift = new Vector3(); landTop = topOf.get(next) ?? null;
     showLand();
     // Every run left behind let go of (asked: "can we add new runs without much performance impact"): its land, the demo runs flown on
     // it, its slice; so that the page holds one run at a time however many there are to choose from, and however many are visited.
@@ -5466,9 +5578,12 @@ async function start() {
   };
   /** A run chosen on the map (or the groomed slope), ridden from its top. */
   const rideOn = (id: string) => {
+    // (Riding a world's run, another of them chosen: ridden off to it, `travelTo`.)
+    const riding = mode === 'ride' && landKind !== 'groomed' && id !== 'groomed' && id !== landKind && !trip && !cat && !carting && !inside;
     heldRide = false; playing = true;
     chosen(); setMode('ride');
-    if (id !== landKind) void setLand(id); else restart();
+    if (riding) void travelTo(id);
+    else if (id !== landKind) void setLand(id); else restart();
   };
   $('watchDemo').onclick = () => { heldRide = false; playing = true; chosen(); setDemoKind('tricks'); setMode('watch'); };
   $('watchShow').onclick = () => { heldRide = false; playing = true; chosen(); setDemoKind('show'); setMode('watch'); };
@@ -5531,7 +5646,8 @@ async function start() {
       if (!cat?.held) for (let i = 0; i < steps; i++) { askRide(); at = stepRide(dt / steps); }
       // (A run over: fallen and lain still, or stopped at the foot of the run; and the arm comes for it.)
       // (Or, the run to end in the whirlwind, ridden into it.)
-      if (playing && !cat && ((crash && atRest()) || (ride.ended && ride.speed < 0.5) || riddenInto())) beginEnding();
+      if (playing && !cat && !trip && ((crash && atRest()) || (ride.ended && ride.speed < 0.5) || riddenInto())) beginEnding();
+      if (playing && !menuOpen) stepTravel();
       if (cat) at = stepCatapult(playing && !menuOpen ? dt : 0, at);
       stepSpent(playing && !menuOpen ? dt : 0);
       stepWhirlwind(playing && !menuOpen ? dt : 0);
@@ -5651,6 +5767,9 @@ async function start() {
     // (Where a point on the picture, `x` across and `y` down in its pixels, looks out to from the eye: for a script to tell a shot aimed
     // there from one gone elsewhere.)
     rayAt: (x: number, y: number) => { const r = canvas.getBoundingClientRect(), v = new Vector2(((x - r.left) / r.width) * 2 - 1, 1 - ((y - r.top) / r.height) * 2), rc = new Raycaster(); rc.setFromCamera(v, camera); const far = snowAlong(rc.ray.origin, rc.ray.direction, 600); return { from: rc.ray.origin.toArray(), dir: rc.ray.direction.toArray(), snow: Number.isFinite(far) ? rc.ray.origin.clone().addScaledVector(rc.ray.direction, far).toArray() : null, rider: rider.position.toArray() }; },
+    // (A run chosen as the map chooses one: riding a world's run, ridden off to it, `trip`; and the trip as it is.)
+    rideTo: (id: string) => rideOn(id),
+    trip: () => trip && { kind: trip.kind, way: trip.way, made: !!trip.land, started: trip.started, swapped: trip.swapped },
     // (The speed check, on or off, for trying the kickers without it.)
     speedCheck: (on: boolean) => { speedChecks = on; },
     landings: (i: number, size: number, speeds: number[]) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return speeds.map((v) => { const o = kickFlight(k, kickDims(size), v); return { v, u: +o.u.toFixed(1), f: +o.f.toFixed(2), blow: +o.blow.toFixed(1) }; }); },
