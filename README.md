@@ -62,7 +62,7 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   to the time the jump gives it, to come round about a third of a second before the snow. Over the slider, *180* (`X`; lit
   while you ride switch) turns you round on the snow, to switch or back, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. And over that, *Skate* (held, or `Z`) skates you on, a stride
   with each leg in turn, at any speed: a little more speed, the less the faster you go, none past some 86 km/h. A run ends after a fall (a body sliding on down steep snow dug in after a second and a half, and soon stopped) or at
-  the foot of the run, and you are asked how to get back to the top: one of seven ways, or *Random*. Tick *Remember my choice* and
+  the foot of the run, and you are asked how to get back to the top: one of nine ways, or *Random*. Tick *Remember my choice* and
   you are not asked again; *Back to the top* in the menu changes it (or sets it to be asked again). By chance, each way comes once
   in every round of them, in an order shuffled afresh. A huge robot arm rises out of
   the snow, takes the skier up in its claw (a horse and its rider together, the rider put back in the saddle), swings round and throws
@@ -81,7 +81,11 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   wherever you fall on the way) the land folds back the right way up, and the next run begins. Or a rocket cart comes down beside
   you under a parachute; you get on, its engine lights, and you drive it back up the run, tucked for more push, to the top, where the
   next run begins (fall off, and another comes down). (Neither of the last two on the groomed slope, which has no top to come back
-  to.) The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
+  to.) Or a small high-winged plane comes in low over the snow, a hook trailing on a line under it, and snatches you up as it passes;
+  it climbs away over the mountain with you hanging from it, kicking, and lets you go short of the top, so that you fall, your
+  parachute opens and lets you down onto your skis there. Or the ground cracks and a tower of ice rises out of it under you, a ski
+  jump's in-run of ice and snow falling from its top toward the top of the run; you drop in, crouched as a ski jumper is, take off
+  from its table and fly all the way back as a ski jumper flies, laid out over your skis, and your parachute lets you down at the top. The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
   Enter, a click, or on a phone a tap, begins the next run at once. Riding wins points, thrown up over the picture where
   they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the
@@ -182,7 +186,7 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   about the run as the game grows them (its walk over the world's `treesIn` and `growTrees`, in winter, and spruce where it would grow
   oaks and ashes), whole near the eye, more simply further off and painted beyond, grown in blocks about the eye as it goes;
   `game/slopeArm.ts`, the robot arm at the run's end, the parachute, and the throw's flight; `game/slopeStorm.ts`, the tornado,
-  `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, and
+  `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, `game/slopePlane.ts`, the airplane, `game/slopeIce.ts`, the ice jump, and
   `game/slopeInvert.ts`, the land turned inside out, and `game/slopeCart.ts`, the rocket cart, the run's other ends; `game/slopeGun.ts`, the tommy gun, its
   tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the orcs coming up the run;
   `game/slopeSplatter.ts`, their blood on the snow; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.

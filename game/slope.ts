@@ -67,6 +67,8 @@ import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slope
 import { Tornado } from './slopeStorm';
 import { Blast } from './slopeBlast';
 import { SAUCER, Saucer } from './slopeSaucer';
+import { PLANE, Plane } from './slopePlane';
+import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
@@ -1729,14 +1731,14 @@ async function start() {
    * again at its top. Which of the six a run ends in is chosen by chance as it begins, each in turn in a shuffled round of them (on the
    * groomed slope, which has no top to ride back to, of the five others) (`__slope.ending` chooses).
    */
-  const robot = new RobotArm(), chute = new Parachute(), whirl = new Tornado(), blast = new Blast(new Rng('blast')), saucer = new Saucer(), snowman = new Snowman(new Rng('snowman'));
+  const robot = new RobotArm(), chute = new Parachute(), whirl = new Tornado(), blast = new Blast(new Rng('blast')), saucer = new Saucer(), snowman = new Snowman(new Rng('snowman')), plane = new Plane(), iceJump = new IceJump(new Rng('ice jump'));
   const folding = new Folding(powderMap, snowMap), cart = new RocketCart();
   const armRng = new Rng('robot arm'), whirlRng = new Rng('whirlwind'), blastRng = new Rng('blast at'), saucerRng = new Rng('saucer flight'), snowmanRng = new Rng('snowman at');
   const endRng = new Rng('run end');
-  scene.add(robot.group, chute.group, whirl.group, blast.group, saucer.group, snowman.group, folding.group, cart.group);
+  scene.add(robot.group, chute.group, whirl.group, blast.group, saucer.group, snowman.group, folding.group, cart.group, plane.group, iceJump.group);
   /** The ways a run may end; and, not dealt, the land turned back the right way up once the run is ridden back to its top. */
-  type Ending = 'arm' | 'whirlwind' | 'blast' | 'saucer' | 'snowman' | 'invert' | 'cart' | 'revert';
-  const ENDINGS: Ending[] = ['arm', 'whirlwind', 'blast', 'saucer', 'snowman', 'invert', 'cart'];
+  type Ending = 'arm' | 'whirlwind' | 'blast' | 'saucer' | 'snowman' | 'invert' | 'cart' | 'plane' | 'ice' | 'revert';
+  const ENDINGS: Ending[] = ['arm', 'whirlwind', 'blast', 'saucer', 'snowman', 'invert', 'cart', 'plane', 'ice'];
   /** Whether a way back is ridden back up the run to its top: not on the groomed slope, which has no top to come back to. */
   const needsTop = (e: Ending | 'random' | null) => e === 'invert' || e === 'cart';
   /**
@@ -1780,7 +1782,8 @@ async function start() {
   const WAY_NAMES: [Dealt | 'random', string, string][] = [
     ['arm', 'Robot arm', 'picked up and thrown'], ['whirlwind', 'Tornado', 'carried up and flung'], ['blast', 'Explosion', 'blown sky high'],
     ['saucer', 'Flying saucer', 'beamed up and flown back'], ['snowman', 'Snowman', 'driven like a golf ball'], ['invert', 'Inside out', 'ride the world upside down'],
-    ['cart', 'Rocket cart', 'drive it back up'], ['random', 'Random', 'a surprise'],
+    ['cart', 'Rocket cart', 'drive it back up'], ['plane', 'Airplane', 'hooked and dropped'], ['ice', 'Ice jump', 'a ski jump out of the ground'],
+    ['random', 'Random', 'a surprise'],
   ];
   let asking = false;
   /** The menu's choice shown as it is (set where the menu is made). */
@@ -1872,6 +1875,25 @@ async function start() {
     carries: number; flies: number; over: Vector3; climb: number; lowers: number; done: number;
   }
   /**
+   * The plane's own (asked: "a small cessna style airplane flies above and catches player with a hook that is released at the
+   * destination (or bit before) and the player drops to the destination"): where the hook comes in from and where it catches what it
+   * takes (its middle), and where it lets it go, over the run short of the top; the way it flies there, level, and which side the view
+   * stands; how fast it flies, and how much higher than the straight way it climbs at the most; when it catches it, when it lets go,
+   * and when what it let go of is down; and the drop, worked out ahead: each step's height under where it was let go, how far on it has
+   * gone, and when its canopy opens.
+   */
+  interface PlaneTake {
+    from: Vector3; catches: Vector3; lets: Vector3; way: Vector3; side: number; speed: number; climb: number;
+    caught: number; released: number; down: number; drop: { fall: number[]; on: number[]; opens: number };
+  }
+  /**
+   * The ice jump's own (asked: "an ice column rises from below the player from inside ground into high heights along with a huge ski
+   * jump slope (mäkihyppy) from where the player speeds down and jumps all the way to back"): where its tower stands (on the snow under
+   * what it takes), the way its in-run goes, toward the top of the run, and which side the view stands; when it has risen, when what it
+   * took drops into the in-run, and when it is off the table's lip.
+   */
+  interface IceTake { foot: Vector3; toward: Vector3; side: number; risen: number; drops: number; off: number }
+  /**
    * The snowman's own: where it stands, facing what it drives, and where its hands are risen; the fir's length from its hands to its
    * head; the plane of its swing (from its hands down to what it drives, and on toward the top of the run); the middle of what it drives;
    * the fir's angle as it meets it; and which way its middle turns as it swings toward the top.
@@ -1894,7 +1916,7 @@ async function start() {
    */
   interface Catapult {
     t: number; by: Ending;
-    arm: ArmTake | null; whirl: WhirlTake | null; blast: BlastTake | null; saucer: SaucerTake | null; snowman: SnowmanTake | null; flip: FlipTake | null; cart: CartTake | null;
+    arm: ArmTake | null; whirl: WhirlTake | null; blast: BlastTake | null; saucer: SaucerTake | null; snowman: SnowmanTake | null; plane: PlaneTake | null; ice: IceTake | null; flip: FlipTake | null; cart: CartTake | null;
     takes: number; gather: [number, number];
     from: Record<string, Vector3>[] | null; held: boolean;
     fly: Throw | null; flown: number; letGo: Quaternion; landing: Vector3; downhill: Vector3; down: number; at: Vector3;
@@ -1904,7 +1926,7 @@ async function start() {
     /** How long since it was let go. */
     loose: number;
   }
-  const NONE = { arm: null, whirl: null, blast: null, saucer: null, snowman: null, flip: null, cart: null };
+  const NONE = { arm: null, whirl: null, blast: null, saucer: null, snowman: null, flip: null, cart: null, plane: null, ice: null };
   let cat: Catapult | null = null;
   /** The parachute left on the snow at the top as the run begins, spent, for a while: where it came down, how long since, how big. */
   let spent: { riser: Vector3; up: Vector3; t: number; radius: number; reach: number; behind: Vector3 } | null = null;
@@ -1929,7 +1951,7 @@ async function start() {
   /** What it takes, where it lies or stands: a fallen horse and its rider both, from between them. */
   const takenAt = () => (crash ? crash.dolls.reduce((p, d) => p.add(d.doll.middle()), new Vector3()).divideScalar(crash.dolls.length) : rider.position.clone());
   /** What every run's end begins with, `down` the run with its middle at `at`: where the run begins and the way down it; the view as it is. */
-  const endingFrom = (down: number, at: Vector3): Omit<Catapult, 'by' | 'arm' | 'whirl' | 'blast' | 'saucer' | 'snowman' | 'flip' | 'cart' | 'takes' | 'gather'> => {
+  const endingFrom = (down: number, at: Vector3): Omit<Catapult, 'by' | 'arm' | 'whirl' | 'blast' | 'saucer' | 'snowman' | 'plane' | 'ice' | 'flip' | 'cart' | 'takes' | 'gather'> => {
     // (Out of bounds, the nearest snow of the marked piste instead of the top, `backOnto`.)
     const top = backOnto ? land.at(backOnto.s, backOnto.left) : land.at(0, 0), landing = new Vector3(top.x, ground(top.x, top.z), top.z);
     const downhill = runDir(land.frame(top.x, top.z, backOnto?.s ?? 0));
@@ -2039,6 +2061,218 @@ async function start() {
     return { down: ride.down, left: ride.left, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
   };
   /**
+   * The ice jump's: how long its tower takes to rise; how long it stands there risen before what it took drops in; how quickly that
+   * gathers speed down the in-run (metres a second, each second); and how high over its foot the tower is built at the least, and
+   * clear of the land under the table at the least.
+   */
+  const ICE_T = { rises: 3.0, waits: 0.7, pull: 7.5, least: 55, clear: 14 };
+  /** The ice jump's tower risen under what it takes, its in-run toward the top of the run, so tall that the table stands clear of the land under it. */
+  const beginIce = () => {
+    const { on, begun, toTop, side } = takenFor();
+    // (Its table so far along the way to the top as the in-run reaches, and that much higher, the land rising toward the top.)
+    const reach = ICE.inrun * Math.cos(ICE.steep) + ICE.curve + ICE.flat, drop = ICE.inrun * Math.sin(ICE.steep) + ICE.curve * Math.sin((ICE.steep + ICE.table) / 2) + ICE.flat * Math.sin(ICE.table);
+    let rises = 0;
+    for (let k = 0.2; k <= 1.001; k += 0.2) { const q = on.clone().addScaledVector(toTop, reach * k); rises = Math.max(rises, ground(q.x, q.z) - on.y); }
+    iceJump.build(Math.max(ICE_T.least, rises + drop + ICE_T.clear));
+    iceJump.place(on, toTop, 0);
+    const risen = ICE_T.rises, drops = risen + ICE_T.waits, off = drops + Math.sqrt((2 * iceJump.length) / ICE_T.pull);
+    cat = { ...begun, by: 'ice', ...NONE, ice: { foot: on.clone(), toward: toTop.clone(), side, risen, drops, off }, takes: 0.15, gather: [0.15, 0.7] };
+  };
+  /** The ice jump a step on: rising out of the snow, snow and ice thrown up about its foot as it does; then standing. */
+  const iceStep = (c: Catapult, dt: number) => {
+    const k = c.ice!, rise = smooth(c.t / k.risen);
+    iceJump.place(k.foot, k.toward, rise);
+    if (dt > 0 && rise > 0.01 && rise < 0.97) snowBurst(k.foot, ICE.column + 2.5, Math.round(dt * 260), 6);
+    if (c.t > k.off + 5) iceJump.hide();
+  };
+  /**
+   * What the ice jump took: stood on its tower's top as it rises, facing down the in-run; dropped in, crouched as a ski jumper is in the
+   * in-run, sliding down the track faster and faster to the table's lip.
+   */
+  const iceHold = (c: Catapult) => {
+    const k = c.ice!, mid = middleOf();
+    const s = c.t < k.drops ? 0 : 0.5 * ICE_T.pull * (c.t - k.drops) ** 2, { at, dir } = iceJump.track(s);
+    const left = UP.clone().cross(dir).normalize(), up = dir.clone().cross(left).normalize();
+    rider.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(left, up, dir));
+    rider.position.copy(at);
+    rider.updateMatrixWorld(true);
+    const inrun = smooth((c.t - k.drops + 0.4) / 0.5);
+    skier.ride({ s: 0, ski: 0, tuck: inrun, brake: 0, tall: 0.3 * (1 - inrun), flickL: 0, flickR: 0 });
+    return at.clone().addScaledVector(up, mid);
+  };
+  /**
+   * The ice jump's shots: from off to the side and a little up the run, low, the tower rising out of the snow with what it took on top;
+   * then alongside the in-run, looking down it, what it took dropping in and speeding down to the lip. (Off the lip, as the throw is.)
+   */
+  const iceShot = (c: Catapult, dt: number) => {
+    const k = c.ice!, e = c.eye, mid = c.at, across = k.toward.clone().cross(UP).multiplyScalar(k.side);
+    const tall = iceJump.tall, rise = smooth(c.t / k.risen);
+    const want = standCamera(k.foot.clone().addScaledVector(across, 42 + 0.4 * tall).addScaledVector(k.toward, 18).addScaledVector(UP, 4), 2, k.foot);
+    const target = k.foot.clone().addScaledVector(UP, 0.6 * tall * rise + 2);
+    const eye = e.start.clone().lerp(want, smooth(c.t / 1.3));
+    // (Down the in-run: from the side of it, a little behind and well above what slides down it, kept along with it: from lower, the rail
+    // along the deck's edge hid a skier crouched in the in-run.)
+    const slide = smooth((c.t - k.drops + 0.6) / 1.2), alongside = mid.clone().addScaledVector(across, 14).addScaledVector(k.toward, -10).addScaledVector(UP, 9);
+    // (Not inside the tower: kept out from its axis.)
+    const fromAxis = alongside.clone().sub(k.foot).setY(0), most = ICE.column + 6;
+    if (fromAxis.length() < most) alongside.addScaledVector(fromAxis.lengthSq() > 1e-4 ? fromAxis.normalize() : across, most - fromAxis.length());
+    eye.lerp(alongside, slide);
+    target.lerp(mid.clone().addScaledVector(k.toward, 6), slide);
+    e.at.copy(eye);
+    if (!e.started) e.rel.copy(e.look).sub(mid);
+    e.rel.lerp(target.sub(mid), ease(dt, 4) * turnIn(c));
+    e.look.copy(mid).add(e.rel);
+    camera.position.copy(e.at);
+    const g = ground(mid.x, mid.z);
+    return mid.y - g > 30 ? mid.clone().setY(g) : mid.clone();
+  };
+  /**
+   * The plane's: how long it comes in over before it catches; how far its line trails back from straight down as it flies (radians);
+   * how high over the top of the run it lets go; how long what it lets go of falls before its canopy opens; and how long the plane flies
+   * on after it is down, before the run begins.
+   */
+  const PLANE_T = { comes: 3.6, trail: 0.3, over: 40, free: 1.0, after: 0.6, sink: 9 };
+  /** How far over its middle the hook takes what it catches: a person by the harness between its shoulders, a horse by its saddle. */
+  const hangOf = () => (who === 'person' ? 0.45 : 0.95);
+  /** Where the plane's hook is at `t`: coming in, straight and level; carrying, climbing away over the land between and on; let go, on and up. */
+  const hookAt = (p: PlaneTake, t: number) => {
+    if (t < p.caught) return p.from.clone().lerp(p.catches, t / p.caught);
+    if (t < p.released) { const u = (t - p.caught) / (p.released - p.caught); return p.catches.clone().lerp(p.lets, u).addScaledVector(UP, p.climb * Math.sin(Math.PI * u)); }
+    const after = t - p.released;
+    return p.lets.clone().addScaledVector(p.way, p.speed * after).addScaledVector(UP, 6 * after + 2 * after * after);
+  };
+  /**
+   * Drops what it lets go of, as it is let go of going `speed` along the way: where it is under the point it was let go `t` seconds
+   * after, as a step's height under it and how far on (`drop`), until it is down on the snow `high` metres under where it was let go.
+   * Falling free at first, going on as the air slows it; then its canopy opening, the fall taken out of it and the way on slowed, as
+   * the arm's throw's canopy does (`Throw`), down slowly the last few metres.
+   */
+  const dropFrom = (speed: number, high: number) => {
+    const dt = 1 / 120, fall = [0], on = [0];
+    let y = 0, x = 0, vy = 0, vx = speed, t = 0;
+    while (y < high && fall.length < 120 * 40) {
+      t += dt;
+      if (t < PLANE_T.free) { vy += G * dt; vx *= Math.exp(-dt / 2.5); }
+      else { const left = high - y, want = left > 6 ? PLANE_T.sink : 2.4 + (PLANE_T.sink - 2.4) * (left / 6); vy += (want - vy) * (1 - Math.exp(-3.4 * dt)); vx *= Math.exp(-1.7 * dt); }
+      y = Math.min(high, y + vy * dt); x += vx * dt;
+      fall.push(y); on.push(x);
+    }
+    return { fall, on, opens: PLANE_T.free };
+  };
+  /**
+   * The plane come in low from down the run, flying toward its top, its hook at the height of what it takes: to snag it as it passes
+   * over, carry it away up the mountain hanging from its line, and let it go short of the top, so far short that its fall and its
+   * canopy bring it down there.
+   */
+  const beginPlane = () => {
+    const { on, begun, toTop, across, side } = takenFor(), mid = middleOf();
+    const hang = hangOf(), catches = on.clone().addScaledVector(UP, mid + hang), over = begun.landing.clone().addScaledVector(UP, mid + PLANE_T.over);
+    const way = over.clone().sub(catches).setY(0);
+    if (way.lengthSq() < 1) way.copy(toTop);
+    way.normalize();
+    const far = Math.hypot(over.x - catches.x, over.z - catches.z), speed = clamp(far / 6, 45, 90);
+    // (Let go of short of the top by as far as its drop carries it on.)
+    const drop = dropFrom(speed, over.y - hang - (begun.landing.y + mid)), lets = over.clone().addScaledVector(way, -drop.on[drop.on.length - 1]);
+    const from = catches.clone().addScaledVector(way, -speed * PLANE_T.comes).addScaledVector(UP, 14).addScaledVector(across, -side * 25);
+    // (Climbing over the land between, its hook forty metres clear of it, its wings and wheels more.)
+    let climb = 0;
+    for (let k = 0.05; k < 0.96; k += 0.05) {
+      const q = catches.clone().lerp(lets, k), lift = ground(q.x, q.z) + 40 - q.y;
+      climb = Math.max(climb, lift / Math.sin(Math.PI * k));
+    }
+    const length = Math.hypot(lets.x - catches.x, lets.z - catches.z) + 1.5 * climb + Math.abs(lets.y - catches.y);
+    const caught = PLANE_T.comes, released = caught + Math.max(3, length / speed), down = released + (drop.fall.length - 1) / 120;
+    cat = {
+      ...begun, by: 'plane', ...NONE, takes: caught, gather: [caught, caught + 0.35],
+      plane: { from, catches, lets, way, side, speed, climb, caught, released, down, drop },
+    };
+  };
+  /** The plane a step on: along its way, its nose into it, banked as it turns, its line trailing back to its hook; and gone a while after. */
+  const planeStep = (c: Catapult, dt: number) => {
+    const p = c.plane!, t = c.t;
+    if (t > p.down + 6) { plane.hide(); return; }
+    const hook = hookAt(p, t), ahead = hookAt(p, t + 0.05).sub(hook).divideScalar(0.05), fwd = ahead.lengthSq() > 1 ? ahead.clone().normalize() : p.way.clone();
+    const left = UP.clone().cross(fwd).normalize(), up = fwd.clone().cross(left).normalize();
+    // (Its line trailing back and down from its belly to the hook, the plane over and ahead of it.)
+    const line = PLANE.line, at = hook.clone().addScaledVector(up, line * Math.cos(PLANE_T.trail)).addScaledVector(fwd, line * Math.sin(PLANE_T.trail)).sub(PLANE.belly.clone().applyMatrix4(new Matrix4().makeBasis(left, up, fwd)));
+    const turn = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(left, up, fwd));
+    plane.place(at, turn, t < p.released ? hook : plane.belly().addScaledVector(fwd, -1.5).addScaledVector(up, -2));
+    plane.step(dt);
+  };
+  /**
+   * What the plane took, held a step on: caught by the hook and hanging under it, kicking, swung back as it is snatched away and swaying;
+   * let go, falling, then hanging under its canopy, turned to face down the run, and down on its skis at the top.
+   */
+  const planeHold = (c: Catapult, dt: number) => {
+    const p = c.plane!, t = c.t, mid = middleOf(), ch = chuteOf();
+    if (t < p.released) {
+      const hook = hookAt(p, t), w = t - p.caught, swing = 0.5 * Math.exp(-w / 1.4) * Math.sin(3.1 * w) + 0.12 * Math.sin(w * 1.3);
+      const middle = hook.clone().addScaledVector(UP, -hangOf()).addScaledVector(p.way, -0.9 * Math.sin(0.35 + swing));
+      rider.quaternion.copy(uprightTo(p.way)).premultiply(new Quaternion().setFromAxisAngle(UP.clone().cross(p.way).normalize(), -0.35 - swing));
+      rider.position.copy(middle).addScaledVector(UP, -mid);
+      rider.updateMatrixWorld(true);
+      skier.air(kicking(t));
+      return middle;
+    }
+    // Let go: where it is in its drop, under where it was let go and on along the way.
+    const f = clamp((t - p.released) * 120, 0, p.drop.fall.length - 1), i = Math.floor(f), j = Math.min(i + 1, p.drop.fall.length - 1), k = f - i;
+    const fell = p.drop.fall[i] + (p.drop.fall[j] - p.drop.fall[i]) * k, on = p.drop.on[i] + (p.drop.on[j] - p.drop.on[i]) * k;
+    const middle = p.lets.clone().addScaledVector(UP, -hangOf() - fell).addScaledVector(p.way, on);
+    const since = t - p.released, open = smooth((since - p.drop.opens + 0.3) / 0.75), down = smooth((since - (p.down - p.released - 0.7)) / 0.7);
+    // (Turned from the way it flew to face down the run under the canopy, the shorter way round.)
+    const toward = p.way.clone().lerp(c.downhill, smooth((since - p.drop.opens) / 2)).setY(0);
+    rider.quaternion.copy(uprightTo(toward.lengthSq() > 1e-4 ? toward : c.downhill));
+    rider.position.copy(middle).addScaledVector(UP, -mid);
+    rider.updateMatrixWorld(true);
+    skier.air(open > 0.5 ? { tuck: 0, flight: 0, open: 1, throw: 0, wrap: 0, ski: 0, spin: 0, flip: 0, reach: down } : { ...kicking(t), spread: 0.8 });
+    if (open > 0) {
+      const riser = rider.localToWorld(ch.riser.clone());
+      chute.set(riser, UP.clone(), ch.radius, ch.reach, open < 1 ? open : 1 + 0.06 * Math.sin((since - p.drop.opens) * 2.2), 0, ch.straps.map((v) => rider.localToWorld(v.clone())));
+    }
+    return middle;
+  };
+  /** Down at the top under its canopy: the run begun again there (or on the piste, thrown out of bounds), the canopy left lying behind. */
+  const finishPlane = (c: Catapult): Now => {
+    const ch = chuteOf(), riser = rider.localToWorld(ch.riser.clone());
+    const eye = camera.position.clone(), look = c.eye.look.clone(), onto = backOnto, wasShow = showEnding;
+    if (onto) resumeAt(onto); else restart();
+    if (wasShow) showBack = 1.4;
+    ride.sink = 0.6;
+    spent = { riser, up: UP.clone(), t: 0, radius: ch.radius, reach: ch.reach, behind: c.downhill.clone().negate() };
+    snowBurst(c.landing, 1.6, 50, 2.2);
+    handOver(eye, look, c.downhill);
+    return { down: ride.down, left: ride.left, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
+  };
+  /**
+   * The plane's shots: from off to the side of what it takes, low, the plane coming in over the snow at it and snatching it away; then
+   * along with the two of them as they fly, behind and to the side and a little below; at the top, from the side, the drop and the
+   * canopy coming down; and as it is down, to where the rider's own view will stand.
+   */
+  const planeShot = (c: Catapult, dt: number) => {
+    const p = c.plane!, e = c.eye, mid = c.at, across = p.way.clone().cross(UP).multiplyScalar(p.side);
+    const want = standCamera(p.catches.clone().addScaledVector(across, 26).addScaledVector(p.way, 10).addScaledVector(UP, 1), 2, mid);
+    const planeAt = plane.belly();
+    const target = mid.clone().lerp(planeAt, 0.35 * (1 - smooth((c.t - p.caught) / 1.2)));
+    const eye = e.start.clone().lerp(want, smooth(c.t / 1.3));
+    const off = p.way.clone().multiplyScalar(-24).addScaledVector(across, 14).addScaledVector(UP, -3);
+    e.off.lerp(off, c.t > p.caught ? ease(dt, 1.5) : 1);
+    const chase = smooth((c.t - p.caught - 0.1) / 1.1) * (1 - smooth((c.t - p.released + 1) / 1.6));
+    eye.lerp(standCamera(mid.clone().add(e.off), 3, mid), chase);
+    target.lerp(mid.clone().lerp(planeAt, 0.25), chase);
+    const watching = standCamera(c.landing.clone().addScaledVector(across.clone().negate(), 26).addScaledVector(c.downhill, 14).addScaledVector(UP, 5), 2, c.landing), atTop = smooth((c.t - p.released + 1) / 1.6);
+    eye.lerp(watching, atTop);
+    target.lerp(mid.clone().addScaledVector(UP, 1.5), atTop);
+    const end = smooth((c.t - (p.down - 1.2)) / 1.4), own = end > 0 ? viewAtTop(c) : null;
+    if (own) { eye.lerp(own.eye, end); target.lerp(own.look, end); if (view === 'above') camera.up.lerp(c.downhill, end).normalize(); }
+    e.at.copy(eye);
+    if (!e.started) e.rel.copy(e.look).sub(mid);
+    e.rel.lerp(target.sub(mid), ease(dt, 4) * turnIn(c));
+    e.look.copy(mid).add(e.rel);
+    camera.position.copy(e.at);
+    const g = ground(mid.x, mid.z);
+    return mid.y - g > 30 ? mid.clone().setY(g) : mid.clone();
+  };
+  /**
    * The snowman risen beside what it takes, on the side nearer the middle of the run, square to the way to the top of the run (as a
    * golfer stands to the line of the drive); its hands in front of its middle; the fir reaching from them to what it drives.
    */
@@ -2065,7 +2299,7 @@ async function start() {
     unflip();
     hideAsk();
     cat = null; spent = null;
-    robot.hide(); chute.hide(); whirl.hide(); blast.hide(); saucer.hide(); snowman.hide();
+    robot.hide(); chute.hide(); whirl.hide(); blast.hide(); saucer.hide(); snowman.hide(); plane.hide(); iceJump.hide();
     chooseEnding();
   };
 
@@ -2424,6 +2658,8 @@ async function start() {
     lets(c: Catapult): boolean; shot(c: Catapult, dt: number): Vector3; fov: number; tumbling: boolean; coming: string; holding: string;
     /** How fast it goes as it is let go, of the throw's own pace (struck, near it; floated off, far short of it). */
     launch: number;
+    /** Flown as a ski jumper flies, laid out over its skis and not tumbling (off the ice jump's table), rather than thrown. */
+    glides?: boolean;
   }
   const WAYS: Record<Ending, Way> = {
     arm: {
@@ -2438,6 +2674,15 @@ async function start() {
     blast: {
       begin: () => beginBlast(), step: (c, dt, was) => blastStep(c, dt, was), took: (c) => { c.blast!.from.copy(c.at); }, hold: (c, dt) => blown(c, dt),
       lets: (c) => c.t >= c.takes + BLAST_T.blown, shot: (c, dt) => blastShot(c, dt), fov: 60, tumbling: true, coming: 'The snow cracking', holding: 'Blown sky high', launch: 0.08,
+    },
+    ice: {
+      begin: () => beginIce(), step: (c, dt) => iceStep(c, dt), hold: (c) => iceHold(c),
+      lets: (c) => c.t >= c.ice!.off, shot: (c, dt) => iceShot(c, dt), fov: 60, tumbling: false, coming: 'The ground cracking', holding: 'Into the in-run', launch: 0.3, glides: true,
+    },
+    plane: {
+      begin: () => beginPlane(), step: (c, dt) => planeStep(c, dt), hold: (c, dt) => planeHold(c, dt),
+      lets: () => false, ends: (c) => (c.t >= c.plane!.down + PLANE_T.after ? finishPlane(c) : null),
+      shot: (c, dt) => planeShot(c, dt), fov: 58, tumbling: false, coming: 'An engine overhead', holding: 'On the hook', launch: 1,
     },
     saucer: {
       begin: () => beginSaucer(), step: (c, dt) => saucerStep(c, dt), took: (c) => { c.saucer!.start.copy(c.at); }, hold: (c) => floatUp(c),
@@ -2638,7 +2883,8 @@ async function start() {
       speed = v.length();
       // Tumbling head over heels and round as it flies; under the canopy, brought upright, and turned round to face down the run.
       // (Out of the claw, it begins to tumble as it goes; out of the whirlwind, it was tumbling already.)
-      const wild = way.tumbling ? 1 : smooth(ft / 0.3);
+      // (A ski jumper does not tumble: `glides`.)
+      const wild = way.glides ? 0 : way.tumbling ? 1 : smooth(ft / 0.3);
       if (ft < opening) { c.tumble.flip -= TURN * 1.15 * wild * dt; c.tumble.spin += TURN * 0.45 * wild * dt; }
       else if (!c.spun) { c.spun = { ...c.tumble }; told = { text: '', small: '', bad: false, until: 0 }; }
       const settle = c.spun ? smooth((ft - opening) / 0.8) : 0, round = (a: number) => Math.round(a / TURN) * TURN;
@@ -2650,9 +2896,12 @@ async function start() {
       const toward = fly.dir.clone().applyAxisAngle(UP, round_ * smooth((ft - fly.free - 0.3) / Math.max(0.5, fly.chute - 1.3)));
       const q = c.letGo.clone().slerp(uprightTo(toward), smooth(ft / 0.35));
       const under = ft >= opening, landing = smooth((ft - (fly.total - 0.7)) / 0.7);
+      // (Gliding, laid out over its skis in a ski jumper's flight, its nose with the way it flies, up and then down, until its canopy.)
+      if (way.glides && !under) q.multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.6 * Math.atan2(v.y, Math.hypot(v.x, v.z))));
       skier.air(under
         ? { tuck: 0, flight: 0, open: 1, throw: 0, wrap: 0, ski: 0, spin, flip, reach: landing }
-        : { tuck: 0.25, flight: 0, open: 0, throw: 0, wrap: 0, ski: 0.2 * Math.sin(ft * 5), spin, flip, spread: 0.65 + 0.35 * Math.sin(ft * 7.3), cross: 0.2 });
+        : way.glides ? { tuck: 0, flight: 1, open: 0, throw: 0, wrap: 0, ski: 0, spin: 0, flip: 0 }
+          : { tuck: 0.25, flight: 0, open: 0, throw: 0, wrap: 0, ski: 0.2 * Math.sin(ft * 5), spin, flip, spread: 0.65 + 0.35 * Math.sin(ft * 7.3), cross: 0.2 });
       // Hung under the canopy, swinging on its lines: forward as the canopy takes hold and it goes on, back, and still by the snow.
       const ch = chuteOf(), u = ft - fly.free, swing = under && u > 0 ? 0.36 * Math.exp(-u / 1.1) * Math.sin(3.2 * u) * (1 - smooth((ft - (fly.total - 1.1)) / 1.0)) : 0;
       const sway = new Quaternion().setFromAxisAngle(fly.dir.clone().cross(UP).normalize(), swing);
@@ -3924,6 +4173,8 @@ async function start() {
     ['blast', 'Explosion', 'The ground blows up and throws you back to the top'], ['saucer', 'Flying saucer', 'A flying saucer beams you up and flies you back to the top'],
     ['snowman', 'Snowman', 'A snowman drives you back to the top'], ['invert', 'Inside out', 'The world turns inside out and you ride back down to the top'],
     ['cart', 'Rocket cart', 'A rocket cart is brought down to you, and you drive it back up to the top'],
+    ['plane', 'Airplane', 'A small plane snatches you up on a hook, flies you back and drops you over the top under a parachute'],
+    ['ice', 'Ice jump', 'A tower of ice and a ski jump rise out of the snow under you, and you jump back to the top'],
   ];
   const backButtons = BACK_CHOICES.map(([w, label, title]) => button('waysSeg', label, () => setBackBy(w), title));
   showBackBy = () => backButtons.forEach((b, k) => b.classList.toggle('on', BACK_CHOICES[k][0] === backBy));
@@ -3950,7 +4201,9 @@ async function start() {
     if (mode === 'ride' && e.key.toLowerCase() === 'z' && !(e.target instanceof HTMLInputElement)) { if (!e.repeat) holdSkate(true); e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) { restart(); e.preventDefault(); return; }
     // (Asked the way back, by its number.)
-    if (asking && /^[1-8]$/.test(e.key) && !wayButtons[+e.key - 1].hidden) { takeWay(WAY_NAMES[+e.key - 1][0]); e.preventDefault(); return; }
+    // (Asked the way back, by its number: 1 to 9, and 0 for the tenth.)
+    const nth = e.key === '0' ? 9 : /^[1-9]$/.test(e.key) ? +e.key - 1 : -1;
+    if (asking && nth >= 0 && nth < wayButtons.length && !wayButtons[nth].hidden) { takeWay(WAY_NAMES[nth][0]); e.preventDefault(); return; }
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
     if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v) setView(v[1]);
@@ -5476,7 +5729,7 @@ async function start() {
     backBy: (w?: BackBy) => { if (w) setBackBy(w); return backBy; }, asking: () => asking, takeWay: (w: Dealt | 'random', remember = false) => { rememberWay.checked = remember; takeWay(w); },
     inside: () => inside && { pivot: +inside.pivot.toFixed(1), reversed: inside.reversed, front: fold && (fold.front === Infinity ? 'all' : +fold.front.toFixed(0)) },
     whirl: () => ({ shown: whirl.group.visible, strength: +whirl.strength.toFixed(2), at: whirl.base.toArray().map((v) => +v.toFixed(1)), height: +whirl.height().toFixed(0) }),
-    arm: () => cat && { by: cat.by, t: +cat.t.toFixed(2), carry: cat.saucer && { flies: +cat.saucer.flies.toFixed(2), climb: +cat.saucer.climb.toFixed(0), far: +Math.hypot(cat.saucer.over.x - cat.saucer.hover.x, cat.saucer.over.z - cat.saucer.hover.z).toFixed(0) }, held: cat.held, flown: +cat.flown.toFixed(2), free: cat.fly && +cat.fly.free.toFixed(2), total: cat.fly && +cat.fly.total.toFixed(2), open: cat.fly && +cat.fly.open.toFixed(1) },
+    arm: () => cat && { by: cat.by, t: +cat.t.toFixed(2), at: cat.at.toArray().map(Math.round), eye: camera.position.toArray().map(Math.round), rider: rider.position.toArray().map(Math.round), carry: cat.saucer && { flies: +cat.saucer.flies.toFixed(2), climb: +cat.saucer.climb.toFixed(0), far: +Math.hypot(cat.saucer.over.x - cat.saucer.hover.x, cat.saucer.over.z - cat.saucer.hover.z).toFixed(0) }, held: cat.held, flown: +cat.flown.toFixed(2), free: cat.fly && +cat.fly.free.toFixed(2), total: cat.fly && +cat.fly.total.toFixed(2), open: cat.fly && +cat.fly.open.toFixed(1) },
     // (Which demo run is watched: the orc hunt, or the tricks'.)
     hunt: (on: boolean) => { setDemoKind(on ? 'orcs' : 'tricks'); },
     // (The showcase, watched; and where it has got to: its arm now, and whether its end is ridden out or it has gone back to its top.)
