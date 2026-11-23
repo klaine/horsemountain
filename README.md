@@ -16,16 +16,29 @@ come under it.
 - **The orc hunt**, on a computer, once *Orcs & tommy gun* is on in the menu (*Orc hunt* there, or `O`): a second demo run, the horse
   and its rider, the wildest trick each kicker will give them (a cork 720, a backflip 720, a 900 and a switch 900, a superman whip
   backflip 360, a 1080...), and the rider shooting down the orcs coming up the run with a tommy gun as they go.
-- **Riding it yourself**, seen from behind: on a touch screen, the stick at the lower left steers, to either side to turn (carved, or
-  skidded out at its rim), up to tuck, down to stand straight. With a mouse or a touchpad, the pointer steers from wherever it is over
+- **Riding it yourself**, seen from behind: on a phone or a tablet, tipping it steers, from however it is held as each run begins:
+  its right edge lowered (as a wheel is turned, or tipped lying flat) to turn right, further to skid; its top tipped away to tuck,
+  toward you to stand straight (*Steering* in the menu: *Tilt*, at first, or *Stick*). The stick at the lower left steers too, and
+  takes over while a thumb is on it: to either side to turn (carved, or skidded out at its rim), up to tuck, down to stand straight
+  (an iPhone asks, at the first touch, whether the game may read how it is held). With a mouse or a touchpad, the pointer steers from wherever it is over
   the picture, no button held: to either side of the middle to turn (skidded out at the sides of the faint guide drawn about the skier),
   above it to tuck, below to stand straight; it takes the skier once it is brought within the guide, and lets it go, running straight,
   when it leaves the picture. Held down, its button brakes; a right click (a tap with two fingers) turns you round; scrolled or
   pinched, the view comes nearer or goes further off. The arrow keys too, and Shift to brake. You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
   speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *To switch* (or *To regular*, `X`) turns you
-  round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A fall, or the foot of the run,
-  counts down five seconds to a new run (or Enter, or a click). On a computer, with *Orcs & tommy gun* on in the menu (off at first),
+  round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends, after a fall or at
+  the foot of the run, in one of five ways, each once in every five runs in an order shuffled by chance. A huge robot arm rises out of
+  the snow, takes the skier up in its claw (a horse and its rider together, the rider put back in the saddle), swings round and throws
+  it back up the mountain in a great arch. Or, coming down the last stretch of the run, a whirl of snow rises at its foot and grows as
+  you come down to it into a tornado under a dark turning cloud, the light going grey; stopped at the foot it comes over to you,
+  ridden into it takes you there and then, and after a fall one forms beside you and comes for you; it carries the skier round and
+  up its funnel, tumbling, and flings it out toward the top of the run. Or cracks run out glowing through the snow beside you, and
+  the ground blows up, a fireball, smoke and slabs of snow and rock, throwing you up out of it. Or a flying saucer comes down out of
+  the sky, takes you up in its beam and flings you out as it tips away. Or a snowman twenty metres high rises out of the snow beside
+  you with a fir pulled up by the roots, and drives you back up the mountain like a golf ball. Whichever, over the top of the run a
+  parachute opens and lets the skier down onto its skis there, and the next run begins, in the view it was ridden in. All of it is filmed as a film is, whatever the view; Enter, or a
+  click, begins the next run at once. On a computer, with *Orcs & tommy gun* on in the menu (off at first),
   the skier alone or the horse's rider carries a tommy gun in place of its poles, aimed at the guide's mark: held down, the button
   fires it (and Shift brakes), and orcs come up the run in hordes to be shot down, red blood on the snow, how many counted at the top
   left.
@@ -75,7 +88,10 @@ change to the game.
   groomed slope, its snow, firs, piste poles and the country round about; `game/slopeTrees.ts`: on a computer, the woods of the land
   about the run as the game grows them (its walk over the world's `treesIn` and `growTrees`, in winter, and spruce where it would grow
   oaks and ashes), whole near the eye, more simply further off and painted beyond, grown in blocks about the eye as it goes;
-  `game/slopeGun.ts`, the tommy gun, its tracers, flash and sound; `game/slopeOrcs.ts`, the orcs coming up the run;
+  `game/slopeArm.ts`, the robot arm at the run's end, the parachute, and the throw's flight; `game/slopeStorm.ts`, the tornado,
+  `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, and `game/slopeSnowman.ts`, the snowman, the run's
+  other ends; `game/slopeGun.ts`, the tommy gun, its
+  tracers, flash and sound; `game/slopeOrcs.ts`, the orcs coming up the run;
   `game/slopeSplatter.ts`, their blood on the snow.
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
   (`horse.ts`, made in code on a skeleton of its own; `horseBody.ts`, `horseSculpt.ts`, how it looks; `horseCoat.ts`, its coat as hair, on a computer), the adventurer's clothes and
