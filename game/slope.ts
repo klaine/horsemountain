@@ -776,12 +776,25 @@ async function start() {
    */
   /** How far a barrel roll has moved the skier's place (its feet) about the middle of its body, for the views to leave out (`focus`). */
   const rollShift = new Vector3();
+  /** What the last barrel roll was turned about, in the skier's own frame: the line, and the point on it (`__slope.rollAxis`). */
+  let rolledAbout: { axis: Vector3; mid: Vector3 } | null = null;
   const rollAbout = (roll: number, tuck = 0) => {
     rollShift.set(0, 0, 0);
     if (!roll) return;
-    // (Tucked, its middle is lower: the knees drawn up, the horse's legs folded under it.)
-    const mid = new Vector3(0, who === 'person' ? 1.0 - 0.22 * tuck : 1.35 - 0.12 * tuck, 0), before = mid.clone().applyQuaternion(rider.quaternion);
-    rider.quaternion.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), roll));
+    // (A person rolls about the way it faces, through its middle, lower as it tucks, its knees drawn up. A horse about its own spine as
+    // it is posed, from its hips to its chest, through the middle of its barrel, a little higher with its rider on it, for the rider's
+    // weight (asked: "Check over which axle the barrel roll rotates on a horse mounted ride also"). Its spine lies along the way it faces
+    // to two degrees, its barrel's middle 1.21 metres up: the fixed line it had been rolled about, 1.35 up, was all but the same.)
+    let axis = new Vector3(0, 0, 1), mid = new Vector3(0, 1.0 - 0.22 * tuck, 0);
+    if (who !== 'person') {
+      rider.updateMatrixWorld(true);
+      const js = horse.joints(), inv = rider.matrixWorld.clone().invert(), hips = js.hips.clone().applyMatrix4(inv), chest = js.chest.clone().applyMatrix4(inv);
+      axis = chest.clone().sub(hips).normalize();
+      mid = hips.lerp(chest, 0.5).addScaledVector(UP, who === 'mounted' ? 0.15 : 0);
+    }
+    rolledAbout = { axis: axis.clone(), mid: mid.clone() };
+    const before = mid.clone().applyQuaternion(rider.quaternion);
+    rider.quaternion.multiply(new Quaternion().setFromAxisAngle(axis, roll));
     rollShift.copy(before.sub(mid.applyQuaternion(rider.quaternion)));
     rider.position.add(rollShift);
     rider.updateMatrixWorld(true);
@@ -3944,7 +3957,7 @@ async function start() {
    * under it, and dragged, the gun follows it; let go, it stops. An orc within a fingertip of where it is held is aimed at itself, as a
    * finger is broad and an orc far up the run small. Where the finger is, across and up the picture (-1 to 1); which, held.
    */
-  const finger = { id: -1, x: 0, y: 0 };
+  const finger = { id: -1, x: 0, y: 0, until: 0 };
   // (Against the picture as it lies on the page, not the window: on an iPad the page can be pinched larger whatever it asks, and then
   // the window's measures are of the part of it in sight, and a finger was taken to be somewhere else on the picture than it was.)
   const fingerAt = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); finger.x = ((e.clientX - r.left) / r.width) * 2 - 1; finger.y = 1 - ((e.clientY - r.top) / r.height) * 2; };
@@ -3956,7 +3969,14 @@ async function start() {
    */
   for (const kind of ['touchstart', 'touchmove'] as const) canvas.addEventListener(kind, (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
   document.addEventListener('gesturestart', (e) => e.preventDefault());
-  const fingerOff = (e: PointerEvent) => { if (e.pointerId === finger.id) { finger.id = -1; firing = false; } };
+  /**
+   * (Let go of, its place still aimed at for a moment (`until`, by the page's clock), for the shot it asked for (asked: "still ipad with
+   * chrome, clicking anywhere on the screen with pistol for example just shoots forward"): a tap is quick, and its finger was let go of
+   * before the frame that fires the shot came, which then fired where the gun was held, ahead.)
+   */
+  const fingerOff = (e: PointerEvent) => { if (e.pointerId === finger.id) { finger.id = -1; finger.until = performance.now() + 300; firing = false; } };
+  /** Whether a finger on the picture, held or just let go of, is aimed at. */
+  const fingerAims = () => finger.id >= 0 || performance.now() < finger.until;
   canvas.addEventListener('pointermove', (e) => { if (e.pointerId === finger.id) fingerAt(e); });
   canvas.addEventListener('pointerup', fingerOff);
   canvas.addEventListener('pointercancel', fingerOff);
@@ -4097,8 +4117,11 @@ async function start() {
    * A round fired from `from` along `dir`, a little astray (`spread`), as far as `reach`: a tracer to where it strikes, and there an
    * orc falls or the snow flies.
    */
+  /** The last round fired, from where and which way: for a script to tell where it went (`__slope.lastShot`). */
+  let lastShot: { from: Vector3; dir: Vector3 } | null = null;
   const fireRound = (from: Vector3, way: Vector3, spread: number, reach = 400) => {
     const dir = way.clone().add(new Vector3(gunRng.range(-spread, spread), gunRng.range(-spread, spread), gunRng.range(-spread, spread))).normalize();
+    lastShot = { from: from.clone(), dir: dir.clone() };
     const snowAt = snowAlong(from, dir, reach), met = horde.hit(from, dir, Math.min(snowAt, reach));
     if (met) {
       const orc = met.orc;
@@ -4357,7 +4380,7 @@ async function start() {
       // line from the eye through it.
       const reach = aimReach(), x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
       ndc.set((x * reach) / (innerWidth / 2), (y * reach) / (innerHeight / 2));
-      if (finger.id >= 0) {
+      if (fingerAims()) {
         ndc.set(finger.x, finger.y);
         // (An orc within some forty-five points of the finger aimed at itself, the nearest to it; only one before the eye, as one behind
         // it is put on the picture turned about.)
@@ -4379,7 +4402,7 @@ async function start() {
       // (By touch, a finger held low on the picture is over snow between the eye and the skier, or under it, which the gun cannot be
       // turned to, and it fired somewhere else altogether: then it fires at the snow some way ahead the way the finger points, as near
       // to it across the run as the arms let the gun turn.)
-      if (finger.id >= 0 && !met) {
+      if (fingerAims() && !met) {
         const rel = target.clone().sub(rider.position);
         if (rel.x * go.x + rel.z * go.z < 12) {
           const level = look.clone().setY(0);
@@ -5296,6 +5319,22 @@ async function start() {
       return { lip: +(lip * 3.6).toFixed(0), T: flew ? +flew.T.toFixed(2) : 0, did: flew?.name ?? '', fell: crash?.why ?? null, checked, safe: +(safeOff(k) * 3.6).toFixed(0) };
     },
     // (How hard a flight off the `i`th kicker comes down, built at `size`, taken at each of `speeds` (metres a second, on the run before it).)
+    // (Where the middle of each of the skier's bodies is, in its own frame (x to its left, y up from its soles, z ahead), as posed now;
+    // and of all of them together, each joint alike.)
+    bodyMiddle: () => {
+      rider.updateMatrixWorld(true);
+      const inv = rider.matrixWorld.clone().invert(), all = new Vector3();
+      let n = 0;
+      const each = skier.bodies().map((b) => { const m = new Vector3(), js = Object.values(b.joints()); for (const j of js) { const l = j.clone().applyMatrix4(inv); m.add(l); all.add(l); n++; } return m.divideScalar(js.length).toArray().map((v) => +v.toFixed(2)); });
+      return { each, all: all.divideScalar(n).toArray().map((v) => +v.toFixed(2)) };
+    },
+    // (What the last barrel roll was turned about, in the skier's own frame (x to its left, y up, z ahead): the line, and a point on it.)
+    rollAxis: () => rolledAbout && { axis: rolledAbout.axis.toArray().map((v) => +v.toFixed(3)), mid: rolledAbout.mid.toArray().map((v) => +v.toFixed(2)) },
+    // (The last round fired: from where, and which way.)
+    lastShot: () => lastShot && { from: lastShot.from.toArray(), dir: lastShot.dir.toArray() },
+    // (Where a point on the picture, `x` across and `y` down in its pixels, looks out to from the eye: for a script to tell a shot aimed
+    // there from one gone elsewhere.)
+    rayAt: (x: number, y: number) => { const r = canvas.getBoundingClientRect(), v = new Vector2(((x - r.left) / r.width) * 2 - 1, 1 - ((y - r.top) / r.height) * 2), rc = new Raycaster(); rc.setFromCamera(v, camera); return { from: rc.ray.origin.toArray(), dir: rc.ray.direction.toArray() }; },
     // (The speed check, on or off, for trying the kickers without it.)
     speedCheck: (on: boolean) => { speedChecks = on; },
     landings: (i: number, size: number, speeds: number[]) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return speeds.map((v) => { const o = kickFlight(k, kickDims(size), v); return { v, u: +o.u.toFixed(1), f: +o.f.toFixed(2), blow: +o.blow.toFixed(1) }; }); },
