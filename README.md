@@ -100,7 +100,7 @@ top; then *Play* (watch the demo or ride; watching, pause, its speed and its tim
 riding is held while the menu is open), *Slope* (*Map of the runs*, the map the game opens on, or `M`; eight runs down the mountain: *Silent Warden* from beside its highest summit along a crest; *Pale
 Crown*, longer, down a spur into the wooded foothills above a bay; *Ashbridge*, short and steep, along the foot of the range
 under its rock walls to a lake in a glen; *Carndale*, long and gentle, down a wooded spur in the west to a lake; *Warden's Spur*, from
-the summit down its south spur; *Lake Wall*, steep, with big kickers, to the lake Ashbridge comes to; *Balestead*, down a crest inside
+the summit down its south spur; *Lake Wall*, from a knoll at the head of a long spur, down its broad back and then steeply, with big kickers, to the lake Ashbridge comes to; *Balestead*, down a crest inside
 the range; *Arford*, long, gentle and broad, to the shore; or a groomed slope
 going on for ever: one run is held at a time, the one left let go of), *Skier* (the horse with its
 rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
@@ -195,7 +195,8 @@ run's line, its profile and what it is like, from its slice. The game draws the 
 - `figures/`: the figures, by Quaternius, CC0 (see `figures/LICENSE.txt`): `clips.glb` (the mannequin and the clips), and
   `superhero-male.glb` (the body the adventurer is dressed on).
 - `slopes/w2.json`, `slopes/w2-3.json` and six more (`w2-8`, `w2-10`, `w2-2`, `w2-14`, `w2-17`, `w2-25`): the slices of the mountain:
-  eight runs found in a generated world, by their place among those its search kept (`npm run skirun`), and the land about each, a metre apart
+  eight runs found in a generated world, by their place among those its search kept (`npm run skirun`; *Lake Wall* carried further up its
+  spur than the search began it, `RAISED` there), and the land about each, a metre apart
   near the run (each fetched only when it is skied, about a megabyte, some 0.6 to 0.7 of it as it comes); `slopes/w2-map.json`, the
   map of them (fetched as the page opens).
 

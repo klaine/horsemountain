@@ -241,7 +241,7 @@ const loading = (() => {
  * A file the page needs, fetched once and counted as it comes in. (Where the host packs it for the way, its size on arrival is not
  * said; then it is taken as about as large as the file is kept, and grown if it comes larger.)
  */
-const ABOUT: Record<string, number> = { 'clips.glb': 3.02e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6, 'w2-8.json': 1.03e6, 'w2-10.json': 1.2e6, 'w2-2.json': 0.97e6, 'w2-14.json': 1.03e6, 'w2-17.json': 1.01e6, 'w2-25.json': 1.09e6, 'w2-map.json': 0.39e6 };
+const ABOUT: Record<string, number> = { 'clips.glb': 3.02e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6, 'w2-8.json': 1.03e6, 'w2-10.json': 1.2e6, 'w2-2.json': 0.97e6, 'w2-14.json': 1.41e6, 'w2-17.json': 1.01e6, 'w2-25.json': 1.09e6, 'w2-map.json': 0.39e6 };
 const fetching = new Map<string, Promise<ArrayBuffer>>();
 const fetchCounted = (url: string): Promise<ArrayBuffer> => {
   let made = fetching.get(url);
@@ -302,7 +302,7 @@ async function start() {
     { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge', detail: '0.80 km, the steepest, under rock walls to a lake' },
     { id: 'w2-10', label: 'Carndale', where: 'above Carndale', title: 'Long and gentle, straight down a wooded spur in the west of the range to a lake above Carndale', detail: '1.32 km, gentle, down a wooded spur to a lake' },
     { id: 'w2-2', label: "Warden's Spur", where: "on the Silent Warden's south spur", title: "From beside the highest summit down its south spur, along the crest for half its length", detail: '0.76 km from the summit, half of it along a crest' },
-    { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'Steep all the way, down a spur to the lake below Ashbridge that Ashbridge comes down to, its kickers big', detail: '0.83 km, steep, big kickers, to the lake' },
+    { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end to the lake below Ashbridge that Ashbridge comes down to, its kickers big', detail: '1.47 km, broad above and steep below, big kickers, to the lake' },
     { id: 'w2-17', label: 'Balestead', where: 'near Balestead', title: 'In among the mountains, down a crest to the glen below Balestead', detail: '0.77 km down a crest inside the range' },
     { id: 'w2-25', label: 'Arford', where: 'above Arford', title: 'Long, gentle and broad, out of the foothills down to the shore above Arford', detail: '1.02 km, gentle and broad, to the shore' },
   ];
