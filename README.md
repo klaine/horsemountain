@@ -3,11 +3,11 @@
 A horse and its rider skiing down a mountain in winter: watched, or ridden. Play it at
 **https://horsemountain.klaine.net** (GitHub Pages, from `main`).
 
-It opens on its title over the demo run, and then on the map of the runs: an old map in ink of the mountains about them, as the
+It opens on its title over the showcase, and then on the map of the runs: an old map in ink of the mountains about them, as the
 world's map is drawn in klaine/dungeons, the hachures heavier the steeper, woods as little trees, rivers, lakes, roads, villages and
 the great peaks, and over it, as a ski resort's map has them, the eight runs in the inks of their grades (blue, red, black, each with
 a mark of its own), numbered and named, a flag at each top, under a cartouche with the range's name and a compass rose. Beside it,
-*Watch the demo run* or *Watch the orc hunt*; or a run, clicked on the map or in the list, opens its card: its grade, how long it is,
+*Watch the showcase*, *Watch the demo run* or *Watch the orc hunt*; or a run, clicked on the map or in the list, opens its card: its grade, how long it is,
 how far it falls, how steep it is on the whole and at its steepest, its profile from top to foot (the pointer over it says how far
 down, how high and how steep there), how broad its path is, and the best won on it; and *Ride* it, from its top. (Or the groomed
 slope, under the list.) Until then, while it loads, a screen says how far it has got: a bar that fills as its files come in (all
@@ -15,6 +15,14 @@ fetched at once, some 6 MB: the slice of the mountain, the map, the figures' cli
 by stage (painting the snow and rock, laying the snow, teaching the rider to ski, dressing the rider and saddling the horse, flying the
 demo run, inking the map, lighting the mountain), with what is being done and how much has come under it.
 
+- **The showcase**, the opening's (*Showcase* in the menu too), down the Silent Warden: the horse and its rider (or the skier alone)
+  taking a trick off six of its kickers, each coming down facing the way it went (a cork 720, a backflip, a 720, a superman whip
+  backflip, a 1080, a double backflip), and passing the sixth by off the piste, out in the deep powder beside it on whichever side no
+  stones show and no tree stands; orcs coming up the run all the while (whether or not *Orcs & weapons* is on), met with every arm in
+  turn, the sword to the bazooka, changing at the camera's cuts, the flamethrower pouring the whole while it is carried; and at the
+  foot the robot arm coming up out of the snow, throwing it back to the top under the parachute, and the showcase again from there.
+  Rendered too (in `recordings/`, which git keeps out): its whole, an edit of a minute, one of forty seconds and highlights of
+  twenty, at 2 Mbps with sound and without.
 - **The demo run** goes down the mountain from beside its highest summit, carving between seven kickers built on the snow and taking a
   trick off each (a 720, a backflip, a backflip 360, a ski jumper's flight, a cork 540 that lands it switch, a switch 540 that brings
   it round again, a superman whip), with turns on the snow to switch and back on the way to the foot; filmed by a cinematic camera
