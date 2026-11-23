@@ -1986,6 +1986,11 @@ async function start() {
     drop: (y) => base.drop(inside?.reversed ? 2 * inside.pivot - y : y),
     kickable: () => false, keepAbout: () => {}, lod: undefined, trees: undefined,
   });
+  /**
+   * The land turned inside out built ahead, for the land as it lies (not on the groomed slope, which is never turned): built as the
+   * shock went through the ground, it held up that moment by some part of a second, a great deal more on a phone.
+   */
+  const buildFold = () => { if (!inside && !carting && land.length < Infinity) folding.build(land, land); };
   /** The kickers taken down and forgotten: the land they stood on is not the land now. */
   const dropKickers = () => { for (const k of kickerAt.values()) if (k) takeDown(k); kickerAt.clear(); kicks = []; };
   /**
@@ -2839,12 +2844,15 @@ async function start() {
    * watched. (Kept in this browser for next time; `?orcs=1` or `?orcs=0` either way.)
    */
   let orcsOn = false;
-  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => setOrcs(k === 1), k ? 'The skier, or the horse\'s rider, carries a tommy gun, and orcs come up the run to be shot; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
+  // (The gun's sound woken by the click that turns them on, as a browser lets a page make sound only after one: woken by the first shot,
+  // it was made as the first shot was fired.)
+  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => { if (k === 1) gunSound.wake(); setOrcs(k === 1); }, k ? 'The skier, or the horse\'s rider, carries a tommy gun, and orcs come up the run to be shot; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
   const setOrcs = (on: boolean) => {
     orcsOn = on;
     keep('orcs', on ? '1' : '0');
     // (The orcs' body dressed now, before any are wanted: dressing it takes a moment, which riding along would feel.)
-    if (on) void horde.prepare();
+    // (And made ready to be drawn, and the gun with them.)
+    if (on) void horde.prepare().then(() => warmSoon(gun), () => {});
     if (!on && demoKind === 'orcs') setDemoKind('tricks');
     reflect();
   };
@@ -2897,6 +2905,8 @@ async function start() {
     resetScore();
     land = next;
     showLand();
+    buildFold();
+    warmSoon();
     if (mode === 'ride') restart();
     else { await useDemo(); t = 0; placed = false; clearSpray(); }
     try { history.replaceState(null, '', kind === opensOn ? location.pathname + location.search : `#${kind}`); } catch { /* (not where the page may not change its address) */ }
@@ -3273,6 +3283,10 @@ async function start() {
     kick = 1;
   };
   clearGun = () => { horde.clear(); gunfire.clear(); splatter.clear(); };
+  // (With the orcs on, the sound woken by any click or key, the first that a browser lets wake it: not left to the first shot.)
+  const wakeSound = () => { if (orcsOn) gunSound.wake(); };
+  addEventListener('pointerdown', wakeSound, true);
+  addEventListener('keydown', wakeSound, true);
   /** Where the orc hunt's demo run had got to last frame: gone back, or on by more than a moment (the timeline dragged), begun anew. */
   let huntAt = 0;
   /**
@@ -3832,6 +3846,35 @@ async function start() {
   const sharp = new RenderPipeline(renderer), sharpPass = pass(scene, camera, { samples: msaa ? 4 : 0 });
   if (msaa) sharp.outputNode = sharpPass;
   else { sharp.outputColorTransform = false; sharp.outputNode = grade(fxaa(renderOutput(sharpPass))); }
+  // Made ready ahead of need (asked: "there are still some unexplainable stutters that might happen just around when "something exciting
+  // is about to happen" on mobile as well.. can there be somehow improved caching or any way to prepare for smoother experience?"; "can
+  // happen also when orcs appear or when your starting to shoot at them or in the beginning of a transition to back up"): each thing
+  // drawn for the first time has its shaders made then, and its shapes sent to the graphics card, a tenth to a third of a second here
+  // and several times that on a phone: the arm, the blast, the saucer, the snowman, the tornado, the cart and the land turned inside
+  // out as each first came, the orcs and the gun, the blood, the tracers. So, everything there is in the scene, the hidden with the
+  // shown, and wherever it is, is drawn once as the page opens, behind its loading screen (the sun's shadows with it), its shaders made
+  // first a few at a time where the renderer can (WebGPU); and later, the gun and the orcs as they are first wanted, or a new slope,
+  // made ready the same way but not drawn, which would show them all for a frame. Then nothing is new when it comes.
+  const warmWith = new Set<Object3D>();
+  let warmWanted = true;
+  /** Everything made ready by the next frame, with `also`, which is not in the scene until it is wanted (the gun). */
+  const warmSoon = (...also: Object3D[]) => { for (const o of also) warmWith.add(o); warmWanted = true; };
+  /** Everything there is shown, and drawn wherever it is (not passed over as out of sight); and how to put it all back as it was. */
+  const showEverything = (): (() => void) => {
+    const undo: (() => void)[] = [];
+    for (const o of warmWith) if (!o.parent) { scene.add(o); undo.push(() => o.removeFromParent()); }
+    warmWith.clear();
+    scene.traverse((o) => {
+      // (Not what has no shape yet: made when it is first wanted, it is drawn then.)
+      if ((o as Mesh).isMesh && !(o as Mesh).geometry.getAttribute('position')) return;
+      if (o.visible && !o.frustumCulled) return;
+      const shown = o.visible, culled = o.frustumCulled;
+      o.visible = true; o.frustumCulled = false;
+      undo.push(() => { o.visible = shown; o.frustumCulled = culled; });
+    });
+    return () => { for (let i = undo.length - 1; i >= 0; i--) undo[i](); };
+  };
+  const webgpu = !!(renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend;
   // (How much, by *Blur*: from none, the plain picture drawn, to twice as much; `?blur=` too.)
   let blurLevel = query.has('blur') ? clamp(Number(query.get('blur')) || 0, 0, 2) : 1;
   // Hiding the menus and the text, `H` too; the distance of the views from the skier. (Kept in this browser for next time, where it may.)
@@ -3841,7 +3884,8 @@ async function start() {
   const setDistance = (d: number) => { distance = clamp(d, 0.5, 3); distanceInput.value = String(distance); $('distanceOut').textContent = `${distance.toFixed(1)}×`; keep('distance', String(distance)); };
   distanceInput.addEventListener('input', () => setDistance(Number(distanceInput.value)));
   const blurInput = $<HTMLInputElement>('blur');
-  const setBlur = (b: number) => { blurLevel = clamp(b, 0, 2); blurInput.value = String(blurLevel); $('blurOut').textContent = blurLevel ? `${blurLevel.toFixed(1)}×` : 'off'; keep('blur', String(blurLevel)); };
+  // (Turned on or off, the picture is drawn another way, whose shaders are made ready.)
+  const setBlur = (b: number) => { if (!b !== !blurLevel) warmSoon(); blurLevel = clamp(b, 0, 2); blurInput.value = String(blurLevel); $('blurOut').textContent = blurLevel ? `${blurLevel.toFixed(1)}×` : 'off'; keep('blur', String(blurLevel)); };
   blurInput.addEventListener('input', () => setBlur(Number(blurInput.value)));
   const keptBlur = kept('blur');
   setBlur(query.has('blur') || keptBlur === null ? blurLevel : Number(keptBlur));
@@ -3901,8 +3945,12 @@ async function start() {
   await loading.stage('demo');
   await useDemo();
   reflect();
-  // (The first frames make the shaders, which can take some seconds: the screen goes once two have been drawn.)
+  // (The first frames make the shaders, which can take some seconds: the screen goes once two have been drawn. What may come later is
+  // made ready with them: the land turned inside out built, an orc made if they are on, and the gun.)
   await loading.stage('shaders');
+  buildFold();
+  if (orcsOn) await horde.prepare().catch(() => {});
+  warmSoon(gun);
 
   // The opening (asked: "Game opening shows a brief grand title: HORSE / Mountain; the demo runs on the background and after the title a
   // dialog show decision: "Watch demo run" / "Send it myself!" (which switches to player controlled run)"; the title then made "Grand
@@ -3925,7 +3973,7 @@ async function start() {
     if (shown > 3.8 && drawn > 26) { introFrames = -1; if (!intro.hidden) { intro.hidden = true; if (mode === 'watch') { choose.hidden = false; $('sendIt').focus(); } } }
   };
 
-  let then = performance.now(), benching = false, drawnFrames = 0, warming = true;
+  let then = performance.now(), benching = false, drawnFrames = 0;
   const fixedDt = Number(query.get('dt')) || 0;
   let afterFrame: (() => void) | null = null;
   // (What the frame says on the page, and where the timeline's head stands: written only when it changes.)
@@ -3998,9 +4046,14 @@ async function start() {
     // (Before the first frame is drawn, its shaders made a few at a time with the page given a moment between them, rather than all at
     // once as it is drawn: made so, the page stood frozen for the four seconds they took, the loading screen's bar with it, and they
     // took a second and more longer. With WebGPU only: with WebGL 2, made this way they took twice as long, ten seconds for five.)
-    if (warming) {
-      warming = false;
-      if ((renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend) try { await (blurLevel > 0 ? scenePass : sharpPass).compileAsync(renderer); } catch (e) { console.warn(e); }
+    // (And everything else there is with it: `warmSoon`. Opening, drawn this frame behind the loading screen; later, only made ready.)
+    let unwarm: (() => void) | null = null;
+    if (warmWanted) {
+      warmWanted = false;
+      const opening = drawnFrames >= 0;
+      unwarm = showEverything();
+      if (webgpu || !opening) try { await (blurLevel > 0 ? scenePass : sharpPass).compileAsync(renderer); } catch (e) { console.warn(e); }
+      if (!opening) { unwarm(); unwarm = null; }
     }
     if (blurLevel > 0) {
       uShutter.value = clamp(1 / 60 / Math.max(dt, 1e-3), 0.005, 3) * blurLevel;
@@ -4009,6 +4062,7 @@ async function start() {
       uFocus.value = Math.max(3, camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position));
       pipeline.render();
     } else sharp.render();
+    unwarm?.();
     // (For a script making a video a frame at a time: told once each frame is drawn, `__slope.everyFrame`.)
     afterFrame?.();
     requestAnimationFrame(frame);

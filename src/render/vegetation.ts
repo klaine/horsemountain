@@ -18,7 +18,7 @@ import { CardSet } from './scene';
 // (The pieces of shader program used below, taken untyped: see the note in `siteMaterial.ts`.)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type N = any;
-const { Fn, abs, attribute, cameraPosition, clamp, cos, diffuseColor, distance, dot, faceDirection, float, floor, mix, normalMap, normalView, normalViewGeometry, normalize, positionLocal, positionViewDirection, positionWorld, pow, sin, smoothstep, texture: tex, transformNormalToView, uniform, uv, vec2, vec3 } = TSL as N;
+const { Fn, abs, attribute, cameraPosition, clamp, cos, diffuseColor, distance, dot, faceDirection, float, floor, mix, normalFlat, normalMap, normalView, normalViewGeometry, normalize, positionLocal, positionViewDirection, positionWorld, pow, sin, smoothstep, texture: tex, transformNormalToView, uniform, uv, vec2, vec3 } = TSL as N;
 
 /**
  * `uGrassTall` multiplies how tall grass stands, and `uGrassVary` (0 to 1) makes it more unequal: at 0 it is as it was planted, at 1 some
@@ -817,17 +817,26 @@ export function makeCards(set: CardSet, texture: Texture, level?: TreeLevel): In
     // as it lies on its twig, which gives one leaf a gleam and its neighbour none. And a leaf's skin is waxy: it throws the sun back.
     const relief = set.kind === 'leaf' ? (texture.userData.relief as Texture | undefined) : undefined;
     // (A leaf made by itself is lit as it truly lies: by its own surface, whichever side of it is seen.)
-    material.normalNode = sprig ? normalize(round.mul(0.55).add(normalViewGeometry.mul(faceDirection).mul(0.68)))
+    // (A sprig's face, and a bough's below, from how its own flat leaf lies in the picture rather than from a normal carried with each
+    // point: the same for a flat face, and one name fewer on the card, `withNormal`.)
+    material.normalNode = sprig ? normalize(round.mul(0.55).add(normalFlat.mul(faceDirection).mul(0.68)))
       : relief ? normalize(round.mul(0.6).add((normalMap(tex(relief, uv())) as N).mul(0.62))) : round;
     if (relief) { material.roughness = 0.58; material.color.setScalar(1.16); }
     // A painted spray seen edge on is a streak across the crown. As a card turns its edge to the eye it thins away instead.
     if (relief && !sprig) material.opacityNode = smoothstep(0.05, 0.32, abs(dot(positionViewDirection, normalViewGeometry)));
     // (A painted bough the same, more gently: there are few of them to a tree, and a spruce must not go thin from one side.)
-    if (set.kind === 'needle' && !sprig) material.opacityNode = smoothstep(0.02, 0.16, abs(dot(positionViewDirection, normalViewGeometry)));
+    if (set.kind === 'needle' && !sprig) material.opacityNode = smoothstep(0.02, 0.16, abs(dot(positionViewDirection, normalFlat)));
     (material as N).setupLightingModel = () => new LeafLighting(whole ? 0.25 : 1, relief ? 0.55 : 0.2);
     return material;
   };
   const layers: { layer: 'painted' | 'blades' | 'sprigs' | 'far'; base: BufferGeometry; material: MeshStandardNodeMaterial }[] = [];
+  /**
+   * Whether a layer's cards carry their shape's normals: only real blades and a leaf's creased sprays read them. (A graphics card
+   * shares one shader among blocks of cards only while their names, with the matrices, colours and the matrices of the frame before,
+   * are eight at the most: with the normals, a tree's cards were nine, and each block was made a shader of its own, as many as there
+   * were sizes of block, each made as its block first came into sight, a tenth of a second and more each.)
+   */
+  const withNormal = (layer: 'painted' | 'blades' | 'sprigs' | 'far') => layer === 'blades' || (layer !== 'sprigs' && set.kind === 'leaf');
   if (split) layers.push({ layer: 'blades', base: bladeClump(), material: materialFor('blades') });
   layers.push({ layer: 'painted', base: shapeGeometry(set.shape, set.kind === 'leaf'), material: materialFor('painted') });
   if (set.kind === 'grass') layers.push({ layer: 'far', base: shapeGeometry(set.shape), material: materialFor('far') });
@@ -859,7 +868,7 @@ export function makeCards(set: CardSet, texture: Texture, level?: TreeLevel): In
       // Each block has its own geometry object, sharing the shape's buffers, because the centres are per card.
       const geometry = new BufferGeometry();
       geometry.setIndex(base.getIndex());
-      for (const name of ['position', 'normal', 'uv', 'color']) if (base.getAttribute(name)) geometry.setAttribute(name, base.getAttribute(name));
+      for (const name of ['position', 'normal', 'uv', 'color']) if (base.getAttribute(name) && (name !== 'normal' || withNormal(layer))) geometry.setAttribute(name, base.getAttribute(name));
       // (Every card of the block; or, for grass far off, every fourth.)
       const every = layer === 'far' ? 4 : 1, m = Math.ceil(n / every);
       const pick = (from: Float32Array, size: number): Float32Array => {
@@ -888,7 +897,7 @@ export function makeCards(set: CardSet, texture: Texture, level?: TreeLevel): In
       meshes.push(mesh);
     }
   }
-  if (sprigs) meshes.push(nearSprigs(set, set.kind === 'needle' ? boughSprig() : sprigClump(), materialFor('sprigs')));
+  if (sprigs) { const shape = set.kind === 'needle' ? boughSprig() : sprigClump(); shape.deleteAttribute('normal'); meshes.push(nearSprigs(set, shape, materialFor('sprigs'))); }
   return meshes;
 }
 

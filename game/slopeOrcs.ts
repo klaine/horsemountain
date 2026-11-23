@@ -82,8 +82,16 @@ export class Horde {
     }));
   }
 
-  /** The orc's body made ahead of need (it takes some part of a second, which riding along would feel), while the page is opening. */
-  prepare(): Promise<unknown> { return this.kindOf(); }
+  /**
+   * The orc's body made ahead of need (it takes some part of a second, which riding along would feel), while the page is opening; and
+   * the first orc made from it, hidden, so that what it is drawn with can be made ready before any comes.
+   */
+  async prepare(): Promise<void> {
+    await this.kindOf();
+    if (this.orcs.length || this.making) return;
+    this.making = true;
+    try { await this.make(); } finally { this.making = false; }
+  }
 
   /** An orc made (one a frame or so until there are enough): a copy of the orc's body, its size its own. */
   private async make(): Promise<void> {

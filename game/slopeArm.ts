@@ -153,7 +153,9 @@ export class RobotArm {
       this.fingers.push({ base, tip });
     }
     // The snow broken up about it as it comes through, heaped about the turret (laid where it stands, `place`).
-    this.heap = new Mesh(new BufferGeometry(), this.snow);
+    // (A lump to begin with, of the kind it is heaped of, too small to see: so that what it is drawn with can be made ready before the
+    // arm first comes, `warmSoon` in `slope.ts`. With no shape yet, it was made as the arm first came through the snow.)
+    this.heap = new Mesh(new DodecahedronGeometry(0.001, 0), this.snow);
     this.heap.receiveShadow = this.heap.castShadow = true;
     this.group.add(this.lift, this.heap);
     this.group.visible = false;
