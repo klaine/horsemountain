@@ -104,6 +104,7 @@
     #menu input[type=range] { width: 100%; min-width: 0; margin: 0; min-height: 34px; accent-color: var(--brass); }
     #menu output { color: var(--ink-dim); font-variant-numeric: tabular-nums; text-align: right; }
     #menu .wide { width: 100%; min-height: 44px; margin-top: 10px; font-weight: 650; }
+    #menu .wide.map { margin: 0 0 8px; }
     #menu .keys { margin: 20px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-dim); }
     #menu .keys.more { margin-top: 6px; }
     #menu .note { margin: 12px 0 0; font-size: 12px; line-height: 1.45; color: var(--ink-dim); }
@@ -211,15 +212,91 @@
       animation: grow 1.4s .2s ease both; }
     @keyframes rise { from { opacity: 0; transform: translateY(22px) scale(.97); letter-spacing: .3em; } to { opacity: 1; transform: none; } }
     @keyframes grow { from { transform: scaleX(0); opacity: 0; } to { transform: none; opacity: 1; } }
-    /* (Centred by its margins, not by a transform: the animation it rises in by takes the transform over.) */
-    #choose { position: fixed; inset: 0; margin: auto; height: fit-content; z-index: 5; display: grid; gap: 10px; justify-items: center;
-      padding: 22px 26px 24px; background: var(--sheet); border: 1px solid var(--brass); border-radius: 8px; box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
-      width: min(380px, calc(100vw - 32px)); box-sizing: border-box; animation: rise .6s ease both; }
-    #choose .what { font: 900 22px/1.15 "Cinzel", var(--serif); letter-spacing: .1em; color: var(--ink); text-align: center; text-wrap: balance; }
-    #choose .why { color: var(--ink-dim); text-align: center; text-wrap: balance; margin-bottom: 6px; }
-    #choose .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
-    #choose button { min-height: 48px; font-weight: 700; font-size: 14px; }
-    @media (max-width: 380px) { #choose .two { grid-template-columns: 1fr; } }
+    /* The choice, on the map of the runs (asked: "can you make a ink map based ... run selector? think like a medieval fantasy ski
+       resort map hah ... shown to the player when they enter the game after the loading screen along with the dialog to watch either
+       the regular demo, orcs demo or choose a location from the map to ride"): a sheet of parchment, the map on it in ink with the runs
+       over it (`slopeMap.ts`), and beside it, or over and under it on a phone held upright, the two demo runs and the list of the runs.
+       A run's card opens over the list, or from the foot held upright, leaving the run on the map in sight. In the parchment's own
+       ink and a wax red, not the picture's dark sheet and brass. (Centred by its margins, not by a transform: the animation it rises in
+       by takes the transform over.) */
+    #choose { --ink: #1d1a17; --ink-dim: rgba(29, 26, 23, .68); --rule: rgba(29, 26, 23, .22); --edge: rgba(29, 26, 23, .4); --brass: #8f2318;
+      --on-brass: #f8f1e2; --chip: rgba(255, 251, 242, .55); --paper: #f1eadb;
+      position: fixed; inset: 0; margin: auto; z-index: 5; box-sizing: border-box;
+      width: min(1200px, calc(100vw - var(--gutter-l) - var(--gutter-r))); height: min(820px, calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
+      display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "map head" "map runs";
+      gap: 14px 20px; padding: 18px; color: var(--ink);
+      background: radial-gradient(ellipse at 50% 40%, #f6f0e2, #ebe1cb 75%, #e2d6bc); border: 1px solid #8a7a5c; border-radius: 3px;
+      box-shadow: 0 0 0 4px #f1eadb, 0 0 0 5px #8a7a5c, 0 14px 50px rgba(0, 0, 0, .5); animation: rise .6s ease both; }
+    #choose .head { grid-area: head; display: grid; gap: 8px; padding-right: 30px; }
+    #choose .what { font: 900 21px/1.15 "Cinzel", var(--serif); letter-spacing: .08em; text-wrap: balance; }
+    #choose .why { font: italic 600 16px/1.3 "Cormorant Garamond", var(--serif); color: var(--ink-dim); text-wrap: balance; }
+    #choose .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 2px; }
+    #choose button { font-weight: 650; }
+    #choose .two button { min-height: 46px; font-size: 13.5px; line-height: 1.2; padding: 4px 10px; }
+    #choose .map { grid-area: map; position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; }
+    #choose .stage { position: relative; }
+    #choose .stage canvas, #choose .stage svg.over { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #choose .stage canvas { box-shadow: 0 1px 6px rgba(80, 60, 30, .25); }
+    #choose svg.over .run { cursor: pointer; }
+    #choose svg.over .hit { fill: none; stroke: transparent; stroke-width: 26px; vector-effect: non-scaling-stroke; pointer-events: stroke; }
+    #choose svg.over .case { fill: none; stroke-width: 8px; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; opacity: .9; }
+    #choose svg.over .line { fill: none; stroke-width: 3.4px; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; transition: stroke-width .15s; }
+    #choose svg.over .run.hot .line { stroke-width: 6px; }
+    #choose svg.over .run.hot .case { stroke-width: 12px; }
+    #choose svg.over.dim .run:not(.hot) { opacity: .55; }
+    #choose svg.over .name { font-family: "Cormorant Garamond", Georgia, serif; font-style: italic; font-weight: 600; fill: var(--ink);
+      paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+    #choose .runs { grid-area: runs; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; min-height: 0; }
+    #choose .cap { display: flex; align-items: center; gap: 10px; font: 700 10.5px/1 "Cinzel", var(--serif); letter-spacing: .2em; text-transform: uppercase; color: var(--brass); }
+    #choose .cap::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+    #choose .list { display: grid; align-content: start; gap: 6px; overflow: auto; }
+    #choose .list button { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; text-align: left;
+      padding: 7px 10px; min-height: 48px; border-radius: 6px; border-color: var(--rule); background: var(--chip); }
+    #choose .list button .mark { grid-row: 1 / 3; }
+    #choose .list button .name { font: 700 14px/1.2 "Cinzel", var(--serif); letter-spacing: .04em; }
+    #choose .list button .len { font-size: 12px; color: var(--ink-dim); }
+    #choose .list button.hot, #choose .list button:hover { border-color: var(--brass); background: rgba(255, 251, 242, .85); }
+    #choose .quiet { background: none; border-color: transparent; color: var(--ink-dim); font: italic 600 15px/1.2 "Cormorant Garamond", var(--serif); justify-self: start; padding: 2px 4px; }
+    #choose .quiet:hover { color: var(--ink); border-color: transparent; text-decoration: underline; }
+    #choose .close { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; padding: 0; border-radius: 50%; background: none; border-color: var(--rule); font-size: 15px; z-index: 1; }
+    /* A run's card: over the list beside the map, so the run stays in sight on it. */
+    #choose .card { position: absolute; top: 12px; right: 12px; bottom: 12px; width: 316px; box-sizing: border-box; z-index: 2; overflow: auto;
+      display: grid; align-content: start; gap: 10px; padding: 14px 16px 16px; background: #f7f1e4; border: 1px solid #8a7a5c; border-radius: 4px;
+      box-shadow: 0 0 0 3px #f7f1e4, 0 0 0 4px rgba(138, 122, 92, .6), 0 10px 30px rgba(40, 28, 10, .3); animation: rise .3s ease both; }
+    #choose .card .top { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+    #choose .card .name { font: 900 19px/1.15 "Cinzel", var(--serif); letter-spacing: .05em; }
+    #choose .card .grade { font: italic 600 15px/1.2 "Cormorant Garamond", var(--serif); color: var(--ink-dim); }
+    #choose .card .x { width: 34px; height: 34px; padding: 0; border-radius: 50%; background: none; border-color: var(--rule); align-self: start; }
+    #choose .card .about { margin: 0; font: italic 600 15.5px/1.3 "Cormorant Garamond", var(--serif); }
+    #choose .card .stats { margin: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 8px 0; }
+    #choose .card .stats div { display: grid; gap: 2px; }
+    #choose .card .stats dt { font: 700 9.5px/1 "Cinzel", var(--serif); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); }
+    #choose .card .stats dd { margin: 0; font: 700 15px/1.1 var(--serif); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #choose .card .profile { width: 100%; height: auto; display: block; touch-action: none; }
+    #choose .card .profile .axis { stroke: rgba(29, 26, 23, .35); stroke-width: 1; }
+    #choose .card .profile .tick { font: 10px var(--serif); fill: rgba(29, 26, 23, .7); }
+    #choose .card .profile .tick.strong { font-weight: 700; fill: var(--ink); }
+    #choose .card .profile .hair { stroke: rgba(29, 26, 23, .55); stroke-width: 1; }
+    #choose .card .read { font-size: 12.5px; color: var(--ink); min-height: 1.3em; font-variant-numeric: tabular-nums; }
+    #choose .card .more { font-size: 12px; line-height: 1.35; color: var(--ink-dim); }
+    #choose .card .ride { min-height: 48px; font-size: 15px; font-weight: 700; }
+    /* Held upright: the title and the demo runs over the map, the runs under it, a run's card from the foot. */
+    @media (orientation: portrait) and (max-width: 820px) {
+      #choose { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "head" "map" "runs"; gap: 10px; padding: 12px;
+        height: fit-content; max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: auto; }
+      /* (The map as broad as the sheet and as tall as its shape makes it; no taller than half the screen or so.) */
+      #choose .map { aspect-ratio: var(--map-aspect, 1); max-height: 56dvh; }
+      #choose .head { padding-right: 34px; gap: 6px; }
+      #choose .what { font-size: 18px; }
+      #choose .why { font-size: 14.5px; }
+      #choose .list { grid-template-columns: 1fr 1fr; gap: 5px; }
+      #choose .list button { min-height: 44px; padding: 5px 8px; column-gap: 7px; }
+      #choose .list button .name { font-size: 12.5px; }
+      #choose .list button .len { font-size: 11px; }
+      #choose .card { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 72%; gap: 8px; padding: 12px 14px 14px; }
+      #choose .card .about { display: none; }
+    }
+    @media (max-width: 380px) { #choose .two button { font-size: 12.5px; } }
     /* How to get back to the top, asked as a run ends (asked: "add a dialog that shows at the end or after falling for the player to
        choose how to get back to the beginning of a new run"): at the foot of the picture, so that the skier stays in sight, the stick and
        the tricks put away while it is up. */
@@ -235,6 +312,7 @@
     #backTo .remember { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--hit); color: var(--ink-dim); font-size: 13px; cursor: pointer; }
     #backTo .remember input { width: 18px; height: 18px; accent-color: var(--brass); margin: 0; }
     body.asking #stick, body.asking #tricky { display: none; }
+    body.choosing #stick, body.choosing #tricky, body.choosing #aim { display: none !important; }
     /* Points (asked: "add some kind of splashy hit markers / "score points" to show when hitting the orcs ... and also scores for the
        jumps and tricks"): the run's points with the numbers at the top left, riding; and over the picture, where they were won, each
        won thrown up and fading: gold for a trick, hot orange for an orc, a white cross where a round struck. */
@@ -269,6 +347,44 @@
       opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; }
     #told.shown { opacity: 1; transform: translate(-50%, 0); }
     #told.bad { border-color: var(--warn); }
+    /* Off the marked piste, its seconds counted down (asked: "when 5 seconds left, a count down should be shown that you need to return
+       to the marked slopes"; and "start showing the countdown right away though"): under the line of what is being done, from the
+       moment it leaves the piste; small and quiet while there is time, large and in the warning's colour over its last five seconds
+       (`late`). */
+    #offPiste { position: fixed; left: 50%; top: calc(28% + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 3; display: grid; justify-items: center;
+      gap: 2px; padding: 5px 14px 4px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; pointer-events: none; transition: padding .2s, border-color .2s; }
+    #offPiste .say { font: 700 10px/1 "Cinzel", var(--serif); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); }
+    #offPiste .n { font: 900 24px/1.05 "Cinzel", var(--serif); color: var(--ink); font-variant-numeric: tabular-nums; transition: font-size .2s; }
+    #offPiste.late { padding: 8px 22px 6px; border-color: var(--warn); }
+    #offPiste.late .say { font-size: 11px; color: var(--warn); }
+    #offPiste.late .n { font-size: 46px; }
+    @media (prefers-reduced-motion: reduce) { #offPiste, #offPiste .n { transition: none; } }
+    @media (max-height: 500px) and (orientation: landscape) { #offPiste { top: calc(40% + env(safe-area-inset-top, 0px)); padding: 3px 10px 2px; } #offPiste .n { font-size: 18px; } #offPiste.late { padding: 4px 14px 3px; } #offPiste.late .n { font-size: 30px; } }
+    /* Toward the next arm (asked: "there could be some kind of a bar on the side that goes up towards the next weapon unlock"): at the
+       left, between what the skier is doing and the stick, as tall as there is room for up to 260 pixels, filled from the foot as the
+       orcs are brought down, notched every five; the arm it fills toward named at its head, how many more at its foot. Full and gilt a
+       moment as that arm is taken up. Only told, never pressed, as what the skier is doing is. */
+    #armBar { position: fixed; left: var(--gutter-l); top: calc(150px + env(safe-area-inset-top, 0px)); bottom: calc(190px + env(safe-area-inset-bottom, 0px));
+      max-height: 260px; margin: auto 0; z-index: 2; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; pointer-events: none; }
+    #armBar .next, #armBar .left { padding: 2px 7px 3px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; white-space: nowrap; }
+    #armBar .next { font: 700 10px/1.25 "Cinzel", var(--serif); letter-spacing: .12em; text-transform: uppercase; color: var(--brass); }
+    #armBar .left { font: 600 11px/1.25 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; }
+    #armBar .track { position: relative; flex: 1; min-height: 36px; width: 12px; margin-left: 7px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+    #armBar .fill { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--got, 0) * 100%); border-radius: 6px; background: linear-gradient(to top, #5f8f2e, #9fd45a); transition: height .3s ease-out; }
+    #armBar .track::after { content: ""; position: absolute; inset: 0;
+      background: repeating-linear-gradient(to top, transparent 0 calc(var(--notch, 50%) - 1px), rgba(10, 12, 16, .6) calc(var(--notch, 50%) - 1px) var(--notch, 50%)); }
+    #armBar.snap .fill { transition: none; }
+    #armBar.won .track, #armBar.won .next { border-color: #ffe07a; box-shadow: 0 0 14px rgba(255, 200, 60, .7); }
+    #armBar.won .next, #armBar.won .left { color: #ffe07a; }
+    #armBar.won .fill { background: linear-gradient(to top, #d39a26, #ffe07a); }
+    body.choosing #armBar { display: none; }
+    @media (prefers-reduced-motion: reduce) { #armBar .fill { transition: none; } }
+    @media (max-height: 500px) and (orientation: landscape) {
+      #armBar { top: calc(58px + env(safe-area-inset-top, 0px)); bottom: calc(134px + env(safe-area-inset-bottom, 0px)); gap: 3px; }
+      #armBar .next { font-size: 9px; padding: 1px 5px 2px; }
+      #armBar .left { font-size: 10px; padding: 1px 5px 2px; }
+      #armBar .track { width: 10px; margin-left: 5px; }
+    }
     #told .text { display: block; font: 600 20px/1.25 var(--sans); color: var(--ink); text-wrap: balance; }
     #told .small { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 
@@ -305,9 +421,18 @@
       #backTo .ways button b { font-size: 12.5px; }
       #backTo .ways button span { display: none; }
       #backTo .remember { min-height: 24px; font-size: 12px; }
-      #choose { padding: 14px 18px 16px; gap: 6px; }
-      #choose .what { font-size: 18px; }
-      #choose button { min-height: 40px; }
+      #choose { height: calc(100dvh - 16px); grid-template-columns: minmax(0, 1fr) 250px; padding: 10px 12px; gap: 8px 14px; }
+      #choose .what { font-size: 16px; }
+      #choose .why { display: none; }
+      #choose .two { gap: 5px; }
+      #choose .two button { min-height: 38px; font-size: 12px; padding: 2px 6px; }
+      #choose .list { grid-template-columns: 1fr 1fr; gap: 4px; }
+      #choose .list button { min-height: 36px; padding: 2px 6px; column-gap: 6px; }
+      #choose .list button .name { font-size: 11.5px; }
+      #choose .list button .len { display: none; }
+      #choose .list button .name { grid-row: 1 / 3; }
+      #choose .card { top: 6px; bottom: 6px; right: 6px; width: 290px; gap: 6px; padding: 10px 12px; }
+      #choose .card .about { display: none; }
     }
 
     /* Loading (asked: "add some kind of loading progress indicator that is shown when entering the page and it still loads"): the name
@@ -342,10 +467,12 @@
   <div id="where" aria-live="polite">
     <div class="name" id="name">Downhill run</div>
     <div class="part" id="part">Long, wide turns</div>
-    <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span><span id="tally" hidden><b id="orcs">0</b> orcs down</span><span id="points"><b id="score">0</b> points<span id="best"></span></span></div>
+    <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span><span id="tally" hidden><b id="orcs">0</b> orcs down<span id="armSay"></span></span><span id="points"><b id="score">0</b> points<span id="best"></span></span></div>
   </div>
   <button id="menuButton" type="button" aria-expanded="false" aria-controls="menu" title="Menu (H)"><span class="bars" aria-hidden="true"></span>Menu</button>
   <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
+  <div id="offPiste" hidden role="alert"><span class="say">Back to the marked slopes</span><b class="n">5</b></div>
+  <div id="armBar" hidden role="progressbar" aria-valuemin="0"><span class="next"></span><div class="track"><div class="fill"></div></div><span class="left"></span></div>
   <div id="stick" hidden role="group" aria-label="Steer: to either side to turn, up to tuck, down to stand straight"><div class="base"></div><div class="knob"></div><span class="say up">Tuck</span><span class="say down">Straight</span></div>
   <div id="aim" aria-hidden="true"><i class="skid l"></i><i class="skid r"></i><i class="rail l"></i><i class="rail r"></i><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="say up">Tuck</span><span class="say down">Straight</span><span class="say skids l">Skid</span><span class="say skids r">Skid</span><span class="say here">Point in here to steer</span><i class="dot"></i></div>
   <div id="tricky" hidden>
@@ -361,16 +488,26 @@
   </div>
   <div id="intro" hidden><div class="title"><span class="horse">GRAND HORSE</span><span class="rule"></span><span class="mountain">Mountain</span></div></div>
   <div id="choose" hidden role="dialog" aria-modal="true" aria-labelledby="chooseWhat">
-    <div class="what" id="chooseWhat">Grand Horse Mountain</div>
-    <div class="why">Watch a run down the mountain, or take it yourself.</div>
-    <div class="two"><button id="watchDemo" type="button">Watch demo run</button><button id="sendIt" type="button" class="on">Send it myself!</button></div>
+    <div class="head">
+      <div class="what" id="chooseWhat">Grand Horse Mountain</div>
+      <div class="why">Watch a run down the mountain, or choose one on the map and take it yourself.</div>
+      <div class="two"><button id="watchDemo" type="button">Watch the demo run</button><button id="watchHunt" type="button">Watch the orc hunt</button></div>
+    </div>
+    <div class="map" id="runMap"></div>
+    <div class="runs">
+      <div class="cap">The runs</div>
+      <div class="list" id="runList" role="group" aria-label="The runs"></div>
+      <button id="rideGroomed" class="quiet" type="button">Or ride the groomed slope</button>
+    </div>
+    <button id="chooseClose" class="close" type="button" aria-label="Close the map" title="Close the map (Escape)">✕</button>
   </div>
   <div id="menu" hidden role="dialog" aria-label="Menu" tabindex="-1">
     <div class="head"><span class="what">Grand Horse Mountain</span><button id="menuClose" class="close" type="button" title="Close the menu (H)" aria-label="Close the menu">✕</button></div>
     <div class="scroll">
       <h2>Play</h2>
       <div class="seg big" id="modes"></div>
-      <div class="field" id="orcsField"><span class="label">Orcs &amp; tommy gun</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and the tommy gun"></div></div>
+      <div class="field" id="pisteField"><span class="label">Off piste</span><div class="seg" id="pisteSeg" role="group" aria-label="Off piste"></div></div>
+      <div class="field" id="orcsField"><span class="label">Orcs &amp; weapons</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and weapons"></div></div>
       <div class="field" id="tiltField" hidden><span class="label">Steering</span><div class="seg" id="tiltSeg" role="group" aria-label="Steering"></div></div>
       <div class="field" id="waysField"><span class="label">Back to the top</span><div class="seg rows" id="waysSeg" role="group" aria-label="How to get back to the top as a run ends"></div></div>
       <div id="playback">
@@ -379,6 +516,7 @@
       </div>
       <div id="restarts" hidden><button id="restart" class="wide" type="button" title="Start the run again from the top (Enter)">Restart run</button></div>
       <h2>Slope</h2>
+      <button id="openMap" class="wide map" type="button" title="The map of the runs, to choose one to ride (M)">Map of the runs</button>
       <div class="cards" id="lands" role="group" aria-label="Slope"></div>
       <h2>Skier</h2>
       <div class="seg" id="skiers" role="group" aria-label="Skier"></div>

@@ -3,7 +3,7 @@ import {
   Quaternion, Skeleton, SkinnedMesh, SphereGeometry, Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { type AirControls, type AlpineArm, type AlpineFoot, type AlpinePose, lifeAt, type RideControls } from './alpine';
+import { type AirControls, type AlpineArm, type AlpineFoot, type AlpinePose, lifeAt, type RideControls, strideAt } from './alpine';
 import type { BodySpec } from './ragdoll';
 import { bodyTurn } from './posing';
 import { bitRings, horseLooks, type Part } from './horseBody';
@@ -78,19 +78,23 @@ const rest = (n: string) => REST.get(n)!.clone();
 /** The horse's look, made once for every horse: its coat, hair, eyes and tack, skinned to the skeleton by bone names' order. */
 let LOOKS: { coat: BufferGeometry; hair: BufferGeometry; eyes: BufferGeometry; tack: BufferGeometry; steel: BufferGeometry } | null = null;
 
-/** The horse's skis: a long one under each side, a binding for each hoof; or a short one under each hoof. Its sole on y = 0, along +z. */
+/**
+ * The horse's skis: a long one under each side, a binding for each hoof; or a short one under each hoof. Its sole on y = 0, along +z.
+ * Twin tips, their tails turned up as their tips are, for riding switch.
+ */
 const SKIS: Record<HorseSkis, { length: number; ahead: number; width: number }> = {
   // (Ahead of the middle between the bindings, the rest behind it.)
   pair: { length: 2.88, ahead: 1.49, width: 0.11 },
   four: { length: 1.0, ahead: 0.55, width: 0.1 },
 };
 function skiMesh(kind: HorseSkis): Mesh {
-  const s = SKIS[kind], tip = 0.16, flat = s.length - tip, back = s.length - s.ahead;
-  const body = new BoxGeometry(s.width, SKI_T, flat).translate(0, SKI_T / 2, (s.ahead - tip - back) / 2);
+  const s = SKIS[kind], tip = 0.16, tail = 0.14, flat = s.length - tip - tail, back = s.length - s.ahead;
+  const body = new BoxGeometry(s.width, SKI_T, flat).translate(0, SKI_T / 2, (s.ahead - tip - back + tail) / 2);
   const turned = new BoxGeometry(s.width * 0.9, SKI_T, tip).translate(0, SKI_T / 2, tip / 2).rotateX(-0.45).translate(0, 0, s.ahead - tip);
+  const up = new BoxGeometry(s.width * 0.9, SKI_T, tail).translate(0, SKI_T / 2, -tail / 2).rotateX(0.45).translate(0, 0, tail - back);
   // The bindings: a toe piece and a heel piece round each hoof.
   const at = kind === 'pair' ? [BINDINGS / 2, -BINDINGS / 2] : [0];
-  const parts = [body, turned];
+  const parts = [body, turned, up];
   for (const z of at) parts.push(new BoxGeometry(s.width * 1.05, 0.05, 0.06).translate(0, SKI_T + 0.025, z + 0.1), new BoxGeometry(s.width * 1.05, 0.07, 0.05).translate(0, SKI_T + 0.035, z - 0.09));
   const g = mergeGeometries(parts.map((p) => { p.deleteAttribute('uv'); return p; }));
   const m = new Mesh(g, new MeshStandardMaterial({ color: 0xc0322b, roughness: 0.5 }));
@@ -556,6 +560,18 @@ export function horseRidePose(c: RideControls): HorsePose {
   const press = c.press ?? 0;
   if (press > 0) { a.neck += rad(20) * press; a.head -= rad(8) * press; a.bodyZ += 0.08 * press; a.tail += 0.4 * press; }
   else if (press < 0) { const q = -press; a.height -= 0.18 * q; a.bodyZ -= 0.08 * q; a.arch += rad(5) * q; a.neck -= rad(14) * q; a.head += rad(10) * q; a.tail += 0.3 * q; }
+  // Skating: both skis in a V, their tips turned out, and set wider than it stands, so that the long skis' tails pass clear of each
+  // other; a side at a time, its ski (on four, the side's two) pushed further out and a little back, turned out further and on its
+  // inside edge, then lifted and drawn back in as the other side pushes; the body swaying over the gliding side, a little lower, the
+  // neck nodding with each push. (A tip turned to the left is `yaw` up: the left ski's.)
+  const sk = c.skate ?? 0;
+  if (sk > 0.005) {
+    const { side, out, lift } = strideAt(c.stride ?? 0), sgn = side === 'l' ? 1 : -1;
+    for (const k of ['l', 'r'] as const) { const ks = k === 'l' ? 1 : -1; a.skis[k].x += ks * 0.13 * sk; a.skis[k].yaw += ks * rad(8) * sk; }
+    const f = a.skis[side];
+    f.x += sgn * 0.18 * out * sk; f.z -= 0.08 * out * sk; f.up += 0.1 * lift * sk; f.yaw += sgn * rad(5) * out * sk; f.edge += sgn * rad(18) * out * sk;
+    a.height -= 0.06 * sk; a.bodyX -= sgn * 0.08 * (0.4 + 0.6 * out) * sk; a.roll -= sgn * rad(5) * out * sk; a.neck += rad(7) * out * sk; a.head -= rad(4) * out * sk;
+  }
   // Springing off a lip: the legs driven long, the head and neck up (and back, set for a backflip).
   const pop = c.pop ?? 0;
   if (pop) { a.height += (0.1 - a.height) * pop; a.neck += (rad(-10) - rad(18) * tall - a.neck) * pop; a.head += (rad(10) - a.head) * pop; a.ears *= 1 - pop; a.pitch += (rad(-4) - a.pitch) * pop; }

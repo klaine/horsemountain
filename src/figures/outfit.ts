@@ -207,7 +207,7 @@ export function dressAdventurer(base: Object3D, look: Look = RANGER, o: { sword?
     return flat;
   };
   const toHips = () => [['pelvis', 1]] as [string, number][];
-  const solids: BufferGeometry[] = [], metal: BufferGeometry[] = [];
+  const solids: BufferGeometry[] = [], metal: BufferGeometry[] = [], hilt: BufferGeometry[] = [];
   // The belt: round the gambeson at the waist, as wide as the body is there, every way round.
   const beltY = pelvis.y + 0.09, ring: Vector3[] = [];
   for (let a = 0; a < 40; a++) {
@@ -236,9 +236,11 @@ export function dressAdventurer(base: Object3D, look: Look = RANGER, o: { sword?
   solids.push(rigged(new BoxGeometry(0.115, 0.04, 0.056).translate(pouchAt.x - 0.01, pouchAt.y + 0.045, pouchAt.z), new Color(look.leather).multiplyScalar(0.8).getHex(), toHips));
   /**
    * A sword in its scabbard, the scabbard's mouth at `top` and running on along `down`, its hilt standing out the other way; its flat
-   * turned to face `face` (by default the body's side); each point moved by the bones `weights` gives.
+   * turned to face `face` (by default the body's side); each point moved by the bones `weights` gives. Its hilt made `apart` from the
+   * rest, if asked, so that it can be drawn (`Outfit_Hilt`: hidden, the sword is out of its scabbard and in the hand). The sword
+   * `long` metres from its mouth to its chape; `big`, a long sword for both hands, its hilt broader and longer.
    */
-  const sheathe = (top: Vector3, down: Vector3, weights: (p: Vector3) => [string, number][], face?: Vector3) => {
+  const sheathe = (top: Vector3, down: Vector3, weights: (p: Vector3) => [string, number][], face?: Vector3, apart = false, long = 0.86, big = false) => {
     const along = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), down.clone().negate());
     // (Turned about its own length so that its broad side lies flat against what it hangs on.)
     if (face) { const wide = new Vector3(1, 0, 0).applyQuaternion(along), want = face.clone().cross(down).normalize(); along.premultiply(new Quaternion().setFromUnitVectors(wide, want)); }
@@ -246,13 +248,14 @@ export function dressAdventurer(base: Object3D, look: Look = RANGER, o: { sword?
       const mid = top.clone().addScaledVector(down, (from + to) / 2);
       return geo.applyQuaternion(along).translate(mid.x, mid.y, mid.z);
     };
-    solids.push(rigged(place(new BoxGeometry(0.055, 0.86, 0.022), 0.02, 0.88), look.boots, weights));
-    metal.push(rigged(place(new BoxGeometry(0.06, 0.07, 0.026), 0.84, 0.91), look.metal, weights));
-    metal.push(rigged(place(new BoxGeometry(0.06, 0.04, 0.026), 0.0, 0.04), look.metal, weights));
-    metal.push(rigged(place(new BoxGeometry(0.2, 0.022, 0.024), -0.03, -0.008), look.metal, weights));
-    solids.push(rigged(place(new CylinderGeometry(0.014, 0.016, 0.13, 8), -0.17, -0.035), look.grip, weights));
-    const pommel = top.clone().addScaledVector(down, -0.19);
-    metal.push(rigged(new SphereGeometry(0.022, 10, 8).translate(pommel.x, pommel.y, pommel.z), look.metal, weights));
+    const w = big ? 1.25 : 1, grip = big ? 0.25 : 0.13;
+    solids.push(rigged(place(new BoxGeometry(0.055 * w, long, 0.022 * w), 0.02, long + 0.02), look.boots, weights));
+    metal.push(rigged(place(new BoxGeometry(0.06 * w, 0.07, 0.026 * w), long - 0.02, long + 0.05), look.metal, weights));
+    metal.push(rigged(place(new BoxGeometry(0.06 * w, 0.04, 0.026 * w), 0.0, 0.04), look.metal, weights));
+    (apart ? hilt : metal).push(rigged(place(new BoxGeometry(big ? 0.27 : 0.2, 0.022 * w, 0.024 * w), -0.03, -0.008), look.metal, weights));
+    (apart ? hilt : solids).push(rigged(place(new CylinderGeometry(0.014 * w, 0.016 * w, grip, 8), -0.035 - grip - 0.005, -0.035), look.grip, weights));
+    const pommel = top.clone().addScaledVector(down, -0.06 - grip);
+    (apart ? hilt : metal).push(rigged(new SphereGeometry(0.022 * w, 10, 8).translate(pommel.x, pommel.y, pommel.z), look.metal, weights));
   };
   /** How far out the trunk's skin stands at (x, y), behind it (`back`) or in front: the furthest point of it near there. */
   const trunkAt = (x: number, y: number, back: boolean) => {
@@ -270,7 +273,7 @@ export function dressAdventurer(base: Object3D, look: Look = RANGER, o: { sword?
     const low = new Vector3(pelvis.x + 0.15, beltY - 0.06, 0), high = new Vector3(pelvis.x - 0.13, chest + 0.2, 0);
     for (const q of [low, high]) q.z = trunkAt(q.x, Math.min(q.y, chest + 0.06), true) - 0.125;
     const down = low.clone().sub(high).normalize(), top = high.clone().addScaledVector(down, 0.02);
-    sheathe(top, down, (p) => toChest(new Vector3(p.x, Math.max(p.y, beltY), p.z)), new Vector3(0, 0, -1));
+    sheathe(top, down, (p) => toChest(new Vector3(p.x, Math.max(p.y, beltY), p.z)), new Vector3(0, 0, -1), true, 1.02, true);
     // The baldric: across the chest from the right shoulder to the left hip, and across the back under the scabbard.
     const strap: BufferGeometry[] = [];
     const band = (from: Vector3, to: Vector3, back: boolean) => {
@@ -336,6 +339,8 @@ export function dressAdventurer(base: Object3D, look: Look = RANGER, o: { sword?
   add([...shells, ...solids], Object.assign(new MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: DoubleSide }), { name: 'Cloth' }));
   add(draped, Object.assign(new MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: DoubleSide }), { name: 'Cloak' }));
   add(metal, Object.assign(new MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.85 }), { name: 'Steel' }));
+  // (The hilt of a sword on the back, apart: its guard and pommel steel, its grip leather, in a paint between the two.)
+  add(hilt, Object.assign(new MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.7 }), { name: 'Hilt' }));
   void scale; void Matrix4;
   return model;
 }

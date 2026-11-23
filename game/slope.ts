@@ -32,8 +32,8 @@
  * Where (asked: "now lets make this have a 100m wide nearland slice of our actual winter gameworld starting on high slopes at suitable
  * location, no buildings or locations"): a run found in the game's world, `w2` (`?world=` another, for which `tools/skiRun.ts` has
  * made a slice), down from the foot of its range across the upland below, a hundred metres broad, in winter (`slopeLand.ts`); or a
- * second run found there, below another peak (asked: "can we cheaply add a second found location as an option where to play?";
- * `RUNS`); or, with `?land=groomed`, the groomed slope the page began with, a plane at sixteen degrees going on for ever. Everything that moves is
+ * second run found there, below another peak (asked: "can we cheaply add a second found location as an option where to play?"), and
+ * six more, steep and gentle, each down its own spur or glen (`runs`); or, with `?land=groomed`, the groomed slope the page began with, a plane at sixteen degrees going on for ever. Everything that moves is
  * worked out in the world's own terms, over whatever land it is on: where it is, east and south, and how high the snow is there; the
  * pull of its weight down whatever way the snow falls under it; thrown off a kicker or a knoll as any body is, and landing on the
  * land as it lies. The run's line is only for the edges, the views and where the kickers stand.
@@ -50,14 +50,17 @@ import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { BODIES, FigureLibrary, figureBytes } from '../src/figures/library';
 import { putOn } from '../src/figures/gear';
-import { type AirControls, type RideControls, Rider } from '../src/figures/alpine';
+import { type AirControls, type RideControls, Rider, SLASH_MARKS } from '../src/figures/alpine';
 import { type BodySpec, type Ground, HUMAN, humanSpec, JOINTS, Ragdoll } from '../src/figures/ragdoll';
 import { Horse, horseAirPose, horseRidePose, type HorseSkis, saddlePose } from '../src/figures/horse';
 import { horseCoatMaterial } from '../src/figures/horseCoat';
 import { Rng } from '../src/core/rng';
 import { readSlice } from '../src/core/skiSlice';
+import { readRunMap, type RunMap } from '../src/core/runMap';
+import { RunMapView } from './slopeMap';
+import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sweep } from './slopeArms';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
-import { FORE_GRIP, Gunfire, GunSound, type Heard, MUZZLE, tommyGun } from './slopeGun';
+import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { Horde } from './slopeOrcs';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
@@ -68,7 +71,7 @@ import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
-import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowUniforms } from '../src/render/siteMaterial';
+import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowLiesAt, snowUniforms } from '../src/render/siteMaterial';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const query = new URLSearchParams(location.search);
@@ -99,24 +102,50 @@ const blot = (g: CanvasRenderingContext2D, size: number, colour: string, x: numb
  * own place; a ramp so long, rising to a lip so high, curving up as the power of the way along it (steepest at the lip, some twenty
  * degrees over the slope), and behind the lip a steep back down to the snow; so broad across its top, its sides sloping down. On a
  * world's run, each is put where the land after it falls away enough to land on, up to `shift` further down than its turn.
+ *
+ * Each built to its own size (asked: "make so that the jump/kicker sizes can vary! when the landing allows for a larger jump, make the
+ * jump larger"): as big as the land after it gives room to land, `kickSize`. `KICK` is a kicker of size 1, the one size they all were.
  */
 const KICK = { first: 70, every: 130, length: 7, height: 1.5, power: 1.7, back: 2.4, half: 2.5, side: 1.2, shift: 60 };
+/**
+ * The sizes a kicker is built at, the biggest first: from four fifths of `KICK` (a lip a metre high) to nearly twice it (a lip of three
+ * and a half metres at the end of a ramp of thirteen). And the speed it is sized for, about what a run is taken at (some 72 km/h); how
+ * hard, at the most, a skier off one bigger than size 1 at that speed is to come into the snow, metres a second (a fall is past 12.5);
+ * and how hard off one of size 1, before it is made smaller.
+ */
+const KICK_SIZES = [1.8, 1.55, 1.35, 1.15, 1, 0.88, 0.78], KICK_SPEED = 20, KICK_BLOW = 10, KICK_HARD = 11;
+/**
+ * A kicker's measures at a size: its ramp and its back as much longer as it is bigger; its lip higher still, so that a bigger kicker
+ * throws a little steeper as well as from higher (some 18 degrees over the slope at the least, 25 at the most, against 20 at size 1);
+ * a little broader.
+ */
+interface KickDims { size: number; L: number; H: number; B: number; half: number; side: number }
+const kickDims = (size: number): KickDims => ({ size, L: KICK.length * size, H: KICK.height * size ** 1.4, B: KICK.back * size, half: KICK.half * (0.8 + 0.2 * size), side: KICK.side * size });
 const kickLefts = new Map<number, number>();
 const kickerLeft = (i: number, most = 14) => { let v = kickLefts.get(i); if (v === undefined) { v = new Rng(`kicker ${i}`).range(-1, 1); kickLefts.set(i, v); } return v * most; };
 /** A kicker's height `u` along it from its foot, and how steeply it rises there. */
-const rise = (u: number): [number, number] => {
-  const { length: L, height: H, power: P, back: B } = KICK;
+const rise = (d: KickDims, u: number): [number, number] => {
+  const { L, H, B } = d, P = KICK.power;
   if (u <= 0) return [0, 0];
   if (u <= L) return [H * (u / L) ** P, ((P * H) / L) * (u / L) ** (P - 1)];
   if (u <= L + B) return [H * (1 - (u - L) / B), -H / B];
   return [0, 0];
 };
 /** A kicker's height at `u` along it and `x` across it from its middle; and how it rises along and across. */
-const kickerShape = (u: number, x: number) => {
-  const [f, df] = rise(u), ax = Math.abs(x), { half, side } = KICK;
+const kickerShape = (d: KickDims, u: number, x: number) => {
+  const [f, df] = rise(d, u), ax = Math.abs(x), { half, side } = d;
   const s = ax <= half ? 1 : ax < half + side ? 1 - (ax - half) / side : 0, ds = ax > half && ax < half + side ? -Math.sign(x) / side : 0;
   return { h: f * s, dDown: df * s, dLeft: f * ds };
 };
+/** How steeply a kicker's lip throws a skier up off the land under it. */
+const lipLift = (d: KickDims) => Math.atan((KICK.power * d.H) / d.L);
+/**
+ * Air off a knoll (`stepRide`): no slower than `speed` metres a second (some 68 km/h); the snow looked at so many seconds of the way
+ * ahead; how sharply it must turn over there, against what the skier's weight can follow, for the skier to spring off it; how hard it
+ * springs, metres a second upward, from such a crest to one that would throw it anyway; and how long after landing, seconds, before
+ * it springs again.
+ */
+const KNOLL = { speed: 19, ahead: [0.2, 0.3, 0.4], bend: 0.9, pop: [0.8, 2], after: 3 };
 /** The demo run's frames are kept a thirtieth of a second apart. */
 const STEP = 1 / 30;
 
@@ -125,7 +154,7 @@ const STEP = 1 / 30;
  * each a share of it; what is being done said under it, and how much of the files has come. Later, while a slope is made or a demo run
  * flown, the same screen says so, with the bar sweeping.
  */
-type Stage = 'start' | 'paint' | 'snow' | 'moves' | 'dress' | 'demo' | 'shaders';
+type Stage = 'start' | 'paint' | 'snow' | 'moves' | 'dress' | 'demo' | 'map' | 'shaders';
 const loading = (() => {
   const box = $('status'), fill = box.querySelector<HTMLElement>('.fill')!, say = box.querySelector<HTMLElement>('.say')!, bytes = box.querySelector<HTMLElement>('.bytes')!;
   // (Each stage's share of the work, about as long as each took opening the world's run, where painting the textures and making the
@@ -134,7 +163,7 @@ const loading = (() => {
   const STAGES: [Stage, number, string][] = [
     ['start', 0.04, 'Waking the graphics'], ['paint', 0.16, 'Painting the snow and the rock'], ['snow', 0.1, 'Laying the snow on the run'],
     ['moves', 0.09, 'Teaching the rider to ski'], ['dress', 0.11, 'Dressing the rider, saddling the horse'], ['demo', 0.15, 'Flying the demo run'],
-    ['shaders', 0.35, 'Lighting the mountain'],
+    ['map', 0.04, 'Inking the map of the runs'], ['shaders', 0.35, 'Lighting the mountain'],
   ];
   const FILES = 0.4, whole = STAGES.reduce((a, [, w]) => a + w, 0);
   const files = new Map<string, { got: number; of: number }>();
@@ -210,7 +239,7 @@ const loading = (() => {
  * A file the page needs, fetched once and counted as it comes in. (Where the host packs it for the way, its size on arrival is not
  * said; then it is taken as about as large as the file is kept, and grown if it comes larger.)
  */
-const ABOUT: Record<string, number> = { 'clips.glb': 3.02e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6 };
+const ABOUT: Record<string, number> = { 'clips.glb': 3.02e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6, 'w2-8.json': 1.03e6, 'w2-10.json': 1.2e6, 'w2-2.json': 0.97e6, 'w2-14.json': 1.03e6, 'w2-17.json': 1.01e6, 'w2-25.json': 1.09e6, 'w2-map.json': 0.39e6 };
 const fetching = new Map<string, Promise<ArrayBuffer>>();
 const fetchCounted = (url: string): Promise<ArrayBuffer> => {
   let made = fetching.get(url);
@@ -258,14 +287,25 @@ async function start() {
   // the run is to be on it), the figures' clips and the skier's body. (Not where the page carries them in itself.)
   const win = window as unknown as { __figureBase?: string; __figureFiles?: object; __slopeBase?: string; __slopeFiles?: Record<string, string> };
   const base = win.__figureBase ?? new URL('../figures/', location.href).href, slices = win.__slopeBase ?? new URL('../slopes/', location.href).href;
-  // The runs to choose from, each a slice beside the page (`tools/skiRun.ts`, `PICK=3` for the third run kept in a world, and so on),
-  // named for the peak it comes down below; `?world=` another slice to open on (`#w2-3` too, as the address keeps the choice).
-  const runs: { id: string; label: string; peak: string; title: string; detail: string }[] = [
-    { id: 'w2', label: 'Silent Warden', peak: 'The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side', detail: '1.02 km along a crest, from beside the highest summit' },
-    { id: 'w2-3', label: 'Pale Crown', peak: 'The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay', detail: '1.43 km down a spur into wooded foothills above a bay' },
+  // The runs to choose from, each a slice beside the page (`npm run skirun -- w2 3` for the third run kept in a world, and so on),
+  // named for the peak it comes down below, or the village or town at its foot (`where`, said of it as its snow is laid and over the
+  // picture); `?world=` another slice to open on (`#w2-3` too, as the address keeps the choice). (Asked: "can we try to find two more
+  // "tracks" in our mountains?": of the runs the search keeps in `w2`, the eighth, the steepest, and the tenth, the longest gentle one,
+  // each somewhere the others are not; then, asked "can we add the remaining 4 other runs to make it 8 total?", the second, fourteenth,
+  // seventeenth and twenty-fifth, each again somewhere the others are not: the rest came down the same spurs as these, or were too flat
+  // for a kicker.)
+  const runs: { id: string; label: string; where?: string; title: string; detail: string }[] = [
+    { id: 'w2', label: 'Silent Warden', where: 'below The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side', detail: '1.02 km along a crest, from beside the highest summit' },
+    { id: 'w2-3', label: 'Pale Crown', where: 'below The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay', detail: '1.43 km down a spur into wooded foothills above a bay' },
+    { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge', detail: '0.80 km, the steepest, under rock walls to a lake' },
+    { id: 'w2-10', label: 'Carndale', where: 'above Carndale', title: 'Long and gentle, straight down a wooded spur in the west of the range to a lake above Carndale', detail: '1.32 km, gentle, down a wooded spur to a lake' },
+    { id: 'w2-2', label: "Warden's Spur", where: "on the Silent Warden's south spur", title: "From beside the highest summit down its south spur, along the crest for half its length", detail: '0.76 km from the summit, half of it along a crest' },
+    { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'Steep all the way, down a spur to the lake below Ashbridge that Ashbridge comes down to, its kickers big', detail: '0.83 km, steep, big kickers, to the lake' },
+    { id: 'w2-17', label: 'Balestead', where: 'near Balestead', title: 'In among the mountains, down a crest to the glen below Balestead', detail: '0.77 km down a crest inside the range' },
+    { id: 'w2-25', label: 'Arford', where: 'above Arford', title: 'Long, gentle and broad, out of the foothills down to the shore above Arford', detail: '1.02 km, gentle and broad, to the shore' },
   ];
   const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
-  if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, peak: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
+  if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
   // (A land is a run, by its slice's name, or the groomed slope.)
   type LandKind = string;
   const hashed = location.hash.slice(1);
@@ -273,7 +313,10 @@ async function start() {
   const opensOn = query.get('land') === 'groomed' ? 'groomed' : asked ?? runs[0].id;
   let landKind: LandKind = hashed === 'groomed' || runs.some((r) => r.id === hashed) ? hashed : opensOn;
   if (landKind !== 'groomed' && !win.__slopeFiles?.[`${landKind}.json`]) void fetchCounted(`${slices}${landKind}.json`).catch(() => {});
-  const peakOf = (kind: LandKind) => runs.find((r) => r.id === kind)?.peak ?? kind;
+  const whereOf = (kind: LandKind) => runs.find((r) => r.id === kind)?.where ?? `on ${kind}`;
+  // (And the map of the runs, `slopeMap.ts`, which the run finder wrote for them: `npm run skirun -- w2 --map 1,3,8,10,2,14,17,25`.)
+  const MAP_FILE = 'w2-map.json', mapText = win.__slopeFiles?.[MAP_FILE] ? Promise.resolve(win.__slopeFiles[MAP_FILE])
+    : fetchCounted(`${slices}${MAP_FILE}`).then((b) => new TextDecoder().decode(b)).catch(() => null);
   if (!win.__figureFiles) for (const file of new Set(['clips.glb', (BODIES.find((b) => b.id === bodyId) ?? BODIES[0]).file])) void figureBytes(base, file, fetchCounted).catch(() => {});
   // Drawn more simply where the graphics cannot draw it all (asked: "my friend with oneplus 13 ... says that the ground doesn't draw
   // properly for him, he can see the jumps but not the ground or something. can we blindly without the device try to fix this
@@ -411,6 +454,15 @@ async function start() {
   // The land: a world's run, from its slice beside the page; or the groomed slope (`?land=groomed`, or when the slice cannot be had).
   // (Its slice is fetched from beside the page, or, in a page made whole, carried in it.)
   const lands = new Map<string, Land>();
+  /**
+   * What has been taken out of the scene, to be let go of on the graphics card at the start of the next frame: a land left, the
+   * inside-out land's old sheets, a kicker taken down. (Not at once: the frame before may still be making its shaders ready, `warmSoon`,
+   * which gathers what is in the scene and then waits; let go of in that wait, the renderer took up again what it had gathered, and
+   * kept it, and the land with it, for as long as the page was open.) And each mesh let go of with its shape: its shape alone, the
+   * renderer kept the mesh, listening on materials every mesh shares.
+   */
+  const toLetGo: (() => void)[] = [];
+  const letGoOf = (o: Object3D, keep?: (g: BufferGeometry) => boolean) => toLetGo.push(() => o.traverse((m) => { if (!(m as Mesh).isMesh) return; if (!keep?.((m as Mesh).geometry)) (m as Mesh).geometry.dispose(); (m as Mesh).dispose(); }));
   // The world's run drawn with the game's own materials for land, in their lighter winter forms (`GameLook`; *Snow*, `?snow=plain`
   // for the plain look the page had before). Their textures are painted when first wanted, at 512 (`?tex=` another size).
   type SnowLook = 'game' | 'plain';
@@ -427,13 +479,15 @@ async function start() {
     // has it before its bake arrives.)
     snowUniforms.uSnow.value = 1;
     farUniforms.uFarSnow.value = 1;
+    // (A deep one: the low country about the runs, woods and pasture, under snow too, not green with snow in patches.)
+    farUniforms.uFarDeep.value = 1;
     const skyLight: [number, number, number] = [0.5, 0.65, 0.95];
     siteUniforms.uFallback.value.set(...skyLight);
     const far = makeFarMaterial({ light: query.get('relief') !== '1' });
     // (The far land whole: the game cuts it away in patches where its near ground lies over it and about a valley, neither of which
     // is here, but each point of it still worked the patches out, four readings of noise, to be thrown away or kept, and it was kept.)
     Object.assign(far, { opacityNode: null, alphaTestNode: null });
-    gameLook = { snow: makeSnowMaterial(turf, scree), far, sky: skyLight };
+    gameLook = { snow: makeSnowMaterial(turf, scree), far, sky: skyLight, snowAt: (up, x, z) => snowLiesAt(up, x, z, turf) };
     return gameLook;
   };
   const sliceTexts = new Map<string, string | null>();
@@ -448,11 +502,14 @@ async function start() {
       const sliceText = sliceTexts.get(kind);
       if (sliceText) {
         if (snowLook === 'game' && !gameLook) { await loading.stage('paint'); gameLookOf(); }
-        await loading.stage('snow', `Laying the snow below ${peakOf(kind)}`);
+        await loading.stage('snow', `Laying the snow ${whereOf(kind)}`);
       }
       // (Without its slice, the groomed slope.)
-      made = sliceText ? sliceLand(readSlice(sliceText), snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined) : await landOf('groomed');
-    } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap); }
+      const slice = sliceText ? readSlice(sliceText) : null, where = runs.find((r) => r.id === kind)?.where;
+      made = slice ? sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined) : await landOf('groomed');
+      // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
+      if (slice && where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
+    } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
     lands.set(key, made);
     return made;
   };
@@ -475,31 +532,87 @@ async function start() {
   // The kickers, watched and ridden: each where the land lets it stand (`Land.kickable`), its shape laid on the land
   // as it lies there; a few about the skier at a time. The snow's height anywhere is the land's, with a kicker's on it where there is one.
   let kickersOn = false;
-  interface Kicker { i: number; s: number; left: number; x: number; z: number; dx: number; dz: number; group?: Group; flags?: Mesh[] }
+  interface Kicker extends KickDims { i: number; s: number; left: number; x: number; z: number; dx: number; dz: number; group?: Group; flags?: Mesh[] }
   const kickerAt = new Map<number, Kicker | null>();
   const kickerOf = (i: number): Kicker | null => {
     if (kickerAt.has(i)) return kickerAt.get(i)!;
     let k: Kicker | null = null;
-    const length = KICK.length + KICK.back;
+    const one = kickDims(1);
     for (let shift = 0; shift <= (land.length === Infinity ? 0 : KICK.shift) && !k; shift += 6) {
       // (Across the skiable path at its own place, in from either edge further than the band where the skier is turned back towards
       // the middle, there and all along the sixty metres before it where it is lined up on: one within it, there or where the path is
-      // narrower on the way to it, could not be lined up on.)
+      // narrower on the way to it, could not be lined up on.) (Where it stands, as a kicker of size 1 would; then how big it is.)
       const s = KICK.first + i * KICK.every + shift, [lo, hi] = land.edges(s);
       let room = 14;
-      for (let u = s - 60; u <= s; u += 6) { const [a, b] = land.edges(u), mid = (lo + hi) / 2; room = Math.min(room, Math.min(mid - a, b - mid) - Math.min(8, (b - a) / 4) - KICK.half - KICK.side - 1); }
-      const left = (lo + hi) / 2 + kickerLeft(i, clamp(room, 0, 14));
-      if (land.kickable(s, left, length)) { const p = land.at(s, left); k = { i, s, left, ...p }; }
+      for (let u = s - 60; u <= s; u += 6) { const [a, b] = land.edges(u), mid = (lo + hi) / 2; room = Math.min(room, Math.min(mid - a, b - mid) - Math.min(8, (b - a) / 4) - one.half - one.side - 1); }
+      const off = kickerLeft(i, clamp(room, 0, 14)), left = (lo + hi) / 2 + off;
+      if (land.kickable(s, left, one.L + one.B)) { const p = land.at(s, left); k = { i, s, left, ...p, ...kickSize(i, s, left, p, room - Math.abs(off)) }; }
     }
     kickerAt.set(i, k);
     return k;
+  };
+  /**
+   * How big a kicker is built where it stands: the biggest whose landing the land after it gives (asked: "when the landing allows for a
+   * larger jump, make the jump larger"). For each size, the biggest first, a skier is flown off its lip at `KICK_SPEED`, straight on
+   * down the kicker's way over the land as it lies (`kickFlight`); the size is kept if it comes down where the land falls at ten degrees
+   * and more, and still at eight six metres further on, and not too hard. A bigger kicker throws further and higher, and wants a longer,
+   * steeper landing: a long fall after the lip, steepening as it goes, is given a big kicker; a short or gentle one, size 1 or smaller. A size broader than one only where the path has the room (`spare`, metres either side to the band
+   * where the skier is turned back), and only if the land under its longer ramp lets it stand (`Land.kickable`). (On the groomed slope, whose landing is the same everywhere and any size comes down on it, each
+   * its own size by chance.)
+   */
+  /**
+   * Flown off a kicker of measures `d` standing at `at` from `v0` metres a second on the run before it (less what climbing to its lip
+   * costs), straight on down its way over the land as it lies: how far from its foot it comes down, how steeply the land falls there and
+   * six metres on (rise over run), and how hard it comes into the snow (the blow, as `land_` has it, which past 12.5 metres a second is
+   * a fall).
+   */
+  const kickFlight = (at: { x: number; z: number; dx: number; dz: number }, d: KickDims, v0: number) => {
+    const h = (u: number) => land.height(at.x + at.dx * u, at.z + at.dz * u), fall = (u: number) => (h(u - 3) - h(u + 3)) / 6;
+    // (Up the ramp, slowed by the climb and by the air, as `stepRide` slows a skier standing; in the air, by the air, as `stepAir`.
+    // Without them, a skier was flown a third further than it went, and came down twice as hard.)
+    const v = Math.max(1, Math.sqrt(Math.max(1, v0 * v0 - 2 * G * d.H)) - 0.0065 * v0 * d.L);
+    const a = Math.atan((h(d.L + 1) - h(d.L - 1)) / 2) + lipLift(d), dt = 1 / 120;
+    let u = d.L, y = h(d.L) + d.H, vu = v * Math.cos(a), vy = v * Math.sin(a);
+    for (let t = 0; t < 6; t += dt) {
+      const sp = Math.hypot(vu, vy);
+      vy -= G * dt; vu -= 0.004 * sp * vu * dt; vy -= 0.004 * sp * vy * dt;
+      u += vu * dt; y += vy * dt;
+      if (y <= h(u)) break;
+    }
+    const f = fall(u);
+    return { u, f, after: fall(u + 6), blow: Math.max(0, -(vu * f + vy) / Math.hypot(f, 1)) };
+  };
+  const kickSize = (i: number, s: number, left: number, at: { x: number; z: number; dx: number; dz: number }, spare: number): KickDims => {
+    if (land.length === Infinity) return kickDims(new Rng('kicker sizes').fork(`kicker ${i}`).pick(KICK_SIZES));
+    const one = kickDims(1), flight = (d: KickDims, v0: number) => kickFlight(at, d, v0);
+    // (A big kicker throws high, and a skier off it comes down steeply: hard, unless the land falls away under it as steeply. So a size
+    // bigger than 1 is kept where, taken at `KICK_SPEED`, it comes down on the slope and no harder than `KICK_BLOW`, or than a kicker
+    // of size 1 there would; and one smaller than 1 only where size 1 would come down harder than `KICK_HARD`: kickers of size 1 are
+    // what the demo runs' tricks were made on, and a smaller one keeps a skier too short a time in the air for a flip.)
+    const fits = (d: KickDims) => d.size === 1 || (land.kickable(s, left, d.L + d.B) && (d.size < 1 || d.half + d.side - one.half - one.side <= spare));
+    const base = flight(one, KICK_SPEED);
+    for (const size of KICK_SIZES.filter((z) => z > 1)) {
+      const d = kickDims(size);
+      if (!fits(d)) continue;
+      const o = flight(d, KICK_SPEED);
+      if (s + o.u + 36 < land.length && o.f >= Math.tan((10 * Math.PI) / 180) && o.after >= Math.tan((8 * Math.PI) / 180) && o.blow <= Math.max(KICK_BLOW, base.blow)) return d;
+    }
+    if (base.blow <= KICK_HARD) return one;
+    for (const size of KICK_SIZES.filter((z) => z < 1)) { const d = kickDims(size); if (fits(d) && flight(d, KICK_SPEED).blow <= KICK_HARD) return d; }
+    return one;
   };
   let kicks: Kicker[] = [];
   /** A kicker's height at a point, if one is under it. */
   const bumpAt = (x: number, z: number) => {
     let h = 0;
-    for (const k of kicks) { const rx = x - k.x, rz = z - k.z; h = Math.max(h, kickerShape(rx * k.dx + rz * k.dz, rx * k.dz - rz * k.dx).h); }
+    for (const k of kicks) { const rx = x - k.x, rz = z - k.z; h = Math.max(h, kickerShape(k, rx * k.dx + rz * k.dz, rx * k.dz - rz * k.dx).h); }
     return h;
+  };
+  /** How far up its own lip's height a point stands on a kicker under it, 0 to 1 (for the pop, which comes as much towards the lip of a small kicker as of a big one). */
+  const bumpShare = (x: number, z: number) => {
+    let share = 0;
+    for (const k of kicks) { const rx = x - k.x, rz = z - k.z; share = Math.max(share, kickerShape(k, rx * k.dx + rz * k.dz, rx * k.dz - rz * k.dx).h / k.H); }
+    return share;
   };
   /** The snow's height at a point, and how it rises east and south there (over `e` metres); and which way is up from it. */
   const ground = (x: number, z: number) => land.height(x, z) + bumpAt(x, z);
@@ -514,11 +627,11 @@ async function start() {
   const kickerSurface = (k: Kicker, u0: number, u1: number, nu: number, x0: number, x1: number, nx: number, lift: number, xs?: number[]) => {
     const across = xs ?? Array.from({ length: nx + 1 }, (_, j) => x0 + ((x1 - x0) * j) / nx), us: number[] = [];
     for (let i = 0; i <= nu; i++) us.push(u0 + ((u1 - u0) * i) / nu);
-    if (u1 > KICK.length && u0 < KICK.length && !us.includes(KICK.length)) { us.push(KICK.length); us.sort((a, b) => a - b); }
+    if (u1 > k.L && u0 < k.L && !us.includes(k.L)) { us.push(k.L); us.sort((a, b) => a - b); }
     const pos: number[] = [], uv: number[] = [], index: number[] = [], w = across.length;
     for (const u of us) for (const x of across) {
       const px = k.x + k.dx * u + k.dz * x, pz = k.z + k.dz * u - k.dx * x;
-      pos.push(px, land.height(px, pz) + kickerShape(u, x).h + lift, pz); uv.push(x / 9, u / 9);
+      pos.push(px, land.height(px, pz) + kickerShape(k, u, x).h + lift, pz); uv.push(x / 9, u / 9);
     }
     for (let i = 1; i < us.length; i++) for (let j = 1; j < w; j++) {
       const a = (i - 1) * w + j - 1, b = a + 1, c = a + w, d = c + 1;
@@ -546,7 +659,7 @@ async function start() {
     };
   })();
   const buildKicker = (k: Kicker) => {
-    const { length: L, back: B, half, side } = KICK, xs: number[] = [];
+    const { L, B, half, side } = k, xs: number[] = [];
     for (let j = 0; j <= 3; j++) xs.push(-half - side + (side * j) / 3);
     for (let j = 1; j < 12; j++) xs.push(-half + (2 * half * j) / 12);
     for (let j = 0; j <= 3; j++) xs.push(half + (side * j) / 3);
@@ -572,7 +685,7 @@ async function start() {
   const takeDown = (k: Kicker) => {
     if (!k.group) return;
     k.group.removeFromParent();
-    k.group.traverse((o) => { const m = o as Mesh; if (m.isMesh && m.geometry !== kickerParts.pole && m.geometry !== kickerParts.flag) m.geometry.dispose(); });
+    letGoOf(k.group, (g) => g === kickerParts.pole || g === kickerParts.flag);
     k.group = undefined; k.flags = undefined;
   };
   /** The flags flying (asked: "add visual impression improvements where it doesn't hurt the performance"): each turned to and fro about its pole, as a pennant in the wind. */
@@ -745,11 +858,15 @@ async function start() {
   };
   /** So much of a strip shown, from its start: none of it, and it is not drawn at all. */
   const showStrip = (mesh: Mesh, count: number) => { mesh.geometry.setDrawRange(0, count); mesh.visible = count > 0; };
-  /** Writes the `j`th step of a strip: the ski's middle, the way it went (against the run's way at `f`), and how broad it is (half). */
-  const lay = (mesh: Mesh, j: number, at: Vector3, way: number, half: number, f: { dx: number; dz: number }) => {
-    const across = along(way + Math.PI / 2, f).multiplyScalar(half);
+  /**
+   * Writes the `j`th step of a strip: the ski's middle, the way it went (against the run's way at `f`), and how broad it is (half); and
+   * how `deep` in loose snow it went, off the piste: a broader trench, its walls shadowed blue.
+   */
+  const trench = new Color(0x7d92b2);
+  const lay = (mesh: Mesh, j: number, at: Vector3, way: number, half: number, f: { dx: number; dz: number }, deep = 0) => {
+    const across = along(way + Math.PI / 2, f).multiplyScalar(half + 0.1 * deep);
     (mesh.geometry.getAttribute('position') as BufferAttribute).set([...onSnow(at.clone().add(across)).toArray(), ...onSnow(at.clone().sub(across)).toArray()], j * 6);
-    const c = groove.clone().lerp(scraped, Math.min(1, (half - 0.035) * 2.5));
+    const c = groove.clone().lerp(scraped, Math.min(1, (half - 0.035) * 2.5)).lerp(trench, 0.85 * deep);
     (mesh.geometry.getAttribute('color') as BufferAttribute).set([c.r, c.g, c.b, c.r, c.g, c.b], j * 6);
   };
   const halfOf = (skid: number) => 0.035 + 0.75 * skid;
@@ -770,7 +887,7 @@ async function start() {
       for (const m of rideTracks) for (const name of ['position', 'color']) { const arr = (m.geometry.getAttribute(name) as BufferAttribute).array as Float32Array; arr.copyWithin(0, (RIDE_STEPS / 2) * 6); }
       rideLaid = RIDE_STEPS / 2;
     }
-    at.forEach((p, k) => lay(rideTracks[k], rideLaid, p, now.way, halfOf(now.skid), here));
+    at.forEach((p, k) => lay(rideTracks[k], rideLaid, p, now.way, halfOf(now.skid), here, ride.deep));
     rideLaid++;
     rideTracks.forEach((m, k) => { m.geometry.getAttribute('position').needsUpdate = true; m.geometry.getAttribute('color').needsUpdate = true; showStrip(m, k < rideSkis ? Math.max(0, rideLaid - 1) * 6 : 0); });
   };
@@ -841,6 +958,17 @@ async function start() {
       } else if (now.skid > 0.12 && now.speed > 9) {
         for (let i = many(now.speed * 3); i > 0; i--) { const t = thrown(spots[i % spots.length], go, aside, slide, now.speed * 0.6, [0.6, 1.8]); throwGrain(t.from, t.v); }
       }
+      // (Off the piste, the powder the skis plough through thrown up before and beside them, the more the deeper and the faster: `DEEP`.)
+      if (ride.deep > 0.15 && now.speed > 2.5 && !inAir) {
+        for (let i = many(now.speed * 4 * ride.deep); i > 0; i--) {
+          const spot = spots[i % spots.length];
+          throwPuff(onSnow(spot.clone()).addScaledVector(UP, 0.1), go.clone().multiplyScalar(now.speed * sprayRng.range(0.2, 0.5)).addScaledVector(aside, sprayRng.range(-1.2, 1.2)).addScaledVector(UP, sprayRng.range(0.6, 1.8)), sprayRng.range(0.8, 1.3));
+        }
+        for (let i = many(now.speed * 8 * ride.deep); i > 0; i--) {
+          const spot = spots[i % spots.length];
+          throwGrain(onSnow(spot.clone()).addScaledVector(UP, 0.05), go.clone().multiplyScalar(now.speed * sprayRng.range(0.3, 0.7)).addScaledVector(aside, sprayRng.range(-1.5, 1.5)).addScaledVector(UP, sprayRng.range(1, 2.6)));
+        }
+      }
       // (A jump landed: a burst about the skis, out to every side, as far as the speed throws it.)
       if (sprayAir && !inAir && now.speed > 4) {
         for (let i = 0; i < 14; i++) {
@@ -905,19 +1033,123 @@ async function start() {
     turn180: null as { kind: Ground180; t: number; dir: number } | null,
     /** How long it has left of pushing off with its poles, a run begun (seconds). */
     shove: 0,
+    /** Skating (`SKATE`): whether it is, how far into it its legs are (0 to 1, eased in and out), and how far through a stride (0 to 1). */
+    skating: false, skate: 0, stride: 0,
+    /**
+     * How bare of snow the ground under its skis is (`STONES`; 0 to 1, eased over a stride), and how far it has gone over the stones;
+     * and how bare it is just where it is now, not eased, the barest of under its middle and its skis' tips and tails.
+     */
+    stones: 0, overStones: 0, bare: 0,
+    /** How deep in loose snow off the groomed piste it is (`DEEP`; 0 to 1, eased). */
+    deep: 0,
   };
   /**
    * The push off at a run's start (asked: "maybe just add always a small push for new run to get things moving"): for its first moments
-   * the skier pushes off with both poles, a push dying away over them; and, riding (not the demo run's pilot), skates on whenever it is
-   * going slowly on the snow, not braking and not at the end of its run, so that no flat stretch or stop leaves it standing there with
-   * no way on: the run back up the land turned inside out began at its foot, where the run flattens out, and could stall there.
+   * the skier pushes off with both poles, a push dying away over them.
    */
-  const SHOVE = { long: 1.6, most: 3.5, skate: 2.2, below: 4 };
+  const SHOVE = { long: 1.6, most: 3.5 };
   let flyingDemo = false;
-  const shoveNow = () => {
-    if (carting || ride.ended || ride.brake > 0.3) return 0;
-    const start = SHOVE.most * smooth(ride.shove / SHOVE.long), skate = flyingDemo || mode !== 'ride' ? 0 : SHOVE.skate * (1 - smooth(ride.speed / SHOVE.below));
-    return Math.max(start, skate);
+  const shoveNow = () => (carting || ride.ended || ride.brake > 0.3 ? 0 : SHOVE.most * smooth(ride.shove / SHOVE.long));
+  /**
+   * Skating (asked: "if the player speed goes too low, like below 10km/h, make the skier (horse or human) start making skating kick
+   * moves to add speed back to up to 25km/h"): riding (not the demo run's pilot), on the snow, going slower than `below` metres a
+   * second, not braking, not at its run's end, the skier skates, a stride with each leg in turn (`rate` strides of both a second), each
+   * a push out to its side that swells and dies away, `push` at its height (some 1.35 metres a second each second in all), until it is
+   * going `until` again. So no flat stretch or stop leaves it standing there with no way on: the run back up the land turned inside out
+   * began at its foot, where the run flattens out, and could stall there. (It had pushed on without a stride to be seen, below 14 km/h.)
+   * And up a slope (asked: "the skating from low speed should be possible to uphill as well (for example if the player gets somehow
+   * stuck)"): each stride pushes the harder, over the stride, by as much as the slope pulls it back (`against`), up to as steep as
+   * `steepest` (a share of its weight; some thirty-five degrees), the less the faster it already goes, none once it goes `climb`
+   * metres a second and more and a half besides: so that it climbs at a walk, never stuck, rather than speeding up the hill. (Pushed
+   * as on the flat, a slope of five degrees held it still, and one steeper slid it back to a stop.) And as much more as the deep snow
+   * off the piste holds it back by (`DEEP`), which held it still on the flat. The strides drawn: `riderPose`, `horseRidePose`.
+   */
+  const SKATE = { below: 10 / 3.6, until: 25 / 3.6, push: 3.6, rate: 0.75, steepest: 0.57, climb: 2 };
+  /** How much of each stride's push is pushed, on the average over the stride: the share its swell and fall make of it. */
+  const STRIDE_SHARE = 0.375;
+  const skateNow = (dt: number, against = 0) => {
+    // (Not on up past the top of the run, where its snow ends.)
+    const can = mode === 'ride' && !flyingDemo && !carting && !ride.ended && ride.brake < 0.3 && !ride.turn180 && !(ride.down < -2 && Math.cos(ride.way) < 0);
+    if (!can || ride.speed >= SKATE.until) ride.skating = false;
+    else if (ride.speed < SKATE.below) ride.skating = true;
+    ride.skate += ((ride.skating ? 1 : 0) - ride.skate) * ease(dt, 4);
+    if (ride.skate > 0.005) ride.stride = (ride.stride + dt * SKATE.rate) % 1;
+    // (Each leg's push over the first three quarters of its half of the stride, swelling and dying away; then drawn back in.)
+    const q = (ride.stride % 0.5) / 0.5, swell = Math.sin(Math.PI * Math.min(1, q / 0.75)) ** 2;
+    const uphill = Math.min(Math.max(0, against), G * SKATE.steepest) * (1 - smooth((ride.speed - SKATE.climb) / 1.5));
+    return ride.skating ? (SKATE.push + uphill / STRIDE_SHARE) * swell : 0;
+  };
+  /**
+   * Over the mountain's stones (asked: "does hitting rock or dirt should interrupt the skiing from smooth gliding appropriately"):
+   * where the snow gives way to them, as the picture shows it (`land.snowAt`), off the marked piste for the most part. The skis grate on
+   * them, held back as a ski's base is on stone, by half its weight (`grip`), if hardly at all going slowly (below `slow`), so that a
+   * skier stopped among them can skate off; and the body is jarred as they go under it. Taken onto them fast, over more than a stride
+   * or two of them (`catch` metres, at more than `fast`), an edge is caught and the skier thrown. Riding only: the demo runs keep to
+   * the piste, and to what they were made to land.
+   */
+  const STONES = { grip: 0.5, slow: 6, fast: 13, catch: 2.5 };
+  const stonesNow = (dt: number) => {
+    const off = mode !== 'ride' || flyingDemo || carting || inside || !land.snowAt;
+    const bare = off ? 0 : 1 - land.snowAt!(ride.x, ride.z);
+    // (The skis reach on ahead of the boots and back behind them, the more on a horse's: a tip on the stones is out of the snow.)
+    const go = along(ride.way, here), reach = who === 'person' ? 0.8 : 1.3;
+    ride.bare = off ? 0 : Math.max(bare, 1 - land.snowAt!(ride.x + go.x * reach, ride.z + go.z * reach), 1 - land.snowAt!(ride.x - go.x * reach, ride.z - go.z * reach));
+    ride.stones += (bare - ride.stones) * ease(dt, 12);
+    ride.overStones = ride.stones > 0.5 ? ride.overStones + ride.speed * dt : Math.max(0, ride.overStones - 2 * ride.speed * dt);
+    return ride.stones;
+  };
+  /**
+   * Deep snow off the piste (asked: "can we make the player ski a bit deeper in the snow when off piste? leaving also deeper trails and
+   * not accelerating so fast as on groomed piste"): beyond the groomed path's edge, as its grooming is drawn there (fading out over the
+   * first few metres past the poles), and up past the top of the run, loose snow the skis sink into. Held back by it more than on the
+   * groomed snow, by a share of its weight (`friction`) and by its speed squared (`drag`, the snow it ploughs through): slower to
+   * gather speed, and slower at the most, some 55 km/h where the piste lets it run to 85. Sunk into it (`sink` metres; a horse,
+   * heavier, `sinkHorse`), half as deep going fast (between `planes` metres a second), as skis plane on powder; throwing it up as it
+   * goes, and leaving a broader, deeper trench (`layRide`, `stepSpray`). Not where stones lie bare: on them at once, as the snow
+   * thins at their edge, wholly out of it where it is half bare, under the skis' tips and tails as under the boots (asked: "when hitting
+   * rocky patch, it shouldn't ride under the rock surface though"; eased, the skier came out of deep snow onto the stones still sunk
+   * in them a stride or two). Riding only, the demo runs keeping to the piste.
+   */
+  const DEEP = { friction: 0.12, drag: 0.005, sink: 0.17, sinkHorse: 0.22, planes: [8, 20], horsePitch: (7 * Math.PI) / 180 };
+  const deepNow = (dt: number) => {
+    const [lo, hi] = land.edges(ride.down), out = Math.max(lo - ride.left, ride.left - hi, -4 - ride.down);
+    const deep = mode !== 'ride' || flyingDemo || carting || inside ? 0 : smooth((out + 1) / 6) * (1 - ride.bare);
+    ride.deep += (deep - ride.deep) * ease(dt, deep < ride.deep ? 25 : 4);
+    return ride.deep;
+  };
+  /**
+   * How far into powder the skier rides now, 0 to 1: as deep as it is, out of it where stones show. Its skis' tips plane up out of it
+   * (asked: "bit of the skis should be visible in the deeper out piste skiing still, think how it could look"): a person's pitched up
+   * about the balls of its feet (`RideControls.powder`), a horse, whose skis cannot be, carried a little nose up, its forelegs high,
+   * as a horse bounds through deep snow (`horsePitch`).
+   */
+  const powderNow = () => ride.deep * smooth((0.5 - ride.bare) / 0.5);
+  /** How far the skier is sunk into the snow now (metres). */
+  const sunkNow = () => powderNow() * (who === 'person' ? DEEP.sink : DEEP.sinkHorse) * (1 - 0.5 * smooth((ride.speed - DEEP.planes[0]) / (DEEP.planes[1] - DEEP.planes[0])));
+  /**
+   * The trees (asked: "also can there be collision check with the trees"; "all trees are off piste"): ridden into, the skier is kept
+   * out of a tree's trunk and the dense lower boughs about it (`Land.treeNear`), its breadth `person` metres either side of its middle
+   * (a horse's, `horse`). Glancing off one, it goes on along it, as much slowed as it went into it; going into it faster than `hard`
+   * metres a second (some 18 km/h head on), it is thrown. Flown into one below its top, thrown. Riding only: the demo runs keep to the
+   * piste, where no tree stands.
+   */
+  const TREE = { person: 0.35, horse: 0.6, hard: 5 };
+  const treeBody = () => (who === 'person' ? TREE.person : TREE.horse);
+  /** Into a tree, going along `go`: kept out of it, turned along it and slowed, or thrown (giving back whether it was thrown). */
+  const intoTree = (go: Vector3): boolean => {
+    if (mode !== 'ride' || flyingDemo || carting) return false;
+    const t = land.treeNear?.(ride.x, ride.z, treeBody());
+    if (!t) return false;
+    const n = new Vector3(ride.x - t.x, 0, ride.z - t.z), d = n.length();
+    if (d > 1e-3) n.divideScalar(d); else n.copy(go).setY(0).normalize().negate();
+    const into = -(go.x * n.x + go.z * n.z);
+    ride.x = t.x + n.x * (t.r + treeBody()); ride.z = t.z + n.z * (t.r + treeBody());
+    if (into <= 0) return false;
+    if (ride.speed * into > TREE.hard) { fall('ran into a tree'); return true; }
+    const slide = go.clone().setY(0).addScaledVector(n, into), share = slide.length();
+    ride.speed *= share;
+    if (share > 1e-3) ride.way = Math.atan2(slide.dot(runLeft(here)), slide.dot(runDir(here)));
+    return false;
   };
   /** A run begun riding: pushed off with both poles, planted together. */
   const pushOff = () => { ride.shove = SHOVE.long; ride.flickL = ride.flickR = FLICK; };
@@ -987,20 +1219,72 @@ async function start() {
   };
   const keepJoints = (dt: number) => { if (dt <= 0) return; jointsBefore = joints; joints = skier.bodies().map((b) => b.joints()); jointsDt = dt; };
   /**
+   * Off the marked piste (asked: "can we allow the player to ski out of the marked piste? if they return back to track within 15 seconds
+   * it's fine; when 5 seconds left, a count down should be shown that you need to return to the marked slopes"; "in menu there could
+   * be an option to toggle between out of piste allowed or not"): riding, with *Off piste* allowed in the menu, the skier may go out
+   * past the poles over the land about the run as far as it can be ridden (`Land.roam`, `reachAt`); not
+   * watching, not driving the cart back up, not on the land turned inside out. Out past the poles, a clock runs (`OFF_PISTE`), and is
+   * begun again each time it comes back between them; counted down on the picture from the moment it goes out, the more urgently over
+   * its last `warn` seconds; run out, the skier is thrown back onto the piste (`backOnto`). Thirty seconds of it (asked: "maybe 30
+   * second out of bounds can be allowed as climbing a hill up can be slow"; it had been fifteen).
+   */
+  const OFF_PISTE = { most: 30, warn: 5 };
+  let offPisteOn = true, offPisteFor = 0;
+  const offPisteOk = () => offPisteOn && mode === 'ride' && !flyingDemo && !carting && !inside;
+  const offPisteEl = $('offPiste'), offPisteN = offPisteEl.querySelector<HTMLElement>('.n')!;
+  /**
+   * The clock off the piste a moment on (`dt`): run while the skier is out past the poles (on the snow or over it, not fallen, not at
+   * the run's end), begun again when it comes back between them; the countdown shown for its last seconds; and, run out, the run over,
+   * the skier braking to a stop and asked the way back to the top, as at the foot of the run.
+   */
+  /**
+   * Out of bounds, where the run's end is to throw it (asked: "the out of bounds timer going off resulting transition should launch
+   * the player to the nearest in piste location"): onto the nearest snow of the marked piste, as far down the run as it was (short of
+   * its foot), a few metres in from the nearer edge, the run going on from there, its time and points kept (`endingFrom`, `resumeAt`).
+   * Unset, the run's end throws it back to the top as it always has.
+   */
+  let backOnto: { s: number; left: number } | null = null;
+  const stepOffPiste = (dt: number) => {
+    const [lo, hi] = land.edges(ride.down), out = offPisteOk() && !crash && !cat && !ride.ended && (ride.left < lo || ride.left > hi);
+    offPisteFor = out ? offPisteFor + dt : 0;
+    const left = OFF_PISTE.most - offPisteFor, late = out && left <= OFF_PISTE.warn;
+    if (offPisteEl.hidden === out) offPisteEl.hidden = !out;
+    offPisteEl.classList.toggle('late', late);
+    if (out) say(offPisteN, String(Math.max(1, Math.ceil(left))));
+    if (out && left <= 0) {
+      // (Brought to a stop, and the run's end then throws it back onto the piste, `backOnto`.)
+      const s = land.length === Infinity ? Math.max(5, ride.down) : clamp(ride.down, 5, land.length - 60), [a, b] = land.edges(s);
+      backOnto = { s, left: clamp(ride.left, a + 4, b - 4) };
+      ride.ended = true; offPisteFor = 0; offPisteEl.hidden = true;
+      tell('Out of bounds', 'too long off the marked slopes: back onto them', true, 1e9);
+    }
+  };
+  /** How far either side of the run's line the skier may go: the piste's edges, or, off it allowed, the snow's reach. */
+  // (Off the piste allowed, no reach across the run at all (asked: "we can widen also the area how far the player can wander off piste;
+  // probably no need for limits as there is the 15 second pull back?"): out over the land about the run as far as it can be ridden,
+  // `Land.roam`, `keepOn`. It had been held to the run's own snow, some fifty metres either side of its line.)
+  const reachAt = (s: number): [number, number] => (offPisteOk() ? [-1e6, 1e6] : land.edges(s));
+  /**
    * Where the skier now is against the run: its way and its body's facing kept as they were in the world as the run's own way turns
-   * under it; kept on the skiable path, inside its edges and between its top and its foot (and, in the air, going no further out).
+   * under it; kept on the skiable path, inside its edges (or, off the piste allowed, the snow's reach) and between its top and its foot
+   * (and, in the air, going no further out).
    */
   const keepOn = () => {
     let f = land.frame(ride.x, ride.z, ride.down);
-    const [lo, hi] = land.edges(f.s), end = land.length + 20;
+    const [lo, hi] = reachAt(f.s), end = land.length + 20;
     if (f.left < lo + 1 || f.left > hi - 1 || f.s < -20 || f.s > end) {
       const s = clamp(f.s, -20, end), left = clamp(f.left, lo + 1, hi - 1), p = land.at(s, left);
       ride.x = p.x; ride.z = p.z;
       if (air && left !== f.left) { const out = runLeft(f).multiplyScalar(Math.sign(f.left - left)), o = air.v.dot(out); if (o > 0) air.v.addScaledVector(out, -o); }
       f = { ...f, s, left };
     }
+    // (Off the piste, kept on the land that can be ridden: brought back a metre at a time toward the run's line until it is.)
+    if (land.roam && !land.roam(ride.x, ride.z)) {
+      for (let i = 1; i <= 80 && !land.roam(ride.x, ride.z); i++) { const p = land.at(f.s, f.left - Math.sign(f.left) * i); ride.x = p.x; ride.z = p.z; }
+      f = land.frame(ride.x, ride.z, f.s);
+    }
     const turned = Math.atan2(f.dx * here.dz - f.dz * here.dx, f.dx * here.dx + f.dz * here.dz);
-    ride.way -= turned; ride.facing -= turned;
+    ride.way = wrapAngle(ride.way - turned); ride.facing -= turned;
     here = f; ride.down = f.s; ride.left = f.left;
   };
 
@@ -1087,13 +1371,30 @@ async function start() {
   };
   const resetScore = () => { score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; best = bestBefore = Math.max(0, Number(kept(`best.${landKind}`)) || 0); showBest(); };
   /** An orc downed at `p`: shot (the cross where it was struck), or run down; and the run of them it comes in. */
-  const orcDowned = (p: Vector3, how: 'shot' | 'run') => {
+  /**
+   * How many orcs the rider has brought down riding, over every run since the page was opened, which says what it carries
+   * (`armAfter`, `slopeArms.ts`; asked: "the progression stays within the current session over repeated runs"): not kept in the
+   * browser, and not the orc hunt's.
+   */
+  let slain = 0;
+  /** How an orc was brought down: shot, run down, cut down with the sword, burnt, struck by lightning, or blown up by a rocket. */
+  type Downed = 'shot' | 'run' | 'slain' | 'burnt' | 'zapped' | 'blown';
+  const orcDowned = (p: Vector3, how: Downed) => {
     const clock = mode === 'ride' ? ride.time : t;
     downedRun = clock < downedUntil ? downedRun + 1 : 1;
     downedUntil = clock + 1.5;
-    const pts = (how === 'run' ? 150 : 100) * downedRun, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
-    if (at) { if (how === 'shot') hitMark(at); popUp(at, `+${pts}`, how === 'run' ? 'run' : 'shot', how === 'run' ? (downedRun > 1 ? `run down · ${named}` : 'run down') : named); }
+    // (Up close, run down or cut down, worth half as much again as at a distance.)
+    const close = how === 'run' || how === 'slain', pts = (close ? 150 : 100) * downedRun, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
+    const said = { run: 'run down', slain: 'cut down', burnt: 'burnt', zapped: 'struck down', blown: 'blown up', shot: '' }[how];
+    if (at) { if (how === 'shot') hitMark(at); popUp(at, `+${pts}`, close ? 'run' : 'shot', said ? (downedRun > 1 ? `${said} · ${named}` : said) : named); }
     addScore(pts);
+    // Riding, counted towards the next arm; and the next taken up, thrown up over the picture (and said, `armUp`).
+    if (mode === 'ride') {
+      const was = armAfter(slain).arm;
+      slain++;
+      const now = armAfter(slain).arm;
+      if (now !== was && at) popUp([at[0], at[1] - 40], now.name, 'trick', `${slain} orcs down`);
+    }
   };
   /** What a jump landed is worth: what was made of it, the more the longer in the air, and its length. */
   const trickPoints = (a: Air, far: number) => {
@@ -1163,11 +1464,12 @@ async function start() {
    * is held hard (`holding`, in `stepAir`), so that let go it comes round to the next half turn ahead: a 180, a 540 or a 900 lands
    * it switch.
    */
-  const takeOff = (v: Vector3, nose: number, pop: number) => {
+  const takeOff = (v: Vector3, nose: number, pop: number, plain = false) => {
     const from = new Vector3(ride.x, ride.y, ride.z), T = timeToSnow(from, v), long = T > 0.5;
-    const spinning = long && Math.abs(ask.x) > 0.3, dir = spinning ? -Math.sign(ask.x) : 0;
+    // (Off a knoll, `plain`: not set off on purpose, so no spin and no flip, whatever the stick was asking as the snow fell away.)
+    const spinning = !plain && long && Math.abs(ask.x) > 0.3, dir = spinning ? -Math.sign(ask.x) : 0;
     // (Tucked and turning, a cork: the spin laid over off its axis; tucked and straight, a ski jumper's flight.)
-    const tucked = ride.tuck > 0.55, kind: Air['kind'] = !long ? 'hop' : tucked && !spinning ? 'flight' : ride.tall > 0.5 ? 'flip' : 'air';
+    const tucked = ride.tuck > 0.55, kind: Air['kind'] = !long ? 'hop' : tucked && !spinning ? 'flight' : ride.tall > 0.5 && !plain ? 'flip' : 'air';
     const flips = kind === 'flip' ? 1 : 0;
     // Paced to the time in the air: the flip set off the lip to be made a little before the snow, no slower than about half the
     // quickest (a long air) and no quicker than the quickest (a short one wants a tighter tuck to come round). (A spin is paced once
@@ -1183,11 +1485,14 @@ async function start() {
   };
 
   /** Comes down onto the snow: landed, if the turns are near enough made and the blow (how fast it comes into the snow) not too hard; else gone limp. */
+  /** When the skier may next spring off a knoll (by `ride.time`): a moment after it last came down. (Or at once, on a run begun since, whose clock has gone back.) */
+  let knollAfter = 0;
   const land_ = () => {
     const a = air!, up = normalAt(ride.x, ride.z, 0.5), into = a.v.dot(up), blow = Math.max(0, -into);
     const flipShort = Math.abs(a.flipTo - a.flip), spinShort = Math.abs(a.spinTo - a.spin);
     const far = Math.hypot(ride.x - a.from.x, ride.z - a.from.z);
     air = null;
+    knollAfter = ride.time + KNOLL.after;
     if (flipShort > deg(55) || spinShort > deg(75) || blow > 12.5) {
       const why = blow > 12.5 ? 'landed too hard' : flipShort > deg(55) ? (flipShort > deg(200) ? 'landed on its back' : 'short of the flip') : `short of the ${halvesOf(a) * 180}`;
       fall(why);
@@ -1253,7 +1558,8 @@ async function start() {
   };
   /** The skier back at the top, going a little. */
   const resetRide = () => {
-    Object.assign(ride, { shove: 0, way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null });
+    offPisteFor = 0; backOnto = null;
+    Object.assign(ride, { shove: 0, way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null, stones: 0, overStones: 0, bare: 0, deep: 0 });
     here = land.frame(0, 0);
     putAt(0, 0);
     ride.settle = { spin: 0, flip: 0, left: 0 };
@@ -1278,6 +1584,24 @@ async function start() {
     clearGun?.();
     pushOff();
     placed = false;
+    reflect();
+  };
+
+  /** Thrown back onto the piste out of bounds (`backOnto`), down there at `to`: the run going on from it, its time, points and tracks kept. */
+  const resumeAt = (to: { s: number; left: number }) => {
+    const time = ride.time;
+    unflip();
+    resetRide();
+    ride.time = time;
+    putAt(to.s, to.left);
+    placeKickers(to.s);
+    levelTilt();
+    backOnto = null;
+    endCatapult();
+    clearSpray();
+    pushOff();
+    placed = false;
+    tell('Back on the piste', 'the run goes on', false, 2.5);
     reflect();
   };
 
@@ -1388,7 +1712,8 @@ async function start() {
   const askWay = () => {
     if (asking) return;
     asking = true;
-    wayButtons.forEach((b, k) => { b.hidden = needsTop(WAY_NAMES[k][0]) && land.length === Infinity; });
+    wayButtons.forEach((b, k) => { b.hidden = needsTop(WAY_NAMES[k][0]) && (land.length === Infinity || !!backOnto); });
+    say($('backToWhat'), backOnto ? 'Back onto the piste' : 'Back to the top');
     rememberWay.checked = false;
     backToEl.hidden = false;
     document.body.classList.add('asking');
@@ -1508,7 +1833,9 @@ async function start() {
   const takenAt = () => (crash ? crash.dolls.reduce((p, d) => p.add(d.doll.middle()), new Vector3()).divideScalar(crash.dolls.length) : rider.position.clone());
   /** What every run's end begins with, `down` the run with its middle at `at`: where the run begins and the way down it; the view as it is. */
   const endingFrom = (down: number, at: Vector3): Omit<Catapult, 'by' | 'arm' | 'whirl' | 'blast' | 'saucer' | 'snowman' | 'flip' | 'cart' | 'takes' | 'gather'> => {
-    const top = land.at(0, 0), landing = new Vector3(top.x, ground(top.x, top.z), top.z), downhill = runDir(land.frame(top.x, top.z, 0));
+    // (Out of bounds, the nearest snow of the marked piste instead of the top, `backOnto`.)
+    const top = backOnto ? land.at(backOnto.s, backOnto.left) : land.at(0, 0), landing = new Vector3(top.x, ground(top.x, top.z), top.z);
+    const downhill = runDir(land.frame(top.x, top.z, backOnto?.s ?? 0));
     const look = camera.getWorldDirection(new Vector3()).multiplyScalar(10).add(camera.position);
     return {
       t: 0, from: null, held: false, fly: null, flown: 0, letGo: new Quaternion(), landing, downhill, down, at: at.clone(), spun: null, tumble: { flip: 0, spin: 0 },
@@ -1824,7 +2151,7 @@ async function start() {
   const finishInvert = (c: Catapult): Now => {
     const fl = c.flip!, eye = camera.position.clone(), look = c.eye.look.clone();
     inside!.reversed = true;
-    Object.assign(ride, { way: 0, speed: 6, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null });
+    Object.assign(ride, { way: 0, speed: 6, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null, stones: 0, overStones: 0, bare: 0, deep: 0 });
     const at = land.frame(fl.on.x, fl.on.z);
     putAt(at.s, at.left);
     ride.settle = { spin: 0, flip: 0, left: 0 };
@@ -1902,7 +2229,7 @@ async function start() {
     dropKickers();
     rider.add(cart.group);
     cart.group.position.set(0, 0, 0); cart.group.quaternion.identity();
-    Object.assign(ride, { way: 0, speed: 4, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null });
+    Object.assign(ride, { way: 0, speed: 4, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null, stones: 0, overStones: 0, bare: 0, deep: 0 });
     const at = land.frame(k.spot.x, k.spot.z);
     putAt(at.s, at.left);
     ride.settle = { spin: 0, flip: 0, left: 0 };
@@ -2026,7 +2353,9 @@ async function start() {
    * The land turned inside out built ahead, for the land as it lies (not on the groomed slope, which is never turned): built as the
    * shock went through the ground, it held up that moment by some part of a second, a great deal more on a phone.
    */
-  const buildFold = () => { if (!inside && !carting && land.length < Infinity) folding.build(land, land); };
+  const buildFold = () => { if (!inside && !carting && land.length < Infinity) foldFor(land); };
+  /** The land turned inside out built for a land, its old sheets let go of (`toLetGo`). */
+  const foldFor = (l: Land) => { for (const m of folding.build(l, l)) letGoOf(m); };
   /** The kickers taken down and forgotten: the land they stood on is not the land now. */
   const dropKickers = () => { for (const k of kickerAt.values()) if (k) takeDown(k); kickerAt.clear(); kicks = []; };
   /**
@@ -2062,7 +2391,7 @@ async function start() {
    */
   const beginInvert = () => {
     const { on, f, begun, side } = takenFor(), base = land;
-    folding.build(base, base);
+    foldFor(base);
     inside = { base, pivot: on.y, reversed: false };
     fold = { from: [1, 0], to: [-1, 2 * on.y], x: on.x, z: on.z, front: 0, width: FOLD.speed * FOLD.each, glow: 0, tinge: 0 };
     foldT = 0; foldIn = true;
@@ -2091,7 +2420,8 @@ async function start() {
     if (carting) { const top = ride.ended; unflip(); if (top) restart(); else beginCart(); return; }
     // (Not yet chosen: asked, and begun once it is.)
     if (!ending) { askWay(); return; }
-    WAYS[needsTop(ending) && land.length === Infinity ? 'arm' : ending].begin();
+    // (The ways that go back to the top, and only there, the arm in their place on the groomed slope, which has none, and out of bounds.)
+    WAYS[needsTop(ending) && (land.length === Infinity || backOnto) ? 'arm' : ending].begin();
   };
   /** Let go, from `from`, flying back up the mountain: the throw to the top of the run worked out, and the view to be carried along after it. */
   const throwFrom = (c: Catapult, from: Vector3) => {
@@ -2199,14 +2529,14 @@ async function start() {
       // Down at the top: the run begins again there, the canopy left lying behind.
       if (ft >= fly.total) {
         const ride0 = { riser: rider.localToWorld(ch.riser.clone()), up: canopy.clone().sub(rider.localToWorld(ch.riser.clone())).normalize(), radius: ch.radius, reach: ch.reach };
-        const eye = camera.position.clone(), look = c.eye.look.clone();
-        restart();
+        const eye = camera.position.clone(), look = c.eye.look.clone(), onto = backOnto;
+        if (onto) resumeAt(onto); else restart();
         ride.sink = 0.6;
         spent = { ...ride0, t: 0, behind: c.downhill.clone().negate() };
         snowBurst(c.landing, 1.6, 50, 2.2);
         // (The view goes on from where it was, eased to where the view chosen would have it, rather than starting there afresh.)
         handOver(eye, look, c.downhill);
-        return { down: 0, left: 0, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
+        return { down: ride.down, left: ride.left, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
       }
     }
     const f = land.frame(middle.x, middle.z, c.down);
@@ -2276,6 +2606,9 @@ async function start() {
     ride.x += a.v.x * dt; ride.y += a.v.y * dt; ride.z += a.v.z * dt;
     keepOn();
     ride.time += dt;
+    // (Flown into a tree, below its top: thrown, `TREE`.)
+    const tree = mode === 'ride' && !flyingDemo ? land.treeNear?.(ride.x, ride.z, treeBody()) : null;
+    if (tree && ride.y < ground(tree.x, tree.z) + tree.tall * 0.9) { air = null; fall('flew into a tree'); return stepFallen(dt); }
     // Opening up to land, the last few tenths of a second before the snow, or once its turns are made (a moment after, if it holds a
     // grab); a tighter tuck turns it quicker, laid out or spread it turns slower.
     const left = timeToSnow(new Vector3(ride.x, ride.y, ride.z), a.v);
@@ -2362,11 +2695,17 @@ async function start() {
     ride.skid += (smooth((Math.abs(ask.x) - SKID_FROM) / (0.97 - SKID_FROM)) * (1 - ride.brake) - ride.skid) * ease(dt, 5);
     const turning = -carveOf(ask.x) * clamp(ride.speed / 9, 0.5, 1.2) * (1 - 0.35 * ride.tuck) * (1 - ride.brake) * (1 + 0.6 * ride.skid);
     const pivot = Math.sign(turning) * SKID_TURN * ride.skid;
-    ride.way = clamp(ride.way + turning * dt, -1.9, 1.9);
+    // (Steered freely, all the way round, and back up the run the way it came (asked: "allow the player to steer freely, also to go
+    // back uphill where they came from"): it was held to within some hundred and ten degrees of straight down the run.)
+    ride.way = wrapAngle(ride.way + turning * dt);
     // The skiable path's edges, marked by its poles: turned back towards its middle near them (the nearer, the narrower the path), and
-    // kept off them.
-    const [lo, hi] = land.edges(ride.down), near = Math.min(8, (hi - lo) / 4);
-    if ((ride.left > hi - near && ride.way > 0) || (ride.left < lo + near && ride.way < 0)) ride.way -= Math.sign(ride.way) * Math.min(Math.abs(ride.way), dt * 2.2);
+    // kept off them: going down the run, toward straight down it; going back up it, toward straight up it. (Off the piste allowed, only
+    // near the snow's reach.)
+    const [lo, hi] = reachAt(ride.down), near = Math.min(8, (hi - lo) / 4), across = Math.sin(ride.way);
+    if ((ride.left > hi - near && across > 0) || (ride.left < lo + near && across < 0)) {
+      const to = Math.abs(ride.way) <= Math.PI / 2 ? 0 : Math.sign(ride.way) * Math.PI;
+      ride.way += clamp(to - ride.way, -dt * 2.2, dt * 2.2);
+    }
     // Its speed: its weight pulling it down the snow as much as the snow falls the way it goes, less the snow's friction (its weight
     // into the snow), the air's drag (much less tucked, more standing tall), a little lost to every turn, and a great deal to braking.
     // (Going up a kicker, or a rise, its weight pulls it back.)
@@ -2388,10 +2727,12 @@ async function start() {
     const push = cartThrust();
     cartPush += ((push ? push / 15 : 0) - cartPush) * ease(dt, 6);
     ride.shove = Math.max(0, ride.shove - dt);
-    const pull = push + shoveNow() - G * rise * level - 0.04 * into - (drag + (carting ? 0.006 : 0)) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
+    const stones = stonesNow(dt), deep = deepNow(dt);
+    const pull = push + shoveNow() + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
     ride.speed = Math.max(0, ride.speed + pull * dt);
     ride.x += go.x * ride.speed * level * dt; ride.z += go.z * ride.speed * level * dt;
     ride.time += dt;
+    if (intoTree(go)) return stepFallen(dt);
     // On the snow as high as the snow is where it went; unless the snow falls away faster than the skier's weight can bring it down
     // after it (by more than the snow gives underfoot), and the skier leaves it, rising as it was over its last step (up a kicker's
     // ramp, off its lip). (Judged where it went, before it is kept on the path: moved back in from an edge, onto snow higher or lower,
@@ -2407,6 +2748,32 @@ async function start() {
     keepOn();
     ride.y = ground(ride.x, ride.z);
     ride.out = bumpAt(ride.x, ride.z);
+    // Over a knoll or a crest taken fast (asked: "could we make it so that it is possible to get some airtime also if you ride fast
+    // enough over a mound? it doesn't need to happen often but when the circumstances are good"). How sharply the snow ahead turns
+    // over, as the pull it would take to hold the skier to it (the speed squared over the crest's radius), judged over the next two
+    // fifths of a second of the way, not over a step: the snow has knobs a hand high, and over a step alone the skier was either held to every
+    // crest or thrown off every knob. Where it turns over faster than the skier's weight can bring it down after it, it leaves the snow,
+    // rising as it was; and where it turns over nearly as fast as that, it springs off the crest as a skier does off a roller, the
+    // harder the sharper (`KNOLL`). A moment after landing, before it does again. (Held to the snow, it took a crest of less than sixty
+    // metres across at 90 km/h to throw a skier; the runs, along the fall of the land, have few.)
+    if (!carting && !g180 && ride.out < 0.01 && ride.speed > KNOLL.speed && (ride.time > knollAfter || knollAfter - ride.time > KNOLL.after)) {
+      // (The least it turns over at any of those times: a crest turns over all the way along, a knob only for a moment, and taken at
+      // the most, every knob was a crest and the skier hopped off each, a step's height, and was slowed.)
+      let pull = Infinity;
+      for (const t of KNOLL.ahead) {
+        const d = ride.speed * level * t, below = ride.y + ride.vy * t - ground(ride.x + go.x * d, ride.z + go.z * d);
+        pull = Math.min(pull, below / (0.5 * t * t));
+      }
+      if (pull > KNOLL.bend * G) {
+        // (The sharper, the harder it springs; off one that would throw it anyway as hard as any, or it left the snow for a step or two
+        // as the crest fell away from under it, and was on it again over the next knob.)
+        const spring = KNOLL.pop[0] + (KNOLL.pop[1] - KNOLL.pop[0]) * smooth((pull / G - KNOLL.bend) / (1 - KNOLL.bend));
+        // (Off the snow by a hair: put back on it this step, the air's first look found it there and landed it at once.)
+        ride.y += 0.005;
+        takeOff(go.clone().multiplyScalar(ride.speed * level).setY(ride.vy + spring), nose, 0, true);
+        return stepAir(0);
+      }
+    }
     // The lean into the turn that speed and turning ask, as `makeDownhillRun` reckons it (up to half as far again as the turns' own,
     // where the deepest carves lie: `riderPose`, `horseRidePose`); and the inside pole flicked as a turn begins.
     const lean = clamp(Math.atan((ride.speed * turning) / G) / ((48 * Math.PI) / 180), -1.5, 1.5) * (1 - ride.brake) * (1 - 0.4 * ride.skid);
@@ -2423,7 +2790,7 @@ async function start() {
     const ski = ride.way + pivot + ((ride.brakeSide * 78 * Math.PI) / 180) * ride.brake, mirror = ride.switch ? -1 : 1;
     // Crouched going up a kicker's ramp, the more the steeper, and springing up out of the crouch over its last metre or two to the lip
     // (the pop); sunk into a landing, quickly, and coming up out of it more slowly; and out of what is left of a turn of the whole body.
-    ride.pop = ride.out > 0.02 && nose > 0.02 ? smooth((ride.out / KICK.height - 0.45) / 0.45) : 0;
+    ride.pop = ride.out > 0.02 && nose > 0.02 ? smooth((bumpShare(ride.x, ride.z) - 0.45) / 0.45) : 0;
     const crouch = ride.out > 0.05 ? 0.5 * clamp(Math.sin(nose) / 0.34, 0, 1) * (1 - ride.pop) : 0;
     ride.sink = Math.max(0, ride.sink - dt * 1.5);
     ride.absorb += (Math.max(crouch, ride.sink, g180?.sink ?? 0) - ride.absorb) * ease(dt, 16);
@@ -2434,18 +2801,22 @@ async function start() {
     // and a little chatter at speed. Riding switch, its head turned to look back the way it goes.
     const g0 = ground(ride.x, ride.z), bend = ground(ride.x + go.x, ride.z + go.z) - 2 * g0 + ground(ride.x - go.x, ride.z - go.z);
     const shake = 0.05 * smooth((ride.speed - 12) / 10) * Math.sin(ride.time * 47) * Math.sin(ride.time * 13.3);
-    ride.flex += (clamp((bend * ride.speed ** 2) / 14, -1, 1) + shake - ride.flex) * ease(dt, 9);
+    // (Over the stones, jarred: knocked down and up, a few times a second, the harder the faster.)
+    const jar = 0.9 * stones * smooth(ride.speed / 8) * Math.sin(ride.time * 19) * Math.sin(ride.time * 7.3 + 1);
+    ride.flex += (clamp((bend * ride.speed ** 2) / 14, -1, 1) + shake + jar - ride.flex) * ease(dt, 9);
     ride.back += ((ride.switch ? 1 : 0) - ride.back) * ease(dt, 3);
     posed = { air: false, c: {
       s: ride.lean * mirror, ski: wrapAngle(ski + switched() - ride.facing), tuck: ride.tuck, brake: ride.brake, tall: ride.tall,
       flickL: bump(ride.switch ? ride.flickR : ride.flickL), flickR: bump(ride.switch ? ride.flickL : ride.flickR),
       absorb: ride.absorb, spin: ride.settle.spin * settling + (ride.turn180 && g180 ? ride.turn180.dir * Math.PI * g180.rot : 0), flip: ride.settle.flip * settling,
       skid: Math.max(ride.skid, g180 ? 0.8 * g180.scrape * sideOn : 0), pop: ride.pop, life: ride.time, flex: ride.flex, back: ride.back, press: g180?.press ?? 0,
+      skate: ride.skate, stride: ride.stride, powder: powderNow(),
     } };
     if (!quiet) skier.ride(posed.c as RideControls);
     // (Upright to the snow under it, smoothed over half a metre, as skis bridge what is smaller. In a ground 180: sprung up off it in a
     // pop; tipped onto the tips or the tails in a butter, the pressed ends kept on the snow and the body carried round about them.)
-    const stand = new Vector3(ride.x, ride.y + (carting ? CART_DECK : 0), ride.z);
+    // (Sunk into deep snow off the piste, `DEEP`.)
+    const stand = new Vector3(ride.x, ride.y + (carting ? CART_DECK : 0) - sunkNow(), ride.z);
     if (ride.turn180 && g180) {
       stand.addScaledVector(UP, g180.lift);
       if (g180.press) {
@@ -2454,8 +2825,10 @@ async function start() {
         stand.add(arm.sub(round).multiplyScalar(fade)).addScaledVector(UP, Math.abs(reach) * Math.sin(Math.abs(g180.pitch)));
       }
     }
-    standAt(stand, normalAt(ride.x, ride.z, 0.5), ride.facing, here, g180?.pitch ?? 0);
+    standAt(stand, normalAt(ride.x, ride.z, 0.5), ride.facing, here, (g180?.pitch ?? 0) + (who === 'person' ? 0 : DEEP.horsePitch * powderNow()));
     if (!quiet) keepJoints(dt);
+    // Taken onto the stones too fast, thrown (`STONES`).
+    if (ride.overStones > STONES.catch && ride.speed > STONES.fast && !ride.ended) { ride.overStones = 0; fall('caught an edge on the stones'); }
     // At the foot of a world's run: brought to a stop there.
     if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); }
     return { down: ride.down, left: ride.left, speed: ride.speed, way: ride.way, ski, skid: Math.max(Math.abs(Math.sin(ski - ride.way)), g180 ? g180.scrape * sideOn : 0), tuck: ride.tuck, brake: ride.brake };
@@ -2467,7 +2840,7 @@ async function start() {
     if (!playing) return document.body.classList.contains('mouse') ? 'Paused · Space to go on' : 'Paused';
     if (menuOpen) return 'Paused · menu open';
     if (asking) return 'Choosing the way back';
-    if (cat?.fly) return cat.flown >= cat.fly.free - 0.45 ? 'Under the parachute' : 'Thrown back to the top';
+    if (cat?.fly) return cat.flown >= cat.fly.free - 0.45 ? 'Under the parachute' : backOnto ? 'Thrown back onto the piste' : 'Thrown back to the top';
     if (cat?.held) return WAYS[cat.by].holding;
     if (cat && !crash) return WAYS[cat.by].coming;
     if (ride.turn180) return `${G180[ride.turn180.kind].name}…`;
@@ -2477,6 +2850,7 @@ async function start() {
     if (ride.brake > 0.5) return who === 'person' ? 'Braking' : 'Sliding stop';
     if (ride.speed < 0.5) return ride.ended ? 'At the foot of the run' : 'Standing';
     if (ride.out > 0.05) return 'Up the kicker';
+    if (ride.stones > 0.4) return ride.speed > 3 ? 'Grating over stones' : 'On the stones';
     const turn = Math.abs(ask.x) > 0.15 ? (ask.x < 0 ? 'turning left' : 'turning right') : '';
     if (ride.skid > 0.5) return `${ride.tuck > 0.5 ? 'Tucked, skidding' : 'Skidding'} ${turn.split(' ')[1]}`;
     const stance = ride.tuck > 0.5 ? 'Tucked' : ride.tall > 0.5 ? 'Standing tall' : '';
@@ -2625,7 +2999,7 @@ async function start() {
       // (Where it is against the kicker ahead, in the kicker's own frame: how far along its ramp from its lip, and how far left of
       // its middle. Against the run instead, where the run bends near a kicker set across it, the skier seemed past the lip while
       // still on the ramp.)
-      const toLip = kick ? KICK.length - ((ride.x - kick.x) * kick.dx + (ride.z - kick.z) * kick.dz) : Infinity;
+      const toLip = kick ? kick.L - ((ride.x - kick.x) * kick.dx + (ride.z - kick.z) * kick.dz) : Infinity;
       want.brake = false;
       if (air) {
         // In the air: the style asked, from a moment off the lip until a moment before the snow; tucked, if its turns would not
@@ -2643,7 +3017,7 @@ async function start() {
         k++; from = null; gap180 = 0;
         // (A moment straight before turning again; but none where the next kicker is so near that it wants lining up on already: off a
         // fast landing, that moment took a third of the way to a kicker standing close after another, and it could not be lined up on.)
-        settle = kicked[k] && kicked[k].s + KICK.length - ride.down < 75 + 0.7 * ride.speed ? 0 : 0.7;
+        settle = kicked[k] && kicked[k].s + kicked[k].L - ride.down < 75 + 0.7 * ride.speed ? 0 : 0.7;
       } else if (settle > 0) {
         settle -= dt; want.x = 0; want.y = 0;
       } else if (kick && toLip < 75) {
@@ -2771,13 +3145,11 @@ async function start() {
     { t: { kind: 'air', halves: 4, cork: true }, wild: 0.8, need: 1.3 }, { t: { kind: 'air', halves: 5 }, wild: 0.88, need: 1.48 },
     { t: { kind: 'flip', halves: 4 }, wild: 0.94, need: 1.48 }, { t: { kind: 'air', halves: 6 }, wild: 1, need: 1.65 },
   ];
-  /** How steeply a kicker's lip throws a skier up off the land under it. */
-  const LIP_LIFT = Math.atan((KICK.power * KICK.height) / KICK.length);
   /** How long a kicker keeps a skier going at `speed` off its lip in the air, as near as can be told before it gets there. */
   const airtimeOff = (k: Kicker, speed: number) => {
-    const L = KICK.length, lx = k.x + k.dx * L, lz = k.z + k.dz * L, h = (u: number) => land.height(k.x + k.dx * u, k.z + k.dz * u);
-    const a = Math.atan((h(L + 1) - h(L - 1)) / 2) + LIP_LIFT;
-    return timeToSnow(new Vector3(lx, land.height(lx, lz) + KICK.height + 0.02, lz), new Vector3(k.dx * Math.cos(a), Math.sin(a), k.dz * Math.cos(a)).multiplyScalar(speed));
+    const L = k.L, lx = k.x + k.dx * L, lz = k.z + k.dz * L, h = (u: number) => land.height(k.x + k.dx * u, k.z + k.dz * u);
+    const a = Math.atan((h(L + 1) - h(L - 1)) / 2) + lipLift(k);
+    return timeToSnow(new Vector3(lx, land.height(lx, lz) + k.H + 0.02, lz), new Vector3(k.dx * Math.cos(a), Math.sin(a), k.dz * Math.cos(a)).multiplyScalar(speed));
   };
   /**
    * How long the skier will be in the air off what is ahead of it, going on straight at it as it goes: found by riding on to the lip
@@ -2818,9 +3190,9 @@ async function start() {
   const kickerAhead = () => {
     const go = along(ride.way, here);
     for (const k of kicks) {
-      const toLip = KICK.length - ((ride.x - k.x) * k.dx + (ride.z - k.z) * k.dz), off = (ride.x - k.x) * k.dz - (ride.z - k.z) * k.dx;
+      const toLip = k.L - ((ride.x - k.x) * k.dx + (ride.z - k.z) * k.dz), off = (ride.x - k.x) * k.dz - (ride.z - k.z) * k.dx;
       const heading = Math.atan2(go.x * k.dz - go.z * k.dx, go.x * k.dx + go.z * k.dz);
-      if (toLip > 0 && toLip < Math.max(12, ride.speed * 1.6) && Math.abs(off) < KICK.half + 0.4 && Math.abs(heading) < 0.6) return { k, toLip };
+      if (toLip > 0 && toLip < Math.max(12, ride.speed * 1.6) && Math.abs(off) < k.half + 0.4 && Math.abs(heading) < 0.6) return { k, toLip };
     }
     return null;
   };
@@ -2836,7 +3208,7 @@ async function start() {
     }
     if (rideTrick?.air) rideTrick = null;
     if (rideTrick) {
-      const k = rideTrick.k, toLip = KICK.length - ((ride.x - k.x) * k.dx + (ride.z - k.z) * k.dz);
+      const k = rideTrick.k, toLip = k.L - ((ride.x - k.x) * k.dx + (ride.z - k.z) * k.dz);
       // (Gone by it, not off it: steered off its line.)
       if (toLip < -0.5) { rideTrick = null; return; }
       const o = askAtLip(rideTrick.trick, toLip / Math.max(ride.speed, 1));
@@ -2882,7 +3254,15 @@ async function start() {
   let orcsOn = false;
   // (The gun's sound woken by the click that turns them on, as a browser lets a page make sound only after one: woken by the first shot,
   // it was made as the first shot was fired.)
-  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => { if (k === 1) gunSound.wake(); setOrcs(k === 1); }, k ? 'The skier, or the horse\'s rider, carries a tommy gun, and orcs come up the run to be shot; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
+  // Off the piste allowed, or kept between the poles as the runs were (asked: "in menu there could be an option to toggle between out of
+  // piste allowed or not"): kept in this browser; `?offpiste=0` or `1`.
+  const pisteButtons = (['Allowed', 'Not allowed'] as const).map((label, k) => button('pisteSeg', label, () => setOffPiste(k === 0), k ? 'Kept between the poles, turned back at them' : "Out past the poles, as far as the run's snow goes: back between them within fifteen seconds, or the run is over"));
+  const setOffPiste = (on: boolean) => {
+    offPisteOn = on;
+    keep('offpiste', on ? '1' : '0');
+    pisteButtons.forEach((b, k) => b.classList.toggle('on', (k === 0) === on));
+  };
+  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => { if (k === 1) gunSound.wake(); setOrcs(k === 1); }, k ? 'The skier, or the horse\'s rider, carries arms in place of its poles, and orcs come up the run: a sword first, then a pistol, a shotgun, a flamethrower, a tommy gun, a lightning gun and a bazooka as more are brought down; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
   const setOrcs = (on: boolean) => {
     orcsOn = on;
     keep('orcs', on ? '1' : '0');
@@ -2932,7 +3312,7 @@ async function start() {
   const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind !== 'groomed') void setLand(landKind, true); else reflect(); } }, title));
   const setLand = async (kind: LandKind, again = false) => {
     if (kind === landKind && !again) return;
-    await loading.busy(kind !== 'groomed' ? `Laying the snow below ${peakOf(kind)}` : 'Laying the groomed slope');
+    await loading.busy(kind !== 'groomed' ? `Laying the snow ${whereOf(kind)}` : 'Laying the groomed slope');
     const next = await landOf(kind);
     loading.idle();
     unflip();
@@ -2941,6 +3321,13 @@ async function start() {
     resetScore();
     land = next;
     showLand();
+    // Every run left behind let go of (asked: "can we add new runs without much performance impact"): its land, the demo runs flown on
+    // it, its slice; so that the page holds one run at a time however many there are to choose from, and however many are visited.
+    // Kept, each held a hundred to a hundred and fifty megabytes of shapes, and as much again on the graphics card, until the page was
+    // closed: four runs visited, more than a phone has to give. (Coming back to one, it is laid again from the slice,
+    // which the browser has kept, in about a second, and its demo run flown again. The groomed slope, small, is kept.)
+    for (const [key, l] of lands) if (l !== land && key !== 'groomed') { if (l.dispose) toLetGo.push(l.dispose); demos.delete(l); lands.delete(key); }
+    for (const k of [...sliceTexts.keys()]) if (k !== kind) { sliceTexts.delete(k); fetching.delete(`${slices}${k}.json`); }
     buildFold();
     warmSoon();
     if (mode === 'ride') restart();
@@ -3021,8 +3408,9 @@ async function start() {
   const viewFor: Record<Mode, View> = { watch: 'cinema', ride: 'behind' };
   const setMode = (m: Mode) => {
     // (Any mode chosen otherwise answers the opening's question.)
-    $('choose').hidden = true; $('intro').hidden = true;
+    $('choose').hidden = true; $('intro').hidden = true; document.body.classList.remove('choosing');
     if (m === mode) return;
+    offPisteFor = 0; $('offPiste').hidden = true;
     endCatapult();
     letAimGo();
     if (m === 'ride') {
@@ -3030,7 +3418,7 @@ async function start() {
       let i = clamp(Math.round(t / STEP), 0, demo.frames.length - 1);
       while (i < demo.frames.length - 1 && demo.frames[i].air) i++;
       const s = demo.frames[i].now, sw = demo.frames[i].sw;
-      Object.assign(ride, { way: s.way, speed: s.speed, facing: skier.facing * s.way + (sw ? Math.PI : 0), tuck: s.tuck, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, ended: false, switch: sw, back: sw ? 1 : 0 });
+      Object.assign(ride, { way: s.way, speed: s.speed, facing: skier.facing * s.way + (sw ? Math.PI : 0), tuck: s.tuck, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, ended: false, switch: sw, back: sw ? 1 : 0, stones: 0, overStones: 0, bare: 0, deep: 0 });
       Object.assign(ask, { x: 0, y: s.tuck });
       Object.assign(want, { x: 0, y: s.tuck, brake: false, brakeKey: false });
       showWatchTracks(null);
@@ -3189,6 +3577,8 @@ async function start() {
   const ARROWS: Record<string, keyof typeof want.keys> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && menuOpen) { setMenu(false); return; }
+    // (The map of the runs open, the keys are its own: it closes itself on Escape.)
+    if (!$('choose').hidden) return;
     // (With Ctrl, Alt or the command key held, a key is the browser's own: Ctrl+R to load the page again had first switched to riding,
     // Ctrl+F the view to the free one, Ctrl+C to the cinematic.)
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -3201,7 +3591,7 @@ async function start() {
     if (asking && /^[1-8]$/.test(e.key) && !wayButtons[+e.key - 1].hidden) { takeWay(WAY_NAMES[+e.key - 1][0]); e.preventDefault(); return; }
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
-    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (v) setView(v[1]);
+    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (v) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; });
@@ -3260,7 +3650,7 @@ async function start() {
     // (By touch, carrying the gun: a finger held on the picture fires it there, `finger`.)
     if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && !cat && armed()) {
       finger.id = e.pointerId; fingerAt(e);
-      firing = true; shotClock = SHOT; gunSound.wake();
+      firing = true; shotClock = SHOT; pull(); gunSound.wake();
       canvas.setPointerCapture(e.pointerId);
       return;
     }
@@ -3268,7 +3658,7 @@ async function start() {
     if (cat) { restart(); return; }
     // (Held onto while the button is down, so that the brake, or the trigger, is not let go of where the pointer crosses a control.)
     // (With the tommy gun, the button is its trigger, and Shift brakes.)
-    if (armed()) { firing = true; shotClock = SHOT; gunSound.wake(); } else aim.brake = true;
+    if (armed()) { firing = true; shotClock = SHOT; pull(); gunSound.wake(); } else aim.brake = true;
     canvas.setPointerCapture(e.pointerId);
     aimAt(e);
   });
@@ -3307,14 +3697,40 @@ async function start() {
   const gunRng = new Rng('tommy gun'), gun = tommyGun(), gunfire = new Gunfire(scene, gunRng.fork('fire')), gunSound = new GunSound(gunRng.fork('sound'));
   // (Struck, an orc spatters its blood over the snow, a great deal of it, and a pool spreads where it falls: `slopeSplatter.ts`.)
   const splatter = new Splatter(scene, gunRng.fork('blood'), ground, (x, z) => normalAt(x, z, 0.5));
-  const horde = new Horde(library, scene, rimAll, (at, push, size) => { splatter.spray(at, push, 56); splatter.pool(at, gunRng.range(1.1, 1.6) * size); });
+  const horde = new Horde(library, scene, rimAll, (at, push, size, bloody) => { if (!bloody) return; splatter.spray(at, push, 56); splatter.pool(at, gunRng.range(1.1, 1.6) * size); });
   // (Fewer at a time on a phone or a tablet, where each is a good deal more to draw: half as many.)
   if (!matchMedia('(hover: hover) and (pointer: fine)').matches) horde.most = 14;
   rimAll(gun);
   gun.visible = false;
   /** How long between rounds; how far into the next the trigger has got; how far the last round kicked the gun up (1, just fired). */
   const SHOT = 60 / 700;
-  let firing = false, shotClock = 0, kick = 0, gunHinted = false;
+  let firing = false, shotClock = 0, kick = 0;
+  // The arms taken up in turn as orcs are brought down, riding (`slopeArms.ts`, `slain`): the sword first, then the pistol, the
+  // shotgun, the flamethrower, the tommy gun and the lightning gun; each carried as the tommy gun is, in place of the poles, aimed as
+  // it is. The orc hunt's rider carries the tommy gun, as it always did. The flamethrower's fire and the lightning's bolts, drawn.
+  const arms = new Map<ArmKind, Group>(LADDER.map((a): [ArmKind, Group] => [a.kind, a.kind === 'smg' ? gun : a.make()]));
+  for (const [k, g] of arms) if (k !== 'smg') { rimAll(g); g.visible = false; }
+  const flames = new Flames(scene, gunRng.fork('flames'), ground), bolts = new Bolts(scene, gunRng.fork('bolts'));
+  const sweep = new Sweep(scene), rockets = new Rockets(scene, gunRng.fork('rockets'));
+  // (Where the rockets go off, the run's end's blast made small: a few of them, each used again in turn, put away once its smoke has
+  // gone.)
+  const BOOM = { size: 0.32, reach: 7, last: 6 };
+  const booms = [0, 1, 2].map((i) => ({ blast: new Blast(gunRng.fork(`boom ${i}`)), until: 0 }));
+  for (const b of booms) scene.add(b.blast.group);
+  let nextBoom = 0, boomClock = 0;
+  // (The sword drawn from the skier's back, and the rider's, is out of its scabbard there: `Outfit_Hilt`, `dressAdventurer`.)
+  const hilts = new Map<Rider, Object3D | undefined>([[live, live.model.getObjectByName('Outfit_Hilt')], [jockey, jockey.model.getObjectByName('Outfit_Hilt')]]);
+  /** The arm carried now: riding, by how many have been brought down (`slain`); watching the orc hunt, the tommy gun. */
+  const armNow = (): Arm => (mode === 'watch' ? LADDER.find((a) => a.kind === 'smg')! : armAfter(slain).arm);
+  /**
+   * A click (or a tap) as a round asked of an arm fired a round at a time, or a swing of the sword: kept until it can be fired, one
+   * at most, and only if asked near when it can; how long until the arm can fire again; the sword's swing, while it swings (how far
+   * through, to which side, which orcs it has cut down); how long each orc has been in the flamethrower's fire; the arm last said.
+   */
+  let pulls = 0, ready = 0, swing: { t: number; side: number; struck: Set<number> } | null = null, lastSide = -1, flameSaid = 0, armSaid: ArmKind | null = null;
+  const heat = new Map<number, number>();
+  // (The sword's swing so long that a click made in the last half of one is kept for the next.)
+  const pull = () => { if (ready < (armNow().firing === 'swing' ? 0.75 : 0.25)) pulls = 1; };
   /** Each human's poles, put away while it carries the gun. */
   const poleSets: [Who, Object3D[]][] = [['person', gear.filter((p) => p.parent?.name.startsWith('hand_'))], ['mounted', jockeyGear]];
   /** Whether the gun is carried: riding, on a computer, by a human (the skier alone, or the horse's rider). */
@@ -3340,12 +3756,19 @@ async function start() {
     for (let i = 0; i < puffs; i++) throwPuff(p.clone().addScaledVector(UP, 0.05), new Vector3(gunRng.range(-1, 1), gunRng.range(0.8, 2.2), gunRng.range(-1, 1)), 0.6);
     for (let i = 0; i < grains; i++) throwGrain(p.clone().addScaledVector(UP, 0.05), new Vector3(gunRng.range(-1.5, 1.5), gunRng.range(1.5, 4), gunRng.range(-1.5, 1.5)));
   };
-  /** A round fired from the muzzle as the gun points, a little astray: a tracer to where it strikes, and there an orc falls or the snow flies. */
-  const shoot = () => {
-    gun.updateMatrixWorld(true);
-    const from = gun.localToWorld(MUZZLE.clone()), dir = new Vector3(0, 0, 1).transformDirection(gun.matrixWorld);
-    dir.add(new Vector3(gunRng.range(-0.012, 0.012), gunRng.range(-0.012, 0.012), gunRng.range(-0.012, 0.012))).normalize();
-    const snowAt = snowAlong(from, dir, 400), met = horde.hit(from, dir, Math.min(snowAt, 400));
+  /** Where the arm carried has its muzzle (or the sword its tip), and which way it points, in the scene. */
+  const muzzleOf = (arm: Arm) => {
+    const model = arms.get(arm.kind)!;
+    model.updateMatrixWorld(true);
+    return { from: model.localToWorld(arm.muzzle.clone()), dir: new Vector3(0, 0, 1).transformDirection(model.matrixWorld) };
+  };
+  /**
+   * A round fired from `from` along `dir`, a little astray (`spread`), as far as `reach`: a tracer to where it strikes, and there an
+   * orc falls or the snow flies.
+   */
+  const fireRound = (from: Vector3, way: Vector3, spread: number, reach = 400) => {
+    const dir = way.clone().add(new Vector3(gunRng.range(-spread, spread), gunRng.range(-spread, spread), gunRng.range(-spread, spread))).normalize();
+    const snowAt = snowAlong(from, dir, reach), met = horde.hit(from, dir, Math.min(snowAt, reach));
     if (met) {
       const orc = met.orc;
       gunfire.fire(from, dir, met.t, () => {
@@ -3353,13 +3776,184 @@ async function start() {
         if (horde.fall(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6))) { gunSound.grunt(); orcDowned(at, 'shot'); }
         burst(at, 3, 10);
       });
-    } else gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : 400, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
-    gunSound.shot();
+    } else gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : reach, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
+  };
+  /** A round from the tommy gun as it points: the tommy gun's own sound, and its kick. */
+  const shoot = () => { const { from, dir } = muzzleOf(armNow()); fireRound(from, dir, 0.012); gunSound.shot(); kick = 1; };
+  /** The pistol's round, or the shotgun's blast: nine pellets spread wide, going no further than forty-five metres. */
+  const fireOnce = (arm: Arm) => {
+    const { from, dir } = muzzleOf(arm);
+    if (arm.kind === 'shotgun') { for (let i = 0; i < 9; i++) fireRound(from, dir, 0.06, 45); gunSound.hear('shotgun'); }
+    else if (arm.kind === 'bazooka') { rockets.launch(from, dir); burst(from.clone().addScaledVector(dir, -1.2), 4, 0); gunSound.hear('rocket'); }
+    else { fireRound(from, dir, 0.004); gunSound.hear('pistol'); }
     kick = 1;
   };
-  clearGun = () => { horde.clear(); gunfire.clear(); splatter.clear(); };
+  /**
+   * The flamethrower a moment on (`dt`): fire poured hard from its mouth along its way, the gun shuddering with it (`Flames`); and
+   * every orc within some twenty-two metres of it, not much off its way and not behind the snow, in the fire; an orc a fifth of a
+   * second in it falls, burning.
+   */
+  const pourFire = (arm: Arm, dt: number) => {
+    const { from, dir } = muzzleOf(arm);
+    flames.pour(from, dir, Math.max(1, Math.round(dt * 260)));
+    kick = Math.max(kick, gunRng.range(0.4, 1));
+    if ((flameSaid -= dt) <= 0) { flameSaid = 0.12; gunSound.hear('flame'); }
+    const inFire = new Set<number>();
+    for (const o of horde.near(from, 23)) {
+      const d = o.at.clone().sub(from), far = d.length();
+      if (far > 22 || d.divideScalar(far).dot(dir) < Math.cos(0.32) || snowAlong(from, d, far) < far - 0.5) continue;
+      inFire.add(o.orc);
+      const h = (heat.get(o.orc) ?? 0) + dt;
+      heat.set(o.orc, h);
+      if (h > 0.2) burnDown(o.orc, o.at, dir);
+    }
+    // (Out of the fire, it cools: the fire must be kept on it.)
+    for (const k of heat.keys()) if (!inFire.has(k)) heat.delete(k);
+  };
+  /** An orc brought down burning, thrown on along `dir`; fire left on it, and under it. */
+  const burnDown = (orc: number, at: Vector3, dir: Vector3) => {
+    if (!horde.fall(orc, dir.clone().setY(0).normalize().multiplyScalar(2).addScaledVector(UP, 1.2), false)) return;
+    flames.burn(at, 18); gunSound.grunt(); orcDowned(at, 'burnt'); heat.delete(orc);
+  };
+  /**
+   * A rocket gone off at `at`: the blast made small there (`BOOM`), and every orc within `BOOM.reach` of it brought down, thrown out
+   * from it and up, the harder the nearer.
+   */
+  const boomAt = (at: Vector3) => {
+    const b = booms[nextBoom++ % booms.length], on = at.clone();
+    on.y = Math.max(on.y - 0.3, ground(on.x, on.z));
+    b.blast.lay(on, ground, gunRng.fork('boom'), BOOM.size);
+    b.blast.boom();
+    b.until = boomClock + BOOM.last;
+    gunSound.hear('boom');
+    for (const o of horde.near(at, BOOM.reach + 1)) {
+      const d = o.at.clone().sub(at), far = d.length();
+      if (far > BOOM.reach) continue;
+      const near = 1 - far / BOOM.reach, out = far > 0.01 ? d.setY(0).normalize() : new Vector3(1, 0, 0);
+      if (horde.fall(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near))) { gunSound.grunt(); orcDowned(o.at, 'blown'); }
+    }
+  };
+  /**
+   * Where a rocket going from `from` to `to` strikes, if it does: an orc on the way, or one it passes within a metre or so of (it goes
+   * off near one, not only on one); or the snow, looked for every half metre of the way. (Looked for as rounds are, a metre on and
+   * then every metre, a step's flight of a metre and a bit was looked at only once, and rockets flew on through the snow.)
+   */
+  const rocketStrikes = (from: Vector3, to: Vector3): Vector3 | null => {
+    const d = to.clone().sub(from), len = d.length(), dir = d.divideScalar(len);
+    let snowAt = Infinity;
+    for (let i = 1, n = Math.ceil(len / 0.5); i <= n; i++) {
+      const t = (len * i) / n, p = from.clone().addScaledVector(dir, t);
+      if (p.y < ground(p.x, p.z)) { snowAt = t; break; }
+    }
+    const reach = Math.min(snowAt, len), met = horde.hit(from, dir, reach);
+    if (met) return from.clone().addScaledVector(dir, met.t);
+    for (const o of horde.near(from, len + 2)) {
+      const mid = o.at.clone().addScaledVector(UP, 0.9), t = clamp(mid.clone().sub(from).dot(dir), 0, reach), p = from.clone().addScaledVector(dir, t);
+      if (p.distanceTo(mid) < 1.3) return p;
+    }
+    return Number.isFinite(snowAt) ? from.clone().addScaledVector(dir, snowAt) : null;
+  };
+  /**
+   * The lightning gun's bolt: to the first orc along its way, or else the one nearest its way within some ten degrees of it, a hundred
+   * and twenty metres out (lightning goes where it will, and finds what stands nearest it); and from it on to the nearest orc within
+   * fourteen metres not yet struck, and on, five leaps at the most; each struck falls. With none to strike, a short bolt into the snow.
+   */
+  const zap = (arm: Arm) => {
+    const { from, dir } = muzzleOf(arm), snowAt = snowAlong(from, dir, 120), reach = Math.min(snowAt, 120);
+    const through = [from.clone()], struck = new Set<number>();
+    let met = horde.hit(from, dir, reach)?.orc ?? -1;
+    if (met < 0) {
+      let best = Math.tan((10 * Math.PI) / 180);
+      for (const o of horde.near(from, reach)) {
+        const d = o.at.clone().sub(from), along2 = d.dot(dir);
+        if (along2 < 4 || along2 > reach) continue;
+        const off = (d.addScaledVector(dir, -along2).length() - 1.5) / along2;
+        if (off < best && snowAlong(from, o.at.clone().sub(from).normalize(), o.at.distanceTo(from)) > o.at.distanceTo(from) - 1) { best = off; met = o.orc; }
+      }
+    }
+    while (met >= 0 && struck.size < 6) {
+      struck.add(met);
+      const at = horde.middle(met);
+      through.push(at);
+      if (horde.fall(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), false)) { gunSound.grunt(); orcDowned(at, 'zapped'); }
+      burst(at, 2, 6);
+      met = -1;
+      let near = 14;
+      for (const o of horde.near(at, 14)) { if (struck.has(o.orc)) continue; const d = o.at.distanceTo(at); if (d < near) { near = d; met = o.orc; } }
+    }
+    if (through.length === 1) { const end = from.clone().addScaledVector(dir, Number.isFinite(snowAt) ? Math.min(snowAt, 30) : 30); through.push(end); burst(end, 2, 8); }
+    bolts.strike(through);
+    gunSound.hear('zap');
+    kick = 1;
+  };
+  /**
+   * The sword's swing (asked: "proper slashing alternating on right and left side of the horse flanks"; "slower to swing, like
+   * 1.5sec/swing"): a second and a half, the most of it in drawing a heavy blade up and bringing it back, the cut itself quick; drawn up
+   * over a shoulder, cut down past that side and carried through low along it, and back (`Rider.slash`; `SLASH_MARKS`). Each at the
+   * side the orcs within reach are on, if they are on one side only; else at the other side from the last, right and left in turn.
+   * Every orc on that side within reach as the blade goes down past it (more from the saddle, which is higher and further out over
+   * them), ahead of the skier or not far behind, cut down and thrown out that way. `right`, the skier's right in the scene.
+   */
+  const SLASH_T = 1.5;
+  const slashReach = () => (who === 'mounted' ? 3.6 : 3);
+  const slashSide = (right: Vector3) => {
+    let r = false, l = false;
+    for (const o of horde.near(rider.position, slashReach() + 1.5)) { if (o.at.clone().sub(rider.position).dot(right) >= 0) r = true; else l = true; }
+    return (lastSide = r !== l ? (r ? 1 : -1) : -lastSide);
+  };
+  const swingOn = (dt: number, right: Vector3, ahead: Vector3) => {
+    if (!swing) return;
+    swing.t += dt;
+    const k = swing.t / SLASH_T, reach = slashReach(), out = right.clone().multiplyScalar(swing.side);
+    if (k > SLASH_MARKS.up + 0.04 && k < SLASH_MARKS.through + 0.02) {
+      for (const o of horde.near(rider.position, reach + 0.6)) {
+        const d = o.at.clone().sub(rider.position).setY(0), far = d.length();
+        if (swing.struck.has(o.orc) || far > reach || d.dot(out) < -0.2 || d.dot(ahead) < -1.2) continue;
+        swing.struck.add(o.orc);
+        if (horde.fall(o.orc, out.clone().multiplyScalar(5).addScaledVector(ahead, 1.5).addScaledVector(UP, 2.5))) { gunSound.grunt(); orcDowned(o.at, 'slain'); }
+      }
+    }
+    if (k >= 1) swing = null;
+  };
+  clearGun = () => {
+    horde.clear(); gunfire.clear(); splatter.clear(); flames.clear(); bolts.clear(); heat.clear(); sweep.clear(); rockets.clear();
+    for (const b of booms) b.blast.hide();
+    swing = null; pulls = 0;
+  };
   // (With the orcs on, the sound woken by any click or key, the first that a browser lets wake it: not left to the first shot.)
   const wakeSound = () => { if (orcsOn) gunSound.wake(); };
+  // The bar toward the next arm (`#armBar`), riding with the arms: how far toward it, filled as each orc is brought down; full and
+  // gilt for a moment (`ARM_WON` seconds, the page's own) as an arm is taken up, then empty toward the one after it, or put away when
+  // there is none left to take up.
+  const ARM_WON = 1.6;
+  const armBar = $('armBar'), armBarFill = armBar.querySelector<HTMLElement>('.fill')!, armBarTrack = armBar.querySelector<HTMLElement>('.track')!;
+  const armBarNext = armBar.querySelector<HTMLElement>('.next')!, armBarLeft = armBar.querySelector<HTMLElement>('.left')!;
+  let armBarArm = -1, armWonAt = -Infinity, armBarWon = false, armBarTold = '';
+  const armBarUp = (shown: boolean) => {
+    const by = armAfter(slain), rung = LADDER.indexOf(by.arm), now = performance.now() / 1000;
+    // (Taken up, not set back by the script's `slain`: only a step up the ladder is shown won.)
+    if (rung !== armBarArm) { if (armBarArm >= 0 && rung > armBarArm) armWonAt = now; armBarArm = rung; }
+    const won = now - armWonAt < ARM_WON;
+    shown &&= won || by.next !== null;
+    if (armBar.hidden === shown) armBar.hidden = !shown;
+    // (Emptied at once as the moment ends, rather than drained.)
+    armBar.classList.toggle('snap', armBarWon && !won);
+    armBar.classList.toggle('won', won);
+    armBarWon = won;
+    if (!shown) return;
+    const need = by.next ? by.next.after : 1, got = won ? need : need - by.left;
+    armBarFill.style.setProperty('--got', (got / need).toFixed(4));
+    armBarTrack.style.setProperty('--notch', `${((5 / need) * 100).toFixed(3)}%`);
+    say(armBarNext, won ? by.arm.name : by.next!.name);
+    say(armBarLeft, won ? 'Taken up' : `${by.left} more`);
+    const told = won ? `${by.arm.name} taken up` : `${got} of ${need} orcs toward the ${by.next!.name.toLowerCase()}`;
+    if (told !== armBarTold) {
+      armBarTold = told;
+      armBar.setAttribute('aria-valuemax', String(need));
+      armBar.setAttribute('aria-valuenow', String(got));
+      armBar.setAttribute('aria-label', told);
+    }
+  };
   addEventListener('pointerdown', wakeSound, true);
   addEventListener('keydown', wakeSound, true);
   /** Where the orc hunt's demo run had got to last frame: gone back, or on by more than a moment (the timeline dragged), begun anew. */
@@ -3373,12 +3967,21 @@ async function start() {
   const armUp = (dt: number, now: Now) => {
     const on = armed(), human = who === 'person' ? live : who === 'mounted' ? jockey : null, watching = mode === 'watch';
     document.body.classList.toggle('gun', on);
-    // (Riding with it by touch for the first time, how it is fired, said.)
-    if (on && mode === 'ride' && !gunHinted && !document.body.classList.contains('mouse') && !cat && !crash) { gunHinted = true; tell('Tommy gun', 'hold a finger on the picture to fire there', false, 3.5); }
+    const arm = armNow(), model = arms.get(arm.kind)!, touch = !document.body.classList.contains('mouse');
+    // (Riding with an arm for the first time, what it is and how it is used, said: the sword as the first run with the orcs begins,
+    // and each after it as it is taken up.)
+    if (on && human && mode === 'ride' && armSaid !== arm.kind && !cat && !crash) {
+      armSaid = arm.kind;
+      tell(arm.kind === 'sword' ? 'Sword' : `${arm.name}!`, touch ? arm.hint.replace('click or tap', 'tap').replace('a click', 'a tap').replace('hold to', 'hold a finger on the picture to') : arm.hint, false, 3.5);
+    }
     for (const [w, poles] of poleSets) for (const p of poles) p.visible = !(on && w === who);
     $('tally').hidden = !on;
+    armBarUp(on && !!human && !watching);
+    for (const [k, g] of arms) if (g.visible && (k !== arm.kind || !on || !human)) g.visible = false;
+    // (The sword out of its scabbard on the back while it is in the hand.)
+    for (const [r, h] of hilts) if (h) h.visible = !(on && r === human && arm.kind === 'sword');
     if (!on || !human) {
-      if (gun.visible || horde.about) { gun.visible = false; clearGun!(); }
+      if (horde.about) clearGun!();
       firing = false;
       return;
     }
@@ -3386,9 +3989,9 @@ async function start() {
     huntAt = t;
     const going = watching ? (playing && !scrubbing ? dt * rate : 0) : playing && !menuOpen ? dt : 0, holder = human.model.parent;
     if (!holder) return;
-    if (gun.parent !== holder) holder.add(gun);
-    gun.visible = true;
-    const muzzle = gun.localToWorld(MUZZLE.clone()), go = along(now.way, here);
+    if (model.parent !== holder) holder.add(model);
+    model.visible = true;
+    const muzzle = model.localToWorld(arm.muzzle.clone()), go = along(now.way, here);
     // In the air (or thrown, or in a turn of the whole body on the snow), the gun in the right hand alone, unfired.
     const frame = watching ? demo.frames[Math.min(demo.frames.length - 1, Math.round(t / STEP))] : null;
     const holding = watching ? !!frame && !frame.air && Math.abs((frame.c as RideControls).spin ?? 0) < 0.3 : !air && !crash && !ride.turn180 && !cat;
@@ -3443,17 +4046,55 @@ async function start() {
       }
     }
     // The gun turned to it from the muzzle, as far round as the arms let it (in the frame of what holds the human: a skier's own, a
-    // horse's saddle's).
-    const d = target.sub(muzzle).normalize().applyQuaternion(holder.getWorldQuaternion(new Quaternion()).invert());
-    const yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
+    // horse's saddle's; whose right and ahead, in the scene, the sword cuts to).
+    const hq = holder.getWorldQuaternion(new Quaternion());
+    const right = new Vector3(-1, 0, 0).applyQuaternion(hq).setY(0).normalize(), ahead = new Vector3(0, 0, 1).applyQuaternion(hq).setY(0).normalize();
+    const d = target.sub(muzzle).normalize().applyQuaternion(hq.clone().invert());
+    let yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
+    // (The sword, ready, held out towards what is aimed at, its point down; swung, at one side and then the other, `Rider.slash`, its
+    // sweep drawn behind it as it cuts.)
+    if (arm.firing === 'swing') pitch = Math.min(pitch, -0.3);
     d.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-    const held = human.hold(holding ? d : null, FORE_GRIP);
-    gun.position.copy(held.grip).addScaledVector(held.dir, -0.02 * kick);
-    gun.quaternion.setFromRotationMatrix(toLook.lookAt(held.dir, ZERO, Y)).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.09 * kick));
-    // Fired while the button is held (or an orc is in its sights, watching), on the snow; the first round as it is pressed.
-    if (firing && holding && going > 0) for (shotClock += going; shotClock >= SHOT; shotClock -= SHOT) shoot();
+    // (The pistol held out at arm's length along the aim, `Rider.point`, the arms thrown up a little by each shot, after it has gone,
+    // and coming down again.)
+    const flung = arm.out && holding ? d.clone().addScaledVector(Y, 0.22 * kick).normalize() : d;
+    const held = swing && holding ? human.slash(swing.t / SLASH_T, swing.side, d, arm.fore) : arm.out && holding ? human.point(flung) : human.hold(holding ? d : null, arm.fore, arm.stance);
+    model.position.copy(held.grip).addScaledVector(held.dir, -0.02 * kick * arm.kick);
+    model.quaternion.setFromRotationMatrix(toLook.lookAt(held.dir, ZERO, Y)).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.09 * kick * arm.kick));
+    if (swing && holding && going > 0) {
+      const k = swing.t / SLASH_T;
+      if (k > SLASH_MARKS.up - 0.04 && k < SLASH_MARKS.through + 0.06) { model.updateMatrixWorld(true); sweep.add(model.localToWorld(new Vector3(0, 0, 0.25)), model.localToWorld(arm.muzzle.clone())); }
+    }
+    // Fired on the snow, each arm as it is fired: the tommy gun while the button is held (or an orc is in its sights, watching), the
+    // first round as it is pressed; the pistol and the shotgun a round, or a blast, a click; the flamethrower pouring fire while held;
+    // the lightning gun a bolt every third of a second while held; the sword a swing a click.
+    ready = Math.max(0, ready - going);
+    if (going > 0 && holding) {
+      if (arm.firing === 'auto') { if (firing) for (shotClock += going; shotClock >= arm.every; shotClock -= arm.every) shoot(); }
+      else if (arm.firing === 'single') { if (pulls && ready <= 0) { pulls = 0; ready = arm.every; fireOnce(arm); } }
+      else if (arm.firing === 'stream') { if (firing) pourFire(arm, going); }
+      else if (arm.firing === 'bolt') { if (firing && ready <= 0) { ready = arm.every; zap(arm); } }
+      else if (pulls && ready <= 0 && !swing) {
+        pulls = 0; ready = arm.every;
+        swing = { t: 0, side: slashSide(right), struck: new Set() };
+        gunSound.hear('swish');
+      }
+    }
+    if (arm.firing !== 'single' && arm.firing !== 'swing') pulls = 0;
+    swingOn(going, right, ahead);
     kick *= Math.exp(-dt * 18);
     gunfire.step(going, camera.quaternion);
+    flames.step(going, camera.quaternion);
+    bolts.step(going);
+    sweep.step(going);
+    rockets.step(going, camera.quaternion, rocketStrikes, boomAt, (at, v) => flames.trail(at, v));
+    boomClock += going;
+    for (const b of booms) {
+      if (!b.until) continue;
+      if (boomClock > b.until) { b.blast.hide(); b.until = 0; } else b.blast.step(going, camera, ground);
+    }
+    // (Orcs that walk into fire left burning on the snow, burnt.)
+    if (going > 0) for (const f of [...flames.pools]) for (const o of horde.near(f.p, f.r + 1)) if (o.at.distanceTo(f.p) < f.r + 0.7) burnDown(o.orc, o.at, ZERO);
     splatter.step(going);
     const v = !watching && air ? air.v.clone() : go.clone().multiplyScalar(now.speed);
     // (Any downed as the orcs come on, the skier ran down: the rounds' are counted as they strike.)
@@ -3461,6 +4102,8 @@ async function start() {
     horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
     for (let i = horde.downed - downedBefore; i > 0; i--) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run');
     say($('orcs'), String(horde.downed));
+    // (Riding, what is carried: how many more until the next, the bar beside the picture says.)
+    say($('armSay'), watching ? '' : ` · ${armAfter(slain).arm.name}`);
   };
 
   // The view, following the skier. It keeps pace with the skier exactly down the slope, and eases only what the view does about it: how
@@ -3994,6 +4637,7 @@ async function start() {
   const keptBlur = kept('blur');
   setBlur(query.has('blur') || keptBlur === null ? blurLevel : Number(keptBlur));
   setDistance(Number(kept('distance') ?? 1) || 1);
+  setOffPiste(query.has('offpiste') ? query.get('offpiste') !== '0' : kept('offpiste') !== '0');
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
   resetScore();
   setTilt(kept('tilt') !== '0');
@@ -4061,6 +4705,17 @@ async function start() {
   await loading.stage('demo');
   await useDemo();
   reflect();
+  // The map of the runs (`slopeMap.ts`): the opening's choice is made on it, and the menu opens it again (*Map of the runs*, `M`).
+  // Drawn now if the page opens on the choice, so that it is ready when it is shown; else when it is first opened. (Without its
+  // file, only the list of the runs.)
+  let runMap: RunMap | null = null;
+  try { const text = await mapText; runMap = text ? readRunMap(text) : null; } catch (e) { console.warn(e); }
+  const choose = $('choose');
+  const mapView = new RunMapView($('runMap'), $('runList'), choose, runMap, runs, {
+    ride: (id) => rideOn(id),
+    best: (id) => Math.max(0, Number(kept(`best.${id}`)) || 0),
+  });
+  if (!query.has('nointro')) { await loading.stage('map'); mapView.draw(); }
   // (The first frames make the shaders, which can take some seconds: the screen goes once two have been drawn. What may come later is
   // made ready with them: the land turned inside out built, an orc made if they are on, and the gun.)
   await loading.stage('shaders');
@@ -4073,11 +4728,38 @@ async function start() {
   // Horse Mountain", GRAND HORSE over Mountain): the title over the demo run
   // as it plays, for some three seconds; then the choice. Watching, the demo goes on; sending it, a run from the top, the rider's own.
   // (`?nointro` for neither.)
-  const intro = $('intro'), choose = $('choose');
-  const chosen = () => { choose.hidden = true; intro.hidden = true; introFrames = -1; };
-  $('watchDemo').onclick = () => chosen();
-  $('sendIt').onclick = () => { chosen(); setMode('ride'); restart(); };
-  choose.addEventListener('keydown', (e) => { if (e.key === 'Escape') chosen(); });
+  // Then (asked: "... along with the dialog to watch either the regular demo, orcs demo or choose a location from the map to ride"):
+  // the map of the runs, with the demo run and the orc hunt beside it. Watching, the demo goes on; a run chosen on the map and ridden,
+  // a run from its top, the rider's own. Opened again later, riding, the ride is held until it is closed.
+  const intro = $('intro');
+  let heldRide = false;
+  const showMap = () => {
+    setMenu(false);
+    mapView.draw();
+    if (mode === 'ride' && playing) { playing = false; heldRide = true; reflect(); }
+    choose.hidden = false;
+    document.body.classList.add('choosing');
+    choose.querySelector<HTMLButtonElement>('#runList button, #watchDemo')?.focus({ preventScroll: true });
+  };
+  const chosen = () => {
+    mapView.closeCard();
+    choose.hidden = true; intro.hidden = true; introFrames = -1;
+    document.body.classList.remove('choosing');
+    if (heldRide) { heldRide = false; playing = true; reflect(); }
+  };
+  /** A run chosen on the map (or the groomed slope), ridden from its top. */
+  const rideOn = (id: string) => {
+    heldRide = false; playing = true;
+    chosen(); setMode('ride');
+    if (id !== landKind) void setLand(id); else restart();
+  };
+  $('watchDemo').onclick = () => { heldRide = false; playing = true; chosen(); setDemoKind('tricks'); setMode('watch'); };
+  // (The orc hunt has the orcs and the tommy gun, which it turns on, as *Orcs & tommy gun* in the menu does.)
+  $('watchHunt').onclick = () => { heldRide = false; playing = true; chosen(); gunSound.wake(); if (!orcsOn) setOrcs(true); setMode('watch'); setDemoKind('orcs'); };
+  $('rideGroomed').onclick = () => rideOn('groomed');
+  $('chooseClose').onclick = () => chosen();
+  $('openMap').onclick = () => showMap();
+  choose.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; e.preventDefault(); if (mapView.carding) mapView.closeCard(); else chosen(); });
   // (Timed from the third frame drawn, not from the page being ready, and held for twenty frames at the least: the first frames, which
   // make the shaders, can take seconds, and the title went by before anything was seen.)
   let introFrames = query.has('nointro') ? -1 : 0, introAt = 0;
@@ -4086,7 +4768,7 @@ async function start() {
     if (introFrames < 3) { if (++introFrames === 3) { intro.hidden = false; introAt = now; } return; }
     const shown = (now - introAt) / 1000, drawn = ++introFrames - 3;
     if (shown > 2.7 && drawn > 20 && !intro.classList.contains('gone')) intro.classList.add('gone');
-    if (shown > 3.8 && drawn > 26) { introFrames = -1; if (!intro.hidden) { intro.hidden = true; if (mode === 'watch') { choose.hidden = false; $('sendIt').focus(); } } }
+    if (shown > 3.8 && drawn > 26) { introFrames = -1; if (!intro.hidden) { intro.hidden = true; if (mode === 'watch') showMap(); } }
   };
 
   let then = performance.now(), benching = false, drawnFrames = 0;
@@ -4097,6 +4779,8 @@ async function start() {
   let headAt = -1, headOf: Demo | null = null;
   const frame = async () => {
     if (benching) { requestAnimationFrame(frame); return; }
+    // (What was taken out of the scene since the last frame let go of, now that no frame is making shaders ready: `toLetGo`.)
+    for (const f of toLetGo.splice(0)) f();
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
     const now = performance.now(), dt = fixedDt || Math.min(0.1, (now - then) / 1000);
     stepIntro(now);
@@ -4133,6 +4817,7 @@ async function start() {
       stepWhirlwind(playing && !menuOpen ? dt : 0);
       stepFold(playing && !menuOpen ? dt : 0);
       stepCart(playing && !menuOpen ? dt : 0);
+      stepOffPiste(playing && !menuOpen ? dt : 0);
       const onSnow = !air && !crash && !cat;
       if (playing && onSnow) layRide(at);
       stepSpray(playing && !menuOpen ? dt : 0, playing && onSnow ? at : null, !!air);
@@ -4200,7 +4885,43 @@ async function start() {
     // (Riding: what is happening in the air or on the ground, the kickers, and to put the skier anywhere going anyhow.)
     state: () => ({ air: air && { ...air }, crash: crash && { why: crash.why, still: stillFor(), at: fallenAt().toArray(), bodies: crash.dolls.map((d) => d.doll.middle().toArray()) }, told: { ...told } }),
     // (The `i`th kicker that stands, counting from the top; and where the skier is put, by how far down the run and across it.)
-    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: KICK.length, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
+    // (How each size would land off the `i`th kicker standing, slower and faster: for weighing `kickSize`.)
+    flights: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return KICK_SIZES.map((size) => ({ size, slow: kickFlight(k, kickDims(size), KICK_SPEED - 3), fast: kickFlight(k, kickDims(size), KICK_SPEED + 3) })); },
+// (The orcs brought down riding, over the session, which say the arm carried: read, or set, as a script would to try each arm; and
+    // the trigger, held or let go, as the button is, and pulled once as a click does.)
+    slain: (n?: number) => { if (n !== undefined) slain = Math.max(0, n); return { slain, arm: armAfter(slain).arm.kind }; },
+// (Off the piste: whether it is allowed and may be now, how long the skier has been out past the poles, and where they are.)
+    /**
+     * The stones (`STONES`): how much snow lies `down` along the run and `left` across it (1, snow; 0, stones); or, asked of nothing,
+     * under the skier now, and over the whole run, the share of the piste, and of the snow beyond it, that is bare (every two metres).
+     */
+    stones: (down?: number, left?: number) => {
+      const snowAt = (s: number, l: number) => { const p = land.at(s, l); return land.snowAt?.(p.x, p.z) ?? 1; };
+      if (down !== undefined) return +snowAt(down, left ?? 0).toFixed(3);
+      let on = 0, onBare = 0, off = 0, offBare = 0;
+      for (let s = 0; s < Math.min(land.length, 5000); s += 2) {
+        const [lo, hi] = land.edges(s);
+        for (let l = -(land.half - 3); l <= land.half - 3; l += 2) {
+          const bare = snowAt(s, l) < 0.5, inside_ = l >= lo && l <= hi;
+          if (inside_) { on++; if (bare) onBare++; } else { off++; if (bare) offBare++; }
+        }
+      }
+      return { here: +(land.snowAt?.(ride.x, ride.z) ?? 1).toFixed(3), stones: +ride.stones.toFixed(2), over: +ride.overStones.toFixed(1), piste: +(onBare / Math.max(1, on)).toFixed(4), beyond: +(offBare / Math.max(1, off)).toFixed(4) };
+    },
+    offPiste: () => ({ allowed: offPisteOn, now: offPisteOk(), for: +offPisteFor.toFixed(2), edges: land.edges(ride.down), reach: reachAt(ride.down), left: +ride.left.toFixed(1) }),
+    trigger: (on: boolean) => { firing = on; if (on) { shotClock = SHOT; pull(); } },
+    // (The sword `k` of the way through a swing at `side` (1, the right), held there while all is held still: for pictures.)
+    // (The nearest tree ahead of the skier down the run, within `most` metres along it and `wide` either side: how far down the run
+    // and across it its middle stands, and how far out it reaches, `Land.treeNear`.)
+    treeAhead: (most = 120, wide = 25) => {
+      for (let d = 1; d <= most; d += 0.5) for (let l = 0; l <= wide; l += 0.5) for (const side of l ? [1, -1] : [1]) {
+        const p = land.at(ride.down + d, ride.left + side * l), t = land.treeNear?.(p.x, p.z, 0.01);
+        if (t) { const f = land.frame(t.x, t.z, ride.down + d); return { down: +f.s.toFixed(2), left: +f.left.toFixed(2), r: +t.r.toFixed(2), tall: +t.tall.toFixed(1) }; }
+      }
+      return null;
+    },
+    swingAt: (k: number, side: number) => { swing = { t: k * SLASH_T, side, struck: new Set() }; },
+    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
     put: (o: Partial<typeof ride>) => { Object.assign(ride, o); if (o.down !== undefined || o.left !== undefined) { putAt(ride.down, ride.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); } placed = false; },
     land: () => ({ name: land.name, length: land.length, half: land.half, about: land.about }),
     setSkier: (w: Who, skis?: HorseSkis) => setSkier(w, skis), who: () => who,

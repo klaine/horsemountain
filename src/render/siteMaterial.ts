@@ -1268,6 +1268,43 @@ export function makeSnowMaterial(turf: TextureSet, scree: TextureSet): MeshStand
 }
 
 /**
+ * How much snow lies at a point as `makeSnowMaterial` draws it (1, snow; 0, its stones; between, its ragged edge), worked out off the
+ * graphics card by the same rule, for what goes over the snow to know what it is going over: `up`, how nearly the ground faces straight
+ * up there, as the shape's own normals have it; `turf`, the ground's pictures the material was made with. (Its drifts read from the
+ * turf's height as the material reads them, and its fringe from the same noise, a 32-bit float at each step as the graphics card
+ * works it, so that the edge of the snow falls where it is seen. Keep the two together: a change to one is a change to both.)
+ */
+export function snowLiesAt(up: number, x: number, z: number, turf: TextureSet): number {
+  const snow = snowUniforms.uSnow.value;
+  if (snow < 0.001) return 0;
+  const macro = alphaAt(turf, x / 41 + 0.37, z / 41 + 0.37), mid = alphaAt(turf, x / 9.7 + 0.11, z / 9.7 + 0.11);
+  const tx = x * 0.8 - z * 0.6, tz = x * 0.6 + z * 0.8;
+  const fringe = farNoiseAt(tx * 0.85, tz * 0.85) * 0.6 + farNoiseAt(tz * 2.3 + 5.3, tx * 2.3 + 5.3) * 0.4;
+  const drift = macro * 0.65 + mid * 0.35;
+  const t = Math.min(1, Math.max(0, (-1.15 + 1.9 * snow + (up - 0.8) * 2.4 + (drift - 0.5) * 1.5 + (fringe - 0.5) * 0.35) / 0.12));
+  return t * t * (3 - 2 * t);
+}
+/** A texture set's height (its picture's alpha, 0 to 1) at (`u`, `v`), as the graphics card reads it: repeating, between its points. */
+function alphaAt(set: TextureSet, u: number, v: number): number {
+  const n = set.size, px = set.pixels[0], fx = (u - Math.floor(u)) * n - 0.5, fy = (v - Math.floor(v)) * n - 0.5;
+  const i = Math.floor(fx), j = Math.floor(fy), a = fx - i, b = fy - j;
+  const at = (ii: number, jj: number) => px[((((jj % n) + n) % n) * n + (((ii % n) + n) % n)) * 4 + 3];
+  return ((at(i, j) * (1 - a) + at(i + 1, j) * a) * (1 - b) + (at(i, j + 1) * (1 - a) + at(i + 1, j + 1) * a) * b) / 255;
+}
+/** `farHash` and `farNoise` (below), off the graphics card. */
+const fract32 = (v: number) => { const w = Math.fround(v); return Math.fround(w - Math.floor(w)); };
+function farHashAt(x: number, y: number): number {
+  const qx = fract32(x * 0.1031), qy = fract32(y * 0.1031), qz = qx;
+  const d = Math.fround(qx * Math.fround(qy + 33.33) + qy * Math.fround(qz + 33.33) + qz * Math.fround(qx + 33.33));
+  return fract32(Math.fround(Math.fround(qx + d) + Math.fround(qy + d)) * Math.fround(qz + d));
+}
+function farNoiseAt(x: number, y: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const a = farHashAt(ix, iy), b = farHashAt(ix + 1, iy), c = farHashAt(ix, iy + 1), d = farHashAt(ix + 1, iy + 1);
+  return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
+}
+
+/**
  * A material for small loose things: iron fittings, torch brands, keys. They are not part of the
  * light bake, and left to themselves they would be lit by the open sky wherever they are, indoors
  * included. Here they get a faint fixed ambient instead, and otherwise only the real lights.
@@ -1536,10 +1573,15 @@ export function makeRockMaterial(base: TextureSet, moss: TextureSet, o: { scale?
 }
 
 /** What far land is covered with in this season: its woods and its open ground. */
-export const farUniforms: { uFarWood: { value: Vector3 }; uFarGrass: { value: Vector3 }; uFarSnow: { value: number }; uFarRing: { value: Vector3 } } = {
+export const farUniforms: { uFarWood: { value: Vector3 }; uFarGrass: { value: Vector3 }; uFarSnow: { value: number }; uFarDeep: { value: number }; uFarRing: { value: Vector3 } } = {
   uFarWood: uniform(new Vector3(0.07, 0.15, 0.06)) as N, uFarGrass: uniform(new Vector3(0.16, 0.2, 0.08)) as N,
   // (How far snow lies down from the heights, 0 to 1: in a valley's or a town's winter, everywhere.)
   uFarSnow: uniform(0) as N,
+  // (How deep a winter it is, 0 to 1. At 1, as on the ski runs' mountains in Grand Horse Mountain (asked: "see the ground outside
+  // playarea is not snowy enough"), the snow lies over all the open ground that holds it, not in patches with the grass between,
+  // and on the woods' crowns, which stand grey out of it rather than dark green: at 0, the low country about the runs, which is
+  // woods and pasture, was green with snow here and there.)
+  uFarDeep: uniform(0) as N,
   // (Where the far land begins about a valley: its middle, x and z, and how far out from it. The woods it paints come in over the
   // next 180 metres, as its trees do; none of it where the radius is 0.)
   uFarRing: uniform(new Vector3(0, 0, 0)) as N,
@@ -1771,7 +1813,9 @@ export function makeFarMaterial(o: { light?: boolean } = {}): MeshStandardNodeMa
   const lodged: N = max(hollow, 0).mul(0.5).add(max(run.negate(), 0).mul(3).mul(sloping).mul(smoothstep(0.32, 0.62, broad.add(fine.sub(0.5).mul(0.3))))).add(step(0.7, bed).mul(smoothstep(0.42, 0.56, fine.add(broad.sub(0.5).mul(0.8)))).mul(0.42).mul(steep)).toVar();
   // (And in winter, everywhere that is not too steep to hold it, in the open: the woods stand dark out of it, and the snow is thinner
   // where the wind scours the crests.)
-  const lowSnow: N = (farUniforms.uFarSnow as N).mul(smoothstep(0.5, 0.78, faceN.y)).mul(one(wood.mul(0.85))).mul(smoothstep(0.25, 0.55, broad.add(fine.sub(0.5).mul(0.4)).add(max(hollow, 0).mul(0.5)).add(0.15)));
+  // (And in a deep winter, `uFarDeep`, over all of the open ground, and on the woods too.)
+  const deep = farUniforms.uFarDeep as N;
+  const lowSnow: N = (farUniforms.uFarSnow as N).mul(smoothstep(0.5, 0.78, faceN.y)).mul(one(wood.mul(mix(0.85, 0.42, deep)))).mul(mix(smoothstep(0.25, 0.55, broad.add(fine.sub(0.5).mul(0.4)).add(max(hollow, 0).mul(0.5)).add(0.15)), 1, deep));
   const snow: N = max(smoothstep(0, 0.08, high.sub(0.6).add(hollow.mul(0.12)).add(ragged.mul(0.35))).mul(smoothstep(lodged.mul(-0.4).add(0.5), lodged.mul(-0.4).add(0.72), faceN.y)), lowSnow).toVar();
   land = mix(land, vec3(1.3, 1.34, 1.42), snow);
   // Water, where the sheet says there is some (in the field other materials use for moss): a lake in a valley floor far below, dark,

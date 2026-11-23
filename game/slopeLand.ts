@@ -15,7 +15,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
-import { float } from 'three/tsl';
+import { abs, float, mix, positionWorld, smoothstep, texture } from 'three/tsl';
 import { glinting, snowGlints } from '../src/render/siteMaterial';
 import { MeshBuilder } from '../src/render/geom/meshBuilder';
 import { Rng } from '../src/core/rng';
@@ -39,6 +39,18 @@ export interface Land {
   edges(s: number): [number, number];
   /** The snow's height at a point of the scene. */
   height(x: number, z: number): number;
+  /**
+   * How much snow lies at a point as it is drawn: 1, snow; 0, the mountain's stones, bare where it is too steep for snow to lie;
+   * between, its ragged edge. (None given, snow everywhere.)
+   */
+  snowAt?(x: number, z: number): number;
+  /**
+   * The tree nearest a body `r` metres across its middle at (`x`, `z`) that it is into, if one is: where its trunk stands, how far out
+   * from it its trunk and the dense lower boughs about it reach, and how tall it is. (Only off the piste: none stands on the run.)
+   */
+  treeNear?(x: number, z: number, r: number): { x: number; z: number; r: number; tall: number } | null;
+  /** Whether a point can be ridden, off the piste: on the land drawn about the run (none given, anywhere). */
+  roam?(x: number, z: number): boolean;
   /** Where a point lies against the run; `hint`, the `s` of a point near it, makes it quicker. */
   frame(x: number, z: number, hint?: number): Frame;
   /** The point `s` along the run and `left` to its left, and which way the run goes there. */
@@ -50,6 +62,12 @@ export interface Land {
   keepAbout(x: number, z: number): void;
   /** Draws what is near the eye at (`x`, `z`) finely and the rest coarsely, where the land is made so. */
   lod?(x: number, z: number): void;
+  /**
+   * Lets go of what it has made, on the graphics card and off it, once another land is shown in its place: a run's land, drawn with
+   * the game's materials, is some hundred megabytes of shapes, and kept, each run visited added to what the page held. (Made again
+   * from its slice if it is wanted again.)
+   */
+  dispose?(): void;
   /** Grows the woods about the eye, where the land has the game's own trees (`slopeTrees.ts`); `seconds`, the page's clock, for the wind. */
   trees?(eye: Vector3, seconds: number): void;
   /** How far the air's haze begins and is whole; where the sun is (towards it); and how strong the sky's light is. */
@@ -61,27 +79,35 @@ const smooth01 = (t: number) => { const c = Math.min(1, Math.max(0, t)); return 
 // ------------------------------------------------------------------------------------------------------------------- the groomed slope
 
 /** The groomed slope: a plane falling at sixteen degrees down +z, going on as far as it is ridden. */
-export function groomedLand(snowMap: Texture): Land {
+export function groomedLand(snowMap: Texture, powderMap: Texture): Land {
   const ANGLE = (16 * Math.PI) / 180, tan = Math.tan(ANGLE);
   const FALL = new Vector3(0, -Math.sin(ANGLE), Math.cos(ANGLE)), LEFT = new Vector3(1, 0, 0);
   const onSlope = (down: number, left: number) => new Vector3().addScaledVector(FALL, down).addScaledVector(LEFT, left);
   const group = new Group();
-  // The snow: a sheet moved along under the skier by whole tiles of its picture (nine metres), so that the slope goes on.
-  const W = 252, L = 720, map = snowMap.clone();
-  map.repeat.set(W / 9, L / 9);
-  map.needsUpdate = true;
-  const snow = new Mesh(new PlaneGeometry(W, L), glintingSnow({ map, roughness: 0.92 }));
+  // The snow: a sheet moved along under the skier, so that the slope goes on; its pictures laid by where each point is, not on the
+  // sheet, so that it is the same snow wherever the sheet has been moved to. Groomed between the poles, its corduroy a picture every
+  // nine metres; beyond them loose snow, unlined, as off a world's run, coming in over the first six metres past the poles (asked:
+  // "the groomed surface shouldn't be shown by the way off piste"; where the snow is deep to ride, `DEEP` in `slope.ts`).
+  const W = 252, L = 720, paint = new MeshStandardNodeMaterial({ color: 0xffffff });
+  const where = positionWorld.xz, loose = smoothstep(31, 37, abs(positionWorld.x));
+  paint.colorNode = mix(texture(snowMap, where.div(9)), texture(powderMap, where.div(23)), loose);
+  paint.roughnessNode = mix(float(0.92), float(0.95), loose);
+  glinting(paint, snowGlints(mix(float(0.45), float(0.55), loose)));
+  const snow = new Mesh(new PlaneGeometry(W, L), paint);
   snow.geometry.rotateX(-Math.PI / 2).rotateX(ANGLE);
   snow.receiveShadow = true;
   group.add(snow);
   // Beside the piste, firs on both sides and its edges marked with poles every twenty-five metres: a stretch of 300 metres of them,
   // laid three times, one after another, about wherever the skier is.
   const TILE = 300, tiles: Group[] = [];
+  /** Where each fir of a stretch stands (down the slope and to its left), how far out its trunk and lower boughs reach, how tall it is. */
+  const firSpots: { down: number; left: number; r: number; tall: number }[] = [];
   {
     const rng = new Rng('woods'), trees: Matrix4[] = [];
     for (let down = 0; down < TILE; down += rng.range(3, 7)) for (const side of [-1, 1]) {
       if (rng.chance(0.25)) continue;
       const h = rng.range(5, 11), left = side * rng.range(36, 100);
+      firSpots.push({ down, left, r: 0.12 * h, tall: h });
       // (Turned each its own way, by where it stands, so as not to draw on the slope's random numbers.)
       trees.push(new Matrix4().compose(onSlope(down, left).add(new Vector3(0, -0.2, 0)), new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), (down * 7.3 + left * 3.1) % 6.28), new Vector3(h * 0.9, h * 0.86, h * 0.9)));
     }
@@ -110,6 +136,15 @@ export function groomedLand(snowMap: Texture): Land {
     height: (_x, z) => -z * tan,
     frame: (x, z) => ({ s: z, left: x, dx: 0, dz: 1 }),
     at: (s, left) => ({ x: left, z: s, dx: 0, dz: 1 }),
+    // (Each fir as it stands in every stretch of them, one after another down the slope: looked for in the stretch nearest.)
+    treeNear: (x, z, r) => {
+      const down = z / Math.cos(ANGLE);
+      for (const t of firSpots) {
+        const along = ((((down - t.down) % TILE) + TILE * 1.5) % TILE) - TILE / 2, dz = along * Math.cos(ANGLE);
+        if (Math.hypot(x - t.left, dz) < t.r + r) return { x: t.left, z: z - dz, r: t.r, tall: t.tall };
+      }
+      return null;
+    },
     kickable: () => true,
     group,
     keepAbout: (x, z) => {
@@ -136,7 +171,11 @@ const COVER = { sea: 0, lake: 1, forest: 6 } as const;
  * none lies), and its far country (`makeFarMaterial`), which paints its own woods, rock bands and snow; and the sky's colour, for the
  * light the land has from it.
  */
-export interface GameLook { snow: Material; far: Material; sky: [number, number, number] }
+export interface GameLook {
+  snow: Material; far: Material; sky: [number, number, number];
+  /** Off the graphics card, how much snow the game's snow draws at a point that faces up by `up` (`snowLiesAt`): 1, snow; 0, stones. */
+  snowAt?: (up: number, x: number, z: number) => number;
+}
 
 /**
  * The land of a world's ski run (`SkiSlice`), its scene's origin at the run's top; drawn with the game's materials if they are given,
@@ -211,6 +250,21 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   const worldSlope = (y: number) => (!sq || y <= sq.above ? 1 : 1 / sq.keep);
   /** How steep the world's own land is where the slice's is `steep` degrees at height `y`. */
   const worldSteep = (steep: number, y: number) => (!sq || y <= sq.above ? steep : (Math.atan(Math.tan((steep * Math.PI) / 180) / sq.keep) * 180) / Math.PI);
+
+  // How much snow lies at a point, as it is drawn (`Land.snowAt`), for the skis to know what they go over. With the game's snow, by its
+  // own rule (`game.snowAt`), from how nearly the ground faces up there as the run's snow is made to (`nrm` in `gameMeshes`: over three
+  // metres either way; off the skiable path, as steeply as the world's own land); drawn plainly, as `coloured` lays its rock.
+  let snowHint = 0;
+  const snowAt = (x: number, z: number) => {
+    const f = frame(x, z, snowHint), [lo, hi] = edges(f.s), y = height(x, z);
+    snowHint = f.s;
+    const away = smooth01((Math.max(lo - f.left, f.left - hi, -4 - f.s, f.s - length - 4) + 1) / 6);
+    if (!game?.snowAt) return 1 - smooth01((worldSteep(steepAt(x, z, 4), y) - 38) / 14) * away;
+    // (Over three metres either way on the run's own snow, eight on the land about it, as each is shaded, `nrm`.)
+    const e = inSlice(x, z) ? 3 : 8, k = away >= 0.5 ? worldSlope(y) : 1;
+    const gx = (k * (height(x + e, z) - height(x - e, z))) / (2 * e), gz = (k * (height(x, z + e) - height(x, z - e))) / (2 * e);
+    return game.snowAt(1 / Math.hypot(gx, 1, gz), x, z);
+  };
 
   // ---- What is seen.
   const group = new Group(), rng = new Rng(`slice ${slice.world}`);
@@ -328,13 +382,13 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     const x = g.x0 + i * g.cell, z = g.z0 + j * g.cell;
     return hole(x, z) && hole(x + g.cell, z) && hole(x, z + g.cell) && hole(x + g.cell, z + g.cell);
   }
-  let runOf: (g: Grid) => Mesh;
+  let runOf: (g: Grid) => Mesh, pisteMap: Texture | null = null;
   if (game) {
     const made = gameMeshes(game);
     group.add(...made.parts);
     runOf = made.runOf;
   } else {
-    const pisteMap = snowMap.clone();
+    pisteMap = snowMap.clone();
     pisteMap.needsUpdate = true;
     const pisteMats = [
       glintingSnow({ vertexColors: true, map: pisteMap, roughness: 0.92 }, 0.28),
@@ -522,6 +576,27 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     group.add(woodsGrown.group);
   } else group.add(near3);
 
+  // Where the trees drawn stand, for what goes into them (`Land.treeNear`): the game's own, or the snowy firs; kept in squares of
+  // eight metres. How far out each one's trunk and lower boughs reach, from how tall it is.
+  const TREE_CELL = 8, treeCells = new Map<string, { x: number; z: number; r: number; tall: number }[]>();
+  const keepTree = (x: number, z: number, r: number, tall: number) => {
+    const key = `${Math.floor(x / TREE_CELL)},${Math.floor(z / TREE_CELL)}`;
+    let cell = treeCells.get(key);
+    if (!cell) treeCells.set(key, (cell = []));
+    cell.push({ x, z, r, tall });
+  };
+  if (woodsGrown) for (const t of woodsGrown.group.userData.trees as { x: number; z: number; tall: number }[]) keepTree(t.x, t.z, Math.min(1.5, Math.max(0.5, 0.1 * t.tall)), t.tall);
+  else for (const m of nearFirs) { const p = new Vector3(), q = new Quaternion(), sc = new Vector3(); m.decompose(p, q, sc); keepTree(p.x, p.z, 0.12 * sc.x, sc.y); }
+  const treeNear = (x: number, z: number, r: number) => {
+    const i0 = Math.floor(x / TREE_CELL), j0 = Math.floor(z / TREE_CELL);
+    let best: { x: number; z: number; r: number; tall: number } | null = null, most = Infinity;
+    for (let j = j0 - 1; j <= j0 + 1; j++) for (let i = i0 - 1; i <= i0 + 1; i++) for (const t of treeCells.get(`${i},${j}`) ?? []) {
+      const d = Math.hypot(x - t.x, z - t.z) - t.r - r;
+      if (d < 0 && d < most) { most = d; best = t; }
+    }
+    return best;
+  };
+
   // Where a kicker may stand: where the land falls away after its lip at least as steeply as a landing wants, and is not too steep
   // or too tilted across where it is built.
   const kickable = (s: number, left: number, kick: number) => {
@@ -537,8 +612,26 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     about: `${(length / 1000).toFixed(2)} km from ${worldHeight(slice.run.heights[0]).toFixed(0)} m to ${worldHeight(slice.run.heights[slice.run.heights.length - 1]).toFixed(0)} m`,
     drop: (y: number) => worldHeight(slice.run.heights[0]) - worldHeight(y),
     fall: worldHeight(slice.run.heights[0]) - worldHeight(slice.run.heights[slice.run.heights.length - 1]),
-    length, half: slice.half, edges, height, frame, at, kickable, group, keepAbout: () => {}, lod, fog: [380, 5200], sun: [-0.6, 0.42, -0.5], sky: 0.8,
+    length, half: slice.half, edges, height, snowAt, treeNear, frame, at, kickable, group,
+    // (Off the piste, as far out over the land about the run as it is drawn, short of its edge by thirty metres.)
+    roam: (x, z) => intoNear(x, z) > 30, keepAbout: () => {}, lod, fog: [380, 5200], sun: [-0.6, 0.42, -0.5], sky: 0.8,
     trees: woodsGrown ? (eye, seconds) => woodsGrown!.update(eye, seconds) : undefined,
+    dispose: () => {
+      // (Every shape it made, and the materials of its own; not those every land shares, the game's snow and far land and the poles'
+      // paint, nor the pictures of snow, but its own copy of one. The poles' shape is shared too, but let go of with the rest, as
+      // the woods' cards are: it is made again on the graphics card when next drawn.)
+      woodsGrown?.dispose();
+      const shared = new Set<Material>([POLE_PAINT, ...(game ? [game.snow, game.far] : [])]);
+      group.traverse((o) => {
+        const m = o as Mesh;
+        if (!m.isMesh) return;
+        m.geometry.dispose();
+        for (const material of Array.isArray(m.material) ? m.material : [m.material]) if (!shared.has(material)) material.dispose();
+        (m as unknown as { dispose?: () => void }).dispose?.();
+      });
+      pisteMap?.dispose();
+      group.removeFromParent();
+    },
   };
 }
 

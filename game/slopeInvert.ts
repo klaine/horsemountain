@@ -76,11 +76,16 @@ export class Folding {
     this.group.name = 'folding';
   }
 
-  /** Drawn for the land `key`, from `source`, if it is not already. */
-  build(key: object, source: FoldSource) {
-    if (this.builtFor === key) return;
+  /**
+   * Drawn for the land `key`, from `source`, if it is not already; the sheets it was drawn with before handed back, taken out, for the
+   * caller to let go of when the renderer is done with them (their shapes and the meshes themselves: their shapes alone let go of, the
+   * renderer kept the meshes, and the shapes' points with them, a land's worth each time the land was changed).
+   */
+  build(key: object, source: FoldSource): Mesh[] {
+    if (this.builtFor === key) return [];
     this.builtFor = key;
-    for (const m of [...this.group.children] as Mesh[]) { m.geometry.dispose(); m.removeFromParent(); }
+    const old = [...this.group.children] as Mesh[];
+    for (const m of old) m.removeFromParent();
     const H = source.height, white = new Color(0.9, 0.92, 0.96), rock = new Color(0.33, 0.32, 0.31), c = new Color();
     /**
      * A sheet of `nu` by `nv` points, each where `place` puts it and its picture laid as `lay` says; groomed white where `groomed` says,
@@ -125,6 +130,7 @@ export class Folding {
     const mid = source.at(L / 2, 0), R = 6000, CELL = 30, nc = Math.round((2 * R) / CELL) + 1;
     const country = sheet(nc, nc, (i, j) => ({ x: mid.x - R + i * CELL, z: mid.z - R + j * CELL }), (_i, _j, x, z) => [x / 23, z / 23], 3, () => false);
     this.group.add(country, run);
+    return old;
   }
 
   set(f: Fold) {

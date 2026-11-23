@@ -4,7 +4,9 @@
  * running out through the snow from where it is to go off, glowing as from a fire under it; then its flash, a fireball rolling up into
  * a column of black smoke, a shock going out through the air, the snow thrown out along the ground in a ring, and the ground itself
  * broken into slabs of snow, ice and rock flung out and falling about; and after it, the crater, scorched, its cracks dark and still
- * glowing. The page says where and when, and what it does to the skier and the view (`slope.ts`).
+ * glowing. The page says where and when, and what it does to the skier and the view (`slope.ts`). Made smaller (`size`, a share of
+ * it), where the bazooka's rockets go off (asked: "similar explosions but in a smaller scale as the explosion transition"): all of it
+ * that much nearer, smaller and shorter, what is thrown thrown slower by its square root, as a smaller blast throws.
  */
 import {
   AdditiveBlending, BufferAttribute, BufferGeometry, type Camera, CanvasTexture, Color, DodecahedronGeometry, Group, InstancedBufferAttribute,
@@ -82,6 +84,9 @@ export class Blast {
   /** How long since it went off (none yet, below nothing); and since it was laid. */
   private age = -1;
   private t = 0;
+  /** How large it is, a share of the run's end's (1); and the square root of that, for how fast it throws what it throws. */
+  private size = 1;
+  private pace = 1;
   private rng: Rng | null = null;
   private readonly ground: Mesh;
   private readonly glow: Mesh;
@@ -190,12 +195,12 @@ export class Blast {
   /** Whether it has gone off. */
   get gone() { return this.age >= 0; }
 
-  /** Laid at `at` on the snow, whose height is `ground`: its cracks not yet run out, nothing else yet. */
-  lay(at: Vector3, ground: (x: number, z: number) => number, rng: Rng) {
-    this.at.copy(at); this.rng = rng; this.age = -1; this.t = 0;
+  /** Laid at `at` on the snow, whose height is `ground`, `size` as large as the run's end's: its cracks not yet run out, nothing else yet. */
+  lay(at: Vector3, ground: (x: number, z: number) => number, rng: Rng, size = 1) {
+    this.at.copy(at); this.rng = rng; this.age = -1; this.t = 0; this.size = size; this.pace = Math.sqrt(size);
     const N = Blast.GRID, pos = this.groundPos;
     for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
-      const k = (j * (N + 1) + i) * 3, x = at.x + (i / N - 0.5) * 2 * REACH, z = at.z + (j / N - 0.5) * 2 * REACH;
+      const k = (j * (N + 1) + i) * 3, x = at.x + (i / N - 0.5) * 2 * REACH * size, z = at.z + (j / N - 0.5) * 2 * REACH * size;
       pos[k] = x; pos[k + 1] = ground(x, z) + 0.06; pos[k + 2] = z;
     }
     this.ground.geometry.getAttribute('position').needsUpdate = true;
@@ -214,14 +219,14 @@ export class Blast {
 
   /** Gone off: the ground broken up and flung out, the fire and the smoke and the snow thrown, its flash and its shock. */
   boom() {
-    const rng = this.rng!, X = this.at;
+    const rng = this.rng!, X = this.at, S = this.size, V = this.pace;
     this.age = 0;
     this.slabs.visible = this.fire.visible = this.smoke.visible = this.flashMesh.visible = this.shock.visible = true;
     this.uReveal.value = 1;
     this.slab.forEach((s, i) => {
-      const r = Math.sqrt(rng.next()) * 9, a = rng.range(0, TURN), near = 1 - r / 9, big = rng.range(0.3, 1.7);
-      s.p.set(X.x + Math.cos(a) * r, X.y + 0.2, X.z + Math.sin(a) * r);
-      s.v.set(Math.cos(a), 0, Math.sin(a)).multiplyScalar(rng.range(5, 20) * (0.6 + 0.4 * near)).addScaledVector(UP, rng.range(8, 28) * (0.6 + 0.6 * near));
+      const r = Math.sqrt(rng.next()) * 9 * S, a = rng.range(0, TURN), near = 1 - r / (9 * S), big = rng.range(0.3, 1.7) * S;
+      s.p.set(X.x + Math.cos(a) * r, X.y + 0.2 * S, X.z + Math.sin(a) * r);
+      s.v.set(Math.cos(a), 0, Math.sin(a)).multiplyScalar(rng.range(5, 20) * (0.6 + 0.4 * near) * V).addScaledVector(UP, rng.range(8, 28) * (0.6 + 0.6 * near) * V);
       s.axis.set(rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)).normalize();
       s.spin = rng.range(2, 9); s.turn = rng.range(0, TURN); s.still = false;
       s.size.set(big, big * rng.range(0.2, 0.4), big * rng.range(0.6, 1));
@@ -231,21 +236,21 @@ export class Blast {
     if (this.slabs.instanceColor) this.slabs.instanceColor.needsUpdate = true;
     for (const f of this.firePuffs) {
       const d = new Vector3(rng.range(-1, 1), rng.range(0.1, 1), rng.range(-1, 1)).normalize();
-      f.p.copy(X).addScaledVector(d, rng.range(0, 2)).addScaledVector(UP, 1);
-      f.v.copy(d).multiplyScalar(rng.range(8, 26)); f.wait = rng.range(0, 0.12); f.age = 0; f.life = rng.range(0.8, 1.7);
-      f.size = rng.range(3, 6); f.grow = rng.range(2.5, 4); f.roll = rng.range(0, TURN);
+      f.p.copy(X).addScaledVector(d, rng.range(0, 2) * S).addScaledVector(UP, S);
+      f.v.copy(d).multiplyScalar(rng.range(8, 26) * V); f.wait = rng.range(0, 0.12) * V; f.age = 0; f.life = rng.range(0.8, 1.7) * V;
+      f.size = rng.range(3, 6) * S; f.grow = rng.range(2.5, 4); f.roll = rng.range(0, TURN);
     }
     for (const s of this.smokePuffs) {
       const a = rng.range(0, TURN), out = new Vector3(Math.cos(a), 0, Math.sin(a));
       s.age = 0; s.roll = rng.range(0, TURN);
       if (s.kind === DUST) {
-        s.p.copy(X).addScaledVector(out, rng.range(2, 5)).addScaledVector(UP, 0.8);
-        s.v.copy(out).multiplyScalar(rng.range(14, 32)).addScaledVector(UP, rng.range(1, 5));
-        s.wait = rng.range(0, 0.1); s.life = rng.range(1.4, 3); s.size = rng.range(2.5, 4); s.grow = rng.range(2.5, 3.5);
+        s.p.copy(X).addScaledVector(out, rng.range(2, 5) * S).addScaledVector(UP, 0.8 * S);
+        s.v.copy(out).multiplyScalar(rng.range(14, 32) * V).addScaledVector(UP, rng.range(1, 5) * V);
+        s.wait = rng.range(0, 0.1) * V; s.life = rng.range(1.4, 3) * V; s.size = rng.range(2.5, 4) * S; s.grow = rng.range(2.5, 3.5);
       } else {
-        s.p.copy(X).addScaledVector(out, rng.range(0, 3)).addScaledVector(UP, rng.range(1, 5));
-        s.v.copy(out).multiplyScalar(rng.range(2, 8)).addScaledVector(UP, rng.range(5, 16));
-        s.wait = rng.range(0.15, 0.7); s.life = rng.range(3.5, 7); s.size = rng.range(3, 5); s.grow = rng.range(3, 4.5);
+        s.p.copy(X).addScaledVector(out, rng.range(0, 3) * S).addScaledVector(UP, rng.range(1, 5) * S);
+        s.v.copy(out).multiplyScalar(rng.range(2, 8) * V).addScaledVector(UP, rng.range(5, 16) * V);
+        s.wait = rng.range(0.15, 0.7) * V; s.life = rng.range(3.5, 7) * V; s.size = rng.range(3, 5) * S; s.grow = rng.range(3, 4.5);
       }
     }
   }
@@ -260,19 +265,19 @@ export class Blast {
     this.t += dt;
     if (this.age < 0) return;
     this.age += dt;
-    const age = this.age;
+    const age = this.age, S = this.size, V = this.pace;
     this.uScorch.value = smooth(age / 0.15);
     this.uGlow.value = 1.6 * Math.exp(-age / 0.6) + 0.35 * Math.exp(-age / 12);
     // The flash, turned to the eye, as big as it is bright; the shock gone out to seventy metres in under half a second.
     this.uFlash.value = this.flash;
     this.flashMesh.visible = this.flash > 0.01;
-    this.flashMesh.position.copy(this.at).addScaledVector(UP, 3);
+    this.flashMesh.position.copy(this.at).addScaledVector(UP, 3 * S);
     this.flashMesh.quaternion.copy(eye.quaternion);
-    this.flashMesh.scale.setScalar(20 + 40 * this.flash);
-    const shock = age / 0.45;
+    this.flashMesh.scale.setScalar((20 + 40 * this.flash) * S);
+    const shock = age / (0.45 * V);
     this.shock.visible = shock < 1;
     this.shock.position.copy(this.at);
-    this.shock.scale.setScalar(5 + 65 * smooth(shock));
+    this.shock.scale.setScalar((5 + 65 * smooth(shock)) * S);
     this.uShock.value = 0.8 * (1 - shock);
 
     this.slab.forEach((s, i) => {
@@ -293,7 +298,7 @@ export class Blast {
       if (dt > 0) f.wait -= dt;
       if (f.wait > 0 || f.age >= f.life) { this.fire.setMatrixAt(i, this.hidden); this.fireLook.setXYZW(i, 0, 0, 0, 0); return; }
       f.age += dt;
-      f.v.multiplyScalar(Math.exp(-2.5 * dt)); f.v.y += 6 * dt; f.p.addScaledVector(f.v, dt);
+      f.v.multiplyScalar(Math.exp(-2.5 * dt)); f.v.y += 6 * V * dt; f.p.addScaledVector(f.v, dt);
       const k = clamp(f.age / f.life, 0, 1), hot = this.colour.copy(WHITE_HOT).lerp(ORANGE, smooth(k / 0.4));
       if (k > 0.4) hot.lerp(DULL, smooth((k - 0.4) / 0.6));
       this.fire.setMatrixAt(i, this.billboard(f, eye, f.size * (1 + f.grow * Math.sqrt(k))));
@@ -307,11 +312,11 @@ export class Blast {
       let alpha: number;
       if (s.kind === DUST) {
         s.v.multiplyScalar(Math.exp(-2.2 * dt)); s.v.y -= 0.5 * dt; s.p.addScaledVector(s.v, dt);
-        s.p.y = Math.max(s.p.y, ground(s.p.x, s.p.z) + 0.8);
+        s.p.y = Math.max(s.p.y, ground(s.p.x, s.p.z) + 0.8 * S);
         this.colour.copy(SNOW);
         alpha = smooth(s.age / 0.1) * (1 - k) ** 1.5 * 0.8;
       } else {
-        s.v.x *= Math.exp(-1.2 * dt); s.v.z *= Math.exp(-1.2 * dt); s.v.y = Math.min(s.v.y + 2.5 * dt, 14) * Math.exp(-0.3 * dt); s.p.addScaledVector(s.v, dt);
+        s.v.x *= Math.exp(-1.2 * dt); s.v.z *= Math.exp(-1.2 * dt); s.v.y = Math.min(s.v.y + 2.5 * V * dt, 14 * V) * Math.exp(-0.3 * dt); s.p.addScaledVector(s.v, dt);
         this.colour.copy(FIERY).lerp(SOOTY, smooth(s.age / 0.35)).lerp(GREY, smooth(k));
         alpha = smooth(s.age / 0.2) * (1 - k) ** 1.1 * 0.9;
       }

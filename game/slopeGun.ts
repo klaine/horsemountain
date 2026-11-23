@@ -133,9 +133,12 @@ const Z = new Vector3(0, 0, 1);
 
 /**
  * The gun's sound and the orcs' cries, made as they are wanted (no files): a round, a crack of noise through a falling filter
- * over a thump; an orc falling, a grunt dropping in pitch. Quietly, and only once the page has been clicked, as browsers require.
+ * over a thump; an orc falling, a grunt dropping in pitch. Quietly, and only once the page has been clicked, as browsers require. And
+ * the other arms' (`slopeArms.ts`): a pistol's shot, sharper and lighter; a shotgun's, a long low boom; the flamethrower's roar, a
+ * roar of low noise over the hiss of its jet; the lightning gun's crack and buzz; a sword's swish through the air; the bazooka's rocket
+ * rushing off, and its blast, a long low rumble under the crack.
  */
-export type Heard = 'shot' | 'grunt';
+export type Heard = 'shot' | 'grunt' | 'pistol' | 'shotgun' | 'flame' | 'zap' | 'swish' | 'rocket' | 'boom';
 export class GunSound {
   constructor(private readonly rng: Rng) {}
   private ctx: AudioContext | null = null;
@@ -158,6 +161,8 @@ export class GunSound {
   }
   shot(): void { this.now('shot'); }
   grunt(): void { this.now('grunt'); }
+  /** Any of the sounds by its name. */
+  hear(kind: Heard): void { this.now(kind); }
   /**
    * The sound of what was heard, each at so many seconds from the start, made afterwards as one recording `seconds` long: for a video
    * made a frame at a time, slower or faster than it plays, whose sound could not be heard as it was made.
@@ -181,8 +186,33 @@ export class GunSound {
     for (let i = 0; i < len; i++) d[i] = this.rng.range(-1, 1);
     return b;
   }
-  /** A round's crack over its thump, or an orc's grunt, made into `out` at `t`. */
+  /** A burst of noise through a filter of `type` from `f0` to `f1` hertz over `len` seconds, at `gain`. */
+  private hiss(c: BaseAudioContext, out: AudioNode, noise: AudioBuffer, t: number, type: BiquadFilterType, f0: number, f1: number, len: number, gain: number, rate = 1): void {
+    const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = noise;
+    src.playbackRate.value = rate * this.rng.range(0.9, 1.1);
+    f.type = type; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + len * 0.8);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + Math.min(0.01, len * 0.2)); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    src.connect(f).connect(g).connect(out);
+    src.start(t); src.stop(t + len + 0.02);
+  }
+  /** A tone from `f0` to `f1` hertz over `len` seconds, of `type`, at `gain`. */
+  private tone(c: BaseAudioContext, out: AudioNode, t: number, type: OscillatorType, f0: number, f1: number, len: number, gain: number): void {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + len);
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    o.connect(g).connect(out);
+    o.start(t); o.stop(t + len + 0.02);
+  }
+  /** A round's crack over its thump, or an orc's grunt, or another arm's sound, made into `out` at `t`. */
   private play(c: BaseAudioContext, out: AudioNode, noise: AudioBuffer, kind: Heard, t: number): void {
+    if (kind === 'pistol') { this.hiss(c, out, noise, t, 'lowpass', 7000, 900, 0.1, 0.8); this.tone(c, out, t, 'sine', 180, 60, 0.06, 0.5); return; }
+    if (kind === 'shotgun') { this.hiss(c, out, noise, t, 'lowpass', 3200, 240, 0.4, 1, 0.6); this.tone(c, out, t, 'sine', 90, 32, 0.3, 0.9); return; }
+    if (kind === 'flame') { this.hiss(c, out, noise, t, 'lowpass', 700, 260, 0.2, 0.42, 0.45); this.hiss(c, out, noise, t, 'bandpass', 2600, 1900, 0.14, 0.1); return; }
+    if (kind === 'rocket') { this.hiss(c, out, noise, t, 'bandpass', 1800, 500, 0.6, 0.5, 0.4); this.tone(c, out, t, 'sine', 120, 50, 0.15, 0.6); return; }
+    if (kind === 'boom') { this.hiss(c, out, noise, t, 'lowpass', 2400, 70, 0.85, 1.1, 0.28); this.hiss(c, out, noise, t, 'lowpass', 6000, 600, 0.12, 0.7); this.tone(c, out, t, 'sine', 75, 28, 0.7, 1); return; }
+    if (kind === 'zap') { this.hiss(c, out, noise, t, 'highpass', 2600, 5200, 0.14, 0.5); this.tone(c, out, t, 'sawtooth', 1400, 90, 0.18, 0.12); return; }
+    if (kind === 'swish') { this.hiss(c, out, noise, t, 'bandpass', 900, 2600, 0.2, 0.28); return; }
     if (kind === 'shot') {
       const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
       src.buffer = noise;

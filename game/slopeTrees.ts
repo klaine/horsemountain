@@ -53,6 +53,8 @@ export interface Woods {
   group: Group;
   /** A frame of it: grows what the eye wants near it and lets go of what is far, and moves the wind (`seconds`, the page's clock). */
   update(eye: Vector3, seconds: number): void;
+  /** Lets go of every block grown, when its land is let go of. */
+  dispose(): void;
 }
 
 // ---------------------------------------------------------------- where they stand (`treesIn`, `woodDepth` in the game's `dress.ts`)
@@ -386,6 +388,12 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
       for (const [key, b] of rising) { const t = (now - b.t0) / RISE; k.grown.set(b.bi, b.bj, b.level, t); if (t >= 1) rising.delete(key); }
       k.grown.flush();
       vegetationUniforms.uTime.value = seconds;
+    },
+    dispose() {
+      // (As when another run's woods take the blocks over; and, were these the woods last grown, the map of what is grown cleared, so
+      // that nothing is left holding on to them.)
+      dropAll();
+      if (k.active === self) { k.grown.clear(); k.grown.flush(); k.active = null; }
     },
   };
 }

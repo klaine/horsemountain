@@ -59,7 +59,7 @@ export class Horde {
   /** How many there may be at once, coming, fallen and waiting; a horde comes while fewer than two fifths of as many are coming. */
   most = MOST;
   /** `onFall`, told where each falls (its middle), how it was thrown and how large it is, for its blood to be spilt. */
-  constructor(private readonly library: FigureLibrary, private readonly scene: Scene, private readonly dress: (o: Object3D) => void, private readonly onFall?: (at: Vector3, push: Vector3, size: number) => void) {}
+  constructor(private readonly library: FigureLibrary, private readonly scene: Scene, private readonly dress: (o: Object3D) => void, private readonly onFall?: (at: Vector3, push: Vector3, size: number, bloody: boolean) => void) {}
 
   /**
    * The orc's body, made once: the skier's bare body dressed in the orc's clothes, its skin greened and greyed and its eyes yellowed (on
@@ -185,15 +185,31 @@ export class Horde {
   /** Where an orc's middle is, for snow to be thrown from where it falls. */
   middle(i: number): Vector3 { const b = this.orcs[i]; return b.p.clone().add(new Vector3(0, 0.6 * b.size, 0)); }
 
-  /** An orc falls, thrown by `push`, if it is still coming. Gives back whether it fell. */
-  fall(i: number | Orc, push: Vector3): boolean {
+  /**
+   * Each orc still coming within `r` metres of `at`, across the snow, and not further above or below it than the run's steepest
+   * snow could rise or fall over as far (with three metres more): which, and where its middle is (for what strikes all about a
+   * point, or leaps from one to the next). (Kept to three metres above or below, an orc a few metres down a steep run was out of reach.)
+   */
+  near(at: Vector3, r: number): { orc: number; at: Vector3 }[] {
+    const out: { orc: number; at: Vector3 }[] = [];
+    this.orcs.forEach((b, i) => {
+      if (b.state !== 'come') return;
+      const across = Math.hypot(b.p.x - at.x, b.p.z - at.z);
+      if (across > r || Math.abs(b.p.y + 0.6 * b.size - at.y) > 3 + 0.85 * across) return;
+      out.push({ orc: i, at: b.p.clone().add(new Vector3(0, 0.6 * b.size, 0)) });
+    });
+    return out;
+  }
+
+  /** An orc falls, thrown by `push`, if it is still coming (`bloody`, as a blade or a round brings it down; not burnt or struck by lightning). Gives back whether it fell. */
+  fall(i: number | Orc, push: Vector3, bloody = true): boolean {
     const b = typeof i === 'number' ? this.orcs[i] : i;
     if (!b || b.state !== 'come') return false;
     b.state = 'down'; b.since = 0; b.v.copy(push);
     b.die.reset().setEffectiveTimeScale(1.2).setEffectiveWeight(1).play();
     b.walk.crossFadeTo(b.die, 0.12, false);
     this.downed++;
-    this.onFall?.(b.p.clone().add(new Vector3(0, 0.6 * b.size, 0)), push, b.size);
+    this.onFall?.(b.p.clone().add(new Vector3(0, 0.6 * b.size, 0)), push, b.size, bloody);
     return true;
   }
 

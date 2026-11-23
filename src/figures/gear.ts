@@ -17,14 +17,16 @@ export const GEAR_OF: Record<string, GearKind> = {
   Ski_Pop: 'alpine', Ski_Kicker: 'alpine', Ski_Kicker_360: 'alpine', Ski_Backflip: 'alpine', Ski_Cliff_Drop: 'alpine',
 };
 
-interface SkiSpec { length: number; width: number; ahead: number; on: 'toes' | 'foot'; colour: number; pole: number }
+interface SkiSpec { length: number; width: number; ahead: number; on: 'toes' | 'foot'; colour: number; pole: number; twin?: boolean }
 /**
  * The skis: how long and broad, how much of each lies ahead of the ball of the foot (cross-country and downhill skis are held about
- * their middle, a jumper's well back, with more than half the ski ahead), what holds it, its colour, and the poles' length (0: none).
+ * their middle, a jumper's well back, with more than half the ski ahead), what holds it, its colour, and the poles' length (0: none);
+ * and whether its tail turns up as its tip does, a twin tip (asked of the downhill skis: "we can make the skis twintip, since skiing
+ * switch is perfectly possible").
  */
 const SPECS: Record<GearKind, SkiSpec> = {
   classic: { length: 2.0, width: 0.047, ahead: 0.95, on: 'toes', colour: 0xe8edf2, pole: 1.48 },
-  alpine: { length: 1.68, width: 0.075, ahead: 0.88, on: 'foot', colour: 0xc0322b, pole: 1.18 },
+  alpine: { length: 1.68, width: 0.075, ahead: 0.88, on: 'foot', colour: 0xc0322b, pole: 1.18, twin: true },
   jump: { length: 2.45, width: 0.11, ahead: 1.38, on: 'toes', colour: 0xf2c230, pole: 0 },
   // A rider on a skiing horse: no skis of its own, and poles long enough to reach the snow from the saddle.
   mounted: { length: 0, width: 0, ahead: 0, on: 'foot', colour: 0, pole: 2.3 },
@@ -39,12 +41,17 @@ const material = (colour: number, metal = 0) => {
   return m;
 };
 
-/** A ski along +z, its sole on y = 0, the ball of the foot at z = 0: flat, with its tip turned up over its last twelve centimetres. */
+/**
+ * A ski along +z, its sole on y = 0, the ball of the foot at z = 0: flat, with its tip turned up over its last thirteen centimetres;
+ * a twin tip, its tail turned up as well over its last twelve.
+ */
 function skiGeometry(s: SkiSpec): BufferGeometry {
-  const tip = 0.13, flat = s.length - tip, back = s.length - s.ahead;
-  const body = new BoxGeometry(s.width, SKI_THICK, flat).translate(0, SKI_THICK / 2, (s.ahead - tip - back) / 2);
+  const tip = 0.13, tail = s.twin ? 0.12 : 0, flat = s.length - tip - tail, back = s.length - s.ahead;
+  const body = new BoxGeometry(s.width, SKI_THICK, flat).translate(0, SKI_THICK / 2, (s.ahead - tip - back + tail) / 2);
   const turned = new BoxGeometry(s.width * 0.9, SKI_THICK, tip).translate(0, SKI_THICK / 2, tip / 2).rotateX(-0.45).translate(0, 0, s.ahead - tip);
-  return mergeGeometries([body, turned]);
+  if (!tail) return mergeGeometries([body, turned]);
+  const up = new BoxGeometry(s.width * 0.9, SKI_THICK, tail).translate(0, SKI_THICK / 2, -tail / 2).rotateX(0.45).translate(0, 0, tail - back);
+  return mergeGeometries([body, turned, up]);
 }
 /** A pole along -z from a grip at the origin: shaft, grip and a small basket near its tip. */
 function poleGeometry(length: number): BufferGeometry {

@@ -456,6 +456,27 @@ export interface RideControls {
    * could alternate between pops, smooth and cool nose butters and some other cool "land tricks"").
    */
   press?: number;
+  /**
+   * Skating (asked: "if the player speed goes too low, like below 10km/h, make the skier (horse or human) start making skating kick
+   * moves"): how far into it (0 to 1), and how far through a stride of both legs (0 to 1: the left pushing over its first half, the
+   * right over its second). `riderPose`, `horseRidePose`.
+   */
+  skate?: number; stride?: number;
+  /**
+   * Deep in loose snow off the piste (asked: "bit of the skis should be visible in the deeper out piste skiing still"), 0 to 1: sat a
+   * little back and low, as a skier rides powder, the arms out ahead for balance, and the skis' tips planing up out of the snow while
+   * their tails sink, each ski pitched up about the ball of its foot.
+   */
+  powder?: number;
+}
+
+/**
+ * How a skating stride stands at `stride` (0 to 1): which leg pushes now, and how far out it is (0 to 1 and back over the first three
+ * quarters of its half of the stride), and how far it is lifted as it is drawn back in under the body (over the last quarter).
+ */
+export function strideAt(stride: number): { side: Side; out: number; lift: number } {
+  const q = (stride % 0.5) / 0.5;
+  return { side: stride % 1 < 0.5 ? 'l' : 'r', out: Math.sin(Math.PI * Math.min(1, q / 0.75)), lift: q > 0.7 ? Math.sin((Math.PI * (q - 0.7)) / 0.3) : 0 };
 }
 
 /**
@@ -479,6 +500,11 @@ export function lifeAt(t: number): { breath: number; look: number; shift: number
 export function riderPose(h0: number, c: RideControls): AlpinePose {
   const { s, ski, tuck, brake, tall } = c, skid = c.skid ?? 0;
   const a = carvePose(h0, s, ski, -rad(32) * s * (1 - 0.4 * skid) - rad(48) * brake, c.flickL, c.flickR);
+  // Riding switch (`back`), the ski on the outside of the turn a little ahead of the other, not the inside one, as the body has it
+  // (asked: "skiing switch should have the outer radius ski a bit forward when turning"): going backwards, the ski that leads the way
+  // it goes is the inside one still, and that lies behind the body.
+  const sw = c.back ?? 0;
+  if (sw > 0.005) both(a, (k, _arm, f) => { f.z -= 0.16 * s * (k === 'l' ? 1 : -1) * sw; });
   // Carving deep (asked: "make the maximum carving angles larger"): out past six tenths of the turns' lean, the skis swung further out
   // from under the body and higher on their edges, the hips let down towards the snow and the inside hip dropped, as a racer's are in
   // the tightest carves, the chest kept more upright over the outside ski. (Not in the turns' own pose, `turnsPose`, which sets how
@@ -558,6 +584,26 @@ export function riderPose(h0: number, c: RideControls): AlpinePose {
     const q = -press;
     a.hips -= 0.1 * q; a.hipsZ -= 0.12 * q; a.lean -= rad(14) * q; a.pelvisPitch -= rad(12) * q; a.head -= rad(6) * q;
     both(a, (_k, arm) => { arm.hang -= 34 * q; arm.swing += rad(6) * q; });
+  }
+  // Skating: both skis in a V, their tips turned out, and the feet set wider than the carving stance, so that the skis' tails pass
+  // clear of each other (with the tips turned out, each tail swings in some twenty centimetres, and from the carving stance they
+  // crossed); a leg at a time pushed further out to its side and a little back, its ski turned out further and on its inside edge, then
+  // lifted and drawn back in as the other pushes; the weight over the gliding ski, the hips sunk a little and swaying over to it, the
+  // body leant forward; the arms swinging against the legs, as a skater's do. (A tip turned to the left is `yaw` up: the left ski's.)
+  const sk = c.skate ?? 0;
+  if (sk > 0.005) {
+    const { side, out, lift } = strideAt(c.stride ?? 0), other: Side = side === 'l' ? 'r' : 'l', sgn = side === 'l' ? 1 : -1;
+    both(a, (k, _arm, foot) => { const ks = k === 'l' ? 1 : -1; foot.x += ks * 0.16 * sk; foot.yaw += ks * rad(14) * sk; });
+    const f = a.feet[side];
+    f.x += sgn * 0.25 * out * sk; f.z -= 0.1 * out * sk; f.up += 0.12 * lift * sk; f.yaw += sgn * rad(6) * out * sk; f.edge += sgn * rad(22) * out * sk;
+    a.hips -= 0.07 * sk; a.hipsX -= sgn * 0.1 * (0.4 + 0.6 * out) * sk; a.lean += rad(12) * sk; a.chestRoll += sgn * rad(6) * out * sk;
+    a.arms[side].swing -= rad(28) * out * sk; a.arms[other].swing += rad(30) * out * sk;
+  }
+  // In powder: a little back and low, the tips up.
+  const pw = c.powder ?? 0;
+  if (pw > 0.005) {
+    a.hips -= 0.04 * pw; a.hipsZ -= 0.05 * pw; a.lean -= rad(4) * pw;
+    both(a, (_k, arm, f) => { f.pitch -= rad(16) * pw; arm.swing += rad(10) * pw; arm.hang -= 10 * pw; });
   }
   // The pop: up out of the crouch, the legs driven long, the arms swung through (up and back for a backflip).
   const pop = c.pop ?? 0;
@@ -724,6 +770,26 @@ export function grabsOf(c: AirControls): { hand: Side; ski: Side; along: number;
   return out;
 }
 
+/** How a gun is held (`Rider.hold`): at the hip; put to the shoulder; or laid on it, as a tube fired from the shoulder is. */
+export type Stance = 'hip' | 'shoulder' | 'tube';
+/**
+ * Each stance: how far the chest is turned to its right (the left shoulder brought forward toward the hand on the fore grip); where
+ * the grip is, from the right shoulder (`inward` of the way to the chest's middle, `drop` below it, `ahead` along the aim); and which
+ * way the right elbow is bent out. (Put to the shoulder, the grip some thirty centimetres ahead of it, though the guns' stocks are
+ * longer: the butt a little into the shoulder, rather than the left hand short of the gun.)
+ */
+const STANCES: Record<Stance, { blade: number; inward: number; drop: number; ahead: number; elbow: Vector3 }> = {
+  hip: { blade: -0.3, inward: 0.25, drop: -0.26, ahead: 0.2, elbow: new Vector3(-0.45, -0.85, -0.2) },
+  shoulder: { blade: -0.45, inward: 0.3, drop: -0.07, ahead: 0.3, elbow: new Vector3(-0.85, -0.45, -0.1) },
+  tube: { blade: -0.2, inward: 0.12, drop: -0.04, ahead: 0.2, elbow: new Vector3(-0.5, -0.85, 0) },
+};
+
+/**
+ * How far through a swing of the sword (`Rider.slash`) it is drawn up, cuts at its fastest, and has been carried through: a heavy
+ * blade, slow to draw up and to bring back, quick through the cut.
+ */
+export const SLASH_MARKS = { up: 0.38, cut: 0.52, through: 0.66 };
+
 /**
  * A skier posed live, moment by moment (the slope page's rider when it is ridden): its own copy of the mannequin, which is what is
  * shown, and the height its hips are held at in the turns.
@@ -767,21 +833,117 @@ export class Rider {
     P.reachArm(hand, now.lerp(onSki, w), elbow.normalize());
   }
   /**
-   * A gun in both hands, after the pose it is in, aimed along `dir` (in the frame of what holds it): its grip in the right fist, low
-   * at the right side of the chest and a little ahead, the left hand on its fore grip along the barrel, the elbows down. Without `dir`,
-   * held in the right hand alone as the pose has the arm, along the forearm (in the air, gone limp). Gives back where the grip is and
-   * which way the gun points, in the frame of what holds it, to put the gun there.
+   * A gun in both hands, after the pose it is in, aimed along `dir` (in the frame of what holds it), as `stance` has it (asked, of the
+   * arms with each weapon: "check the arm positions with other weapons as well"): held at the hip ('hip'), its grip in the right fist
+   * low at the right side of the chest and a little ahead; put to the shoulder ('shoulder'), the butt of its stock in the hollow of
+   * the right shoulder, the grip ahead of it at the shoulder's height, the right elbow raised out to the side; or laid on the shoulder
+   * ('tube'), a tube fired from it, the grip just ahead of the shoulder. Each with the chest turned toward the aim and bladed to it,
+   * the left shoulder forward; the left hand on the gun along it, `fore` ahead of the right, or as far toward it as it reaches (not
+   * reaching for it in the air, short of the gun). Without `dir`, held in the right hand alone as the pose has the arm, along the
+   * forearm (in the air, gone limp). Gives back where the grip is and which way the gun points, in the frame of what holds it, to put
+   * the gun there.
    */
-  hold(dir: Vector3 | null, fore = 0.3): { grip: Vector3; dir: Vector3 } {
+  hold(dir: Vector3 | null, fore = 0.3, stance: Stance = 'hip'): { grip: Vector3; dir: Vector3 } {
     return this.alone(() => {
       const P = this.P;
       if (!dir) { const hand = P.at('hand_r'); return { grip: hand, dir: hand.clone().sub(P.at('lowerarm_r')).normalize() }; }
-      const d = dir.clone().normalize(), shoulder = P.at('upperarm_r'), chest = P.at('spine_03');
-      // (Under the right shoulder, between it and the chest's middle, and a little ahead along the aim.)
-      const grip = shoulder.clone().lerp(chest, 0.25).add(new Vector3(0, -0.26, 0)).addScaledVector(d, 0.2);
-      P.reachArm('r', grip, new Vector3(-0.45, -0.85, -0.2).normalize());
-      P.reachArm('l', grip.clone().addScaledVector(d, fore), new Vector3(0.45, -0.85, 0).normalize());
+      const d = dir.clone().normalize(), s = STANCES[stance];
+      this.turnChest(Math.max(-1.1, Math.min(0.75, s.blade + 0.5 * Math.atan2(d.x, d.z))), 0);
+      const shoulder = P.at('upperarm_r'), chest = P.at('spine_03');
+      const grip = shoulder.clone().lerp(chest, s.inward).add(new Vector3(0, s.drop, 0)).addScaledVector(d, s.ahead);
+      P.reachArm('r', grip, s.elbow.clone().normalize());
+      // (Along the gun from the grip, as far as `fore`, or as far as the left arm reaches: of the points along it within its reach,
+      // the nearest to `fore`; none within it, the nearest of them all.)
+      const l = P.at('upperarm_l'), len = 0.97 * this.armLength('l'), m = grip.clone().sub(l), b = m.dot(d), q = b * b - m.lengthSq() + len * len;
+      const along = q > 0 ? Math.max(-b - Math.sqrt(q), Math.min(-b + Math.sqrt(q), fore)) : -b;
+      P.reachArm('l', grip.clone().addScaledVector(d, along), new Vector3(0.35, -0.9, 0).normalize());
       return { grip, dir: d };
+    });
+  }
+  /** How far an arm reaches, from the shoulder to the wrist, straight. */
+  private armLength(k: Side): number {
+    const P = this.P;
+    return P.restOf(`lowerarm_${k}`).distanceTo(P.restOf(`upperarm_${k}`)) + P.restOf(`hand_${k}`).distanceTo(P.restOf(`lowerarm_${k}`));
+  }
+  /**
+   * A pistol held out in both hands along `dir` (in the frame of what holds it), as one is aimed (asked: "the pistol shooting should be
+   * proper arm straight pistol aiming posed"): the chest turned some way toward it; the arms all but straight from the shoulders,
+   * meeting at the grip out in front of the shoulders' middle along it, as far out as both reach, raised a little above them so
+   * that the sights come up toward the eye; the left hand cupped about the right, the elbows turned down. Gives back, as `hold` does, where the grip
+   * is and which way it points.
+   */
+  point(dir: Vector3): { grip: Vector3; dir: Vector3 } {
+    return this.alone(() => {
+      const P = this.P, d = dir.clone().normalize();
+      this.turnChest(Math.max(-0.75, Math.min(0.75, 0.55 * Math.atan2(d.x, d.z))), 0);
+      const l = P.at('upperarm_l'), r = P.at('upperarm_r'), mid = l.clone().add(r).multiplyScalar(0.5).add(new Vector3(0, 0.04, 0));
+      const len = 0.96 * this.armLength('r');
+      // (How far out along it each shoulder reaches, from the shoulders' middle; the grip at the nearer of the two, so that neither
+      // hand falls short of it and leaves the pistol in the air.)
+      const reach = (s: Vector3) => { const m = mid.clone().sub(s), b = m.dot(d), q = b * b - m.lengthSq() + len * len; return q > 0 ? -b + Math.sqrt(q) : 0.15; };
+      const grip = mid.clone().addScaledVector(d, Math.max(0.15, Math.min(reach(l), reach(r)))), left = new Vector3(0, 1, 0).cross(d).normalize();
+      P.reachArm('r', grip, new Vector3(-0.35, -0.9, 0).normalize());
+      P.reachArm('l', grip.clone().addScaledVector(left, 0.035).add(new Vector3(0, -0.025, 0)).addScaledVector(d, -0.015), new Vector3(0.35, -0.9, 0).normalize());
+      return { grip, dir: d };
+    });
+  }
+  /**
+   * The chest turned `turn` about the upright (toward its left, more than nothing) and leant `lean` to its right, about the small of
+   * the back, from the pose it was put in: if it has not been put in one since the last turn, as while all is held still, from the
+   * pose as it was before that turn, not turned on again and again.
+   */
+  private turnChest(turn: number, lean: number): void {
+    const spine = this.P.bone('spine_02'), parent = spine.parent!.getWorldQuaternion(new Quaternion());
+    if (this.turned && spine.quaternion.equals(this.turned.after)) spine.quaternion.copy(this.turned.before);
+    const before = spine.quaternion.clone();
+    const swung = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), turn).multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), lean));
+    spine.quaternion.premultiply(parent.clone().invert().multiply(swung).multiply(parent));
+    this.turned = { before, after: spine.quaternion.clone() };
+    this.P.update();
+  }
+  /** How the chest was last turned from the pose it was in (`turnChest`). */
+  private turned: { before: Quaternion; after: Quaternion } | null = null;
+  /**
+   * A sword in both hands swung at one side (`side`: 1, its right; -1, its left), `k` of the way through the swing (0 to 1), from and
+   * back to being held along `ready` as `hold` holds it, the left hand `fore` along it from the right (less than nothing, toward the
+   * pommel): drawn up over that shoulder, the blade laid back; cut down and out past that side, the chest turned into the cut and
+   * leaning over it; carried on through, low and back along the side; and brought back. Cut across the body to its left, the right hand
+   * reaches over, the chest turned further. Gives back, as `hold` does, where the grip is and which way the blade points, in the frame
+   * of what holds it.
+   */
+  slash(k: number, side: number, ready: Vector3, fore = -0.1): { grip: Vector3; dir: Vector3 } {
+    return this.alone(() => {
+      const P = this.P, x = -side, d0 = ready.clone().normalize();
+      // (Where it is in the swing: drawn up by `UP_AT`, the cut at its fastest by `CUT_AT`, through by `THROUGH_AT`; and how far
+      // between the two marks either side of `k`, drawn up and brought back easing in and out, the cut gathering speed and carried
+      // through losing it.)
+      const marks = [0, SLASH_MARKS.up, SLASH_MARKS.cut, SLASH_MARKS.through, 1];
+      const i = Math.min(3, Math.max(0, marks.findIndex((m, j) => k < marks[j + 1] || j === 3)));
+      const u = Math.min(1, Math.max(0, (k - marks[i]) / (marks[i + 1] - marks[i])));
+      const e = i === 1 ? u ** 1.7 : i === 2 ? 1 - (1 - u) ** 1.7 : smooth(u);
+      // The chest turned into the cut and leant over it, about the small of the back, more for a cut across the body.
+      const turns = [0, 0.32, 0.45, 0.55, 0].map((a) => a * (side > 0 ? 1 : 1.35)), leans = [0, 0.05, 0.16, 0.26, 0];
+      const turn = turns[i] + (turns[i + 1] - turns[i]) * e, lean = leans[i] + (leans[i + 1] - leans[i]) * e;
+      this.turnChest(-side * turn, side * lean);
+      // The grip, and the blade's way, at each mark: held ready; drawn up beside the head, the blade back over the shoulder; out past
+      // the side at shoulder height and ahead, the blade out and a little down; low at the side and back, the blade down along it.
+      const mid = P.at('upperarm_l').add(P.at('upperarm_r')).multiplyScalar(0.5), shoulder = P.at('upperarm_r');
+      const keys: [Vector3, Vector3][] = [
+        [shoulder.clone().lerp(P.at('spine_03'), 0.25).add(new Vector3(0, -0.26, 0)).addScaledVector(d0, 0.2), d0],
+        [mid.clone().add(new Vector3(x * 0.12, 0.2, 0.02)), new Vector3(x * 0.3, 0.62, -0.72)],
+        [mid.clone().add(new Vector3(x * 0.2, -0.12, 0.3)), new Vector3(x * 0.86, -0.18, 0.48)],
+        [mid.clone().add(new Vector3(x * 0.16, -0.36, 0.06)), new Vector3(x * 0.5, -0.8, -0.34)],
+      ];
+      keys.push(keys[0]);
+      const grip = keys[i][0].clone().lerp(keys[i + 1][0], e), dir = keys[i][1].clone().normalize().lerp(keys[i + 1][1].clone().normalize(), e).normalize();
+      P.reachArm('r', grip, new Vector3(-0.6, -0.55, 0.3).normalize());
+      // (The left hand on the grip as far as it reaches it; reaching across for a cut on the right, let go of it rather than pulled
+      // out of its shoulder.)
+      const want = grip.clone().addScaledVector(dir, fore), from = P.at('upperarm_l');
+      const len = this.armLength('l');
+      const hold = Math.min(1, Math.max(0, (len * 1.06 - want.distanceTo(from)) / (len * 0.12)));
+      P.reachArm('l', P.at('hand_l').lerp(want, hold), new Vector3(0.6, -0.55, 0.3).normalize());
+      return { grip, dir };
     });
   }
   /**
