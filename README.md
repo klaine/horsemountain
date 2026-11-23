@@ -27,8 +27,10 @@ come under it.
   pinched, the view comes nearer or goes further off. The arrow keys too, and Shift to brake. You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
   speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *To switch* (or *To regular*, `X`) turns you
-  round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends, after a fall or at
-  the foot of the run, in one of five ways, each once in every five runs in an order shuffled by chance. A huge robot arm rises out of
+  round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends after a fall or at
+  the foot of the run, and you are asked how to get back to the top: one of seven ways, or *Random*. Tick *Remember my choice* and
+  you are not asked again; *Back to the top* in the menu changes it (or sets it to be asked again). By chance, each way comes once
+  in every round of them, in an order shuffled afresh. A huge robot arm rises out of
   the snow, takes the skier up in its claw (a horse and its rider together, the rider put back in the saddle), swings round and throws
   it back up the mountain in a great arch. Or, coming down the last stretch of the run, a whirl of snow rises at its foot and grows as
   you come down to it into a tornado under a dark turning cloud, the light going grey; stopped at the foot it comes over to you,
@@ -37,11 +39,21 @@ come under it.
   the ground blows up, a fireball, smoke and slabs of snow and rock, throwing you up out of it. Or a flying saucer comes down out of
   the sky, takes you up in its beam and flings you out as it tips away. Or a snowman twenty metres high rises out of the snow beside
   you with a fir pulled up by the roots, and drives you back up the mountain like a golf ball. Whichever, over the top of the run a
-  parachute opens and lets the skier down onto its skis there, and the next run begins, in the view it was ridden in. All of it is filmed as a film is, whatever the view; Enter, or a
-  click, begins the next run at once. On a computer, with *Orcs & tommy gun* on in the menu (off at first),
-  the skier alone or the horse's rider carries a tommy gun in place of its poles, aimed at the guide's mark: held down, the button
-  fires it (and Shift brakes), and orcs come up the run in hordes to be shot down, red blood on the snow, how many counted at the top
-  left.
+  parachute opens and lets the skier down onto its skis there, and the next run begins, in the view it was ridden in. Or a shock goes
+  through the ground and the land turns inside out about you, folding over in a wave that rolls away across the mountains: where you
+  stand is now the height of the land and the peaks are pits. You are turned round to ride the run back down to its top; there (or
+  wherever you fall on the way) the land folds back the right way up, and the next run begins. Or a rocket cart comes down beside
+  you under a parachute; you get on, its engine lights, and you drive it back up the run, tucked for more push, to the top, where the
+  next run begins (fall off, and another comes down). (Neither of the last two on the groomed slope, which has no top to come back
+  to.) The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
+  (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
+  Enter, or a click, begins the next run at once. Riding wins points, counted at the top left and thrown up over the picture where
+  they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the
+  longer in the air, and its length. On a computer, with *Orcs & tommy gun* on in the menu (off at first), the skier alone or the
+  horse's rider carries a tommy gun in place of its poles, aimed at the guide's mark: held down, the button fires it (and Shift
+  brakes), and orcs come up the run in hordes to be shot down, red blood on the snow, how many counted at the top left; each shot
+  down a hundred points and a white cross where the round struck, each run down a hundred and fifty, and a double, a triple, for
+  each downed hard on the last.
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
 the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, *Play* (watch the demo or ride;
@@ -89,8 +101,8 @@ change to the game.
   about the run as the game grows them (its walk over the world's `treesIn` and `growTrees`, in winter, and spruce where it would grow
   oaks and ashes), whole near the eye, more simply further off and painted beyond, grown in blocks about the eye as it goes;
   `game/slopeArm.ts`, the robot arm at the run's end, the parachute, and the throw's flight; `game/slopeStorm.ts`, the tornado,
-  `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, and `game/slopeSnowman.ts`, the snowman, the run's
-  other ends; `game/slopeGun.ts`, the tommy gun, its
+  `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, and
+  `game/slopeInvert.ts`, the land turned inside out, and `game/slopeCart.ts`, the rocket cart, the run's other ends; `game/slopeGun.ts`, the tommy gun, its
   tracers, flash and sound; `game/slopeOrcs.ts`, the orcs coming up the run;
   `game/slopeSplatter.ts`, their blood on the snow.
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse

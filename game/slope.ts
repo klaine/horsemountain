@@ -65,6 +65,8 @@ import { Tornado } from './slopeStorm';
 import { Blast } from './slopeBlast';
 import { Saucer } from './slopeSaucer';
 import { SNOWMAN, Snowman } from './slopeSnowman';
+import { type Fold, Folding, heightIn } from './slopeInvert';
+import { CART_DECK, RocketCart } from './slopeCart';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
 import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowUniforms } from '../src/render/siteMaterial';
 
@@ -957,6 +959,60 @@ async function start() {
   let told = { text: '', small: '', bad: false, until: 0 };
   const tell = (text: string, small: string, bad: boolean, seconds: number) => { told = { text, small, bad, until: ride.time + seconds }; };
 
+  // Points (asked: "add some kind of splashy hit markers / "score points" to show when hitting the orcs with the submachine; and also
+  // scores for the jumps and tricks based on the trick complexity, air time and jump length"): won riding, counted at the top left, and
+  // each thrown up over the picture where it was won. An orc shot down, a hundred, and a white cross where the round struck; run down,
+  // a hundred and fifty; orcs downed one after another within a second and a half of each other, each worth as many times more as it
+  // comes in the run of them (a double, a triple). A jump landed, by what was made of it: so much for each half turn of spin, more for
+  // each flip, more for a cork, a grab held, taken off switch; all of it the more the longer it was in the air; and so much for each
+  // metre it went. Begun again with each run.
+  const popsEl = $('pops'), scoreEl = $('score');
+  let score = 0, downedRun = 0, downedUntil = 0;
+  /** Where a point of the scene is over the picture, in pixels; none if it is behind the eye or well off the picture. */
+  const overPictureAt = (p: Vector3): [number, number] | null => {
+    const n = p.clone().project(camera);
+    return n.z > 1 || Math.abs(n.x) > 1.1 || Math.abs(n.y) > 1.1 ? null : [((n.x + 1) / 2) * innerWidth, ((1 - n.y) / 2) * innerHeight];
+  };
+  /** Points thrown up over the picture at `at`, fading; and, under them, what they were for. */
+  const popUp = (at: [number, number], text: string, kind: string, small = '') => {
+    const el = document.createElement('div');
+    el.className = `pop ${kind}`; el.textContent = text;
+    if (small) { const s = document.createElement('small'); s.textContent = small; el.appendChild(s); }
+    el.style.left = `${at[0].toFixed(0)}px`; el.style.top = `${at[1].toFixed(0)}px`;
+    el.addEventListener('animationend', () => el.remove());
+    popsEl.appendChild(el);
+  };
+  /** A white cross where a round struck. */
+  const hitMark = (at: [number, number]) => {
+    const el = document.createElement('i');
+    el.className = 'mark'; el.style.left = `${at[0].toFixed(0)}px`; el.style.top = `${at[1].toFixed(0)}px`;
+    el.addEventListener('animationend', () => el.remove());
+    popsEl.appendChild(el);
+  };
+  /** Points won riding, counted. */
+  const addScore = (n: number) => {
+    if (mode !== 'ride') return;
+    score += n;
+    scoreEl.textContent = score.toLocaleString('en');
+    scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
+  };
+  const resetScore = () => { score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; };
+  /** An orc downed at `p`: shot (the cross where it was struck), or run down; and the run of them it comes in. */
+  const orcDowned = (p: Vector3, how: 'shot' | 'run') => {
+    const clock = mode === 'ride' ? ride.time : t;
+    downedRun = clock < downedUntil ? downedRun + 1 : 1;
+    downedUntil = clock + 1.5;
+    const pts = (how === 'run' ? 150 : 100) * downedRun, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
+    if (at) { if (how === 'shot') hitMark(at); popUp(at, `+${pts}`, how === 'run' ? 'run' : 'shot', how === 'run' ? (downedRun > 1 ? `run down · ${named}` : 'run down') : named); }
+    addScore(pts);
+  };
+  /** What a jump landed is worth: what was made of it, the more the longer in the air, and its length. */
+  const trickPoints = (a: Air, far: number) => {
+    const flips = Math.round(Math.abs(a.flipTo) / TURN), grab = STYLES.reduce((g, s) => g + Math.min(1, a.held[s]), 0);
+    const made = 50 + 100 * halvesOf(a) + 400 * flips + (a.cork ? 150 : 0) + 120 * Math.min(1.5, grab) + (a.fromSwitch ? 100 : 0);
+    return Math.round((made * (1 + 0.5 * a.t) + 3 * far) / 10) * 10;
+  };
+
   /**
    * A 180 on the snow, to switch and back again (asked: "add a single control to 180 to switch (and back), this could alternate between
    * pops, smooth and cool nose butters and some other cool "land tricks""): one control, *180* or `X`, and each time the next of four:
@@ -1062,7 +1118,12 @@ async function start() {
     // number of half turns.)
     ride.facing += a.spinTo;
     if (halvesOf(a) % 2) ride.switch = !ride.switch;
-    if (a.kind !== 'hop') tell(a.name, `${far.toFixed(0)} m, ${a.t.toFixed(1)} s in the air`, false, 2.6);
+    if (a.kind !== 'hop') {
+      const pts = trickPoints(a, far), at = overPictureAt(rider.position.clone().addScaledVector(UP, 1.2));
+      tell(a.name, `+${pts.toLocaleString('en')} · ${far.toFixed(0)} m, ${a.t.toFixed(1)} s in the air`, false, 2.6);
+      if (at) popUp(at, `+${pts.toLocaleString('en')}`, 'trick', a.name);
+      addScore(pts);
+    }
   };
 
   /** Goes limp: the body goes on as it was going, turning as it was turning, from where its joints were. */
@@ -1117,6 +1178,9 @@ async function start() {
   let clearGun: (() => void) | null = null;
   /** The run again from the top, going a little. */
   const restart = () => {
+    // (The land as it lies first: the ride begins again at its top.)
+    unflip();
+    resetScore();
     resetRide();
     levelTilt();
     endCatapult();
@@ -1152,32 +1216,99 @@ async function start() {
    * away toward the top. And two more of the game's own (asked: "you get the idea maybe! come up with two additional ones on top of
    * these"): a flying saucer comes down out of the sky over it, takes it up in its beam and flings it out toward the top as it tips
    * away (`slopeSaucer.ts`); or a snowman twenty metres high rises out of the snow beside it with a fir pulled up by the roots, and
-   * drives it back up the mountain as a golfer drives a ball (`slopeSnowman.ts`). From there each as the arm's throw goes. Which of
-   * them a run ends in is chosen by chance as it begins, each in turn in a shuffled round of five (`__slope.ending` chooses).
+   * drives it back up the mountain as a golfer drives a ball (`slopeSnowman.ts`). From there each as the arm's throw goes.
+   *
+   * Or the sixth (asked: "an earth inverting shock where the peaks inverts into a valley and player can ride back to the "top" and when
+   * they reach it, the world inverts back to normal"): a shock through the ground, and the land turned inside out about the level the
+   * skier stands at, folded over in a wave rolling out from under it across the mountains (`slopeInvert.ts`): the foot of the run is now
+   * the height of the land, the top a hollow at the bottom of a pit where the peak was. Turned round, the skier rides the run back down
+   * to its top; and there, stopped (or fallen anywhere on the way), the land folds back the right way up about it and the run begins
+   * again at its top. Which of the six a run ends in is chosen by chance as it begins, each in turn in a shuffled round of them (on the
+   * groomed slope, which has no top to ride back to, of the five others) (`__slope.ending` chooses).
    */
   const robot = new RobotArm(), chute = new Parachute(), whirl = new Tornado(), blast = new Blast(new Rng('blast')), saucer = new Saucer(), snowman = new Snowman(new Rng('snowman'));
+  const folding = new Folding(powderMap, snowMap), cart = new RocketCart();
   const armRng = new Rng('robot arm'), whirlRng = new Rng('whirlwind'), blastRng = new Rng('blast at'), saucerRng = new Rng('saucer flight'), snowmanRng = new Rng('snowman at');
   const endRng = new Rng('run end');
-  scene.add(robot.group, chute.group, whirl.group, blast.group, saucer.group, snowman.group);
-  type Ending = 'arm' | 'whirlwind' | 'blast' | 'saucer' | 'snowman';
-  const ENDINGS: Ending[] = ['arm', 'whirlwind', 'blast', 'saucer', 'snowman'];
+  scene.add(robot.group, chute.group, whirl.group, blast.group, saucer.group, snowman.group, folding.group, cart.group);
+  /** The ways a run may end; and, not dealt, the land turned back the right way up once the run is ridden back to its top. */
+  type Ending = 'arm' | 'whirlwind' | 'blast' | 'saucer' | 'snowman' | 'invert' | 'cart' | 'revert';
+  const ENDINGS: Ending[] = ['arm', 'whirlwind', 'blast', 'saucer', 'snowman', 'invert', 'cart'];
+  /** Whether a way back is ridden back up the run to its top: not on the groomed slope, which has no top to come back to. */
+  const needsTop = (e: Ending | 'random' | null) => e === 'invert' || e === 'cart';
   /**
-   * How the run now ridden ends; how a run's end was asked for (none, by chance); the ways yet to come in this round of them, and how
-   * many rounds have been dealt. (Each way once in every five runs, in an order shuffled afresh each round, and never the same twice
-   * running: chosen each time by chance alone, one came up eight times in twenty runs and another once.)
+   * How the player would get back to the top as a run ends (asked: "add a dialog that shows at the end or after falling for the player
+   * to choose how to get back to the beginning of a new run ... one option can also be the Random and there can be a check box
+   * "Remember my choice" and if that is checked, the dialog is not shown anymore, but accessible via the menu to edit the choice"):
+   * asked each time; one of the ways by chance; or one way, always. (*Back to the top* in the menu; kept in this browser.)
    */
-  let ending: Ending = 'arm', endingAsked: Ending | null = null, round: Ending[] = [], rounds = 0;
+  type Dealt = Exclude<Ending, 'revert'>;
+  type BackBy = 'ask' | 'random' | Dealt;
+  let backBy: BackBy = 'ask';
+  /**
+   * How the run now ridden ends (none yet, to be asked as it ends); how a run's end was asked for by a script (`__slope.ending`); the
+   * ways yet to come in this round of them, how many rounds have been dealt, and the last way dealt. (By chance, each way once in every
+   * round, in an order shuffled afresh each round, and never the same twice running: chosen each time by chance alone, one came up
+   * eight times in twenty runs and another once.) Known as the run begins, the whirlwind gathers at its foot as it is ridden down to it;
+   * asked for only at its end, it forms beside the skier then.
+   */
+  let ending: Ending | null = null, endingAsked: Ending | null = null, round: Ending[] = [], rounds = 0, dealt: Ending | null = null;
+  const deal = (): Ending => {
+    // (Passed over, on the groomed slope, the land turned inside out: it has no top to ride back to. A round dealt on a world's run may
+    // be finished on it.)
+    let e: Ending;
+    do {
+      if (!round.length) {
+        const rng = endRng.fork(`round ${rounds++}`);
+        round = ENDINGS.filter((w) => !needsTop(w) || land.length < Infinity);
+        for (let i = round.length - 1; i > 0; i--) { const j = rng.int(0, i); [round[i], round[j]] = [round[j], round[i]]; }
+        if (round[0] === dealt) [round[0], round[1]] = [round[1], round[0]];
+      }
+      e = round.shift()!;
+    } while (needsTop(e) && land.length === Infinity);
+    return (dealt = e);
+  };
   const chooseEnding = () => {
     if (endingAsked) { ending = endingAsked; return; }
-    if (!round.length) {
-      const rng = endRng.fork(`round ${rounds++}`);
-      round = [...ENDINGS];
-      for (let i = round.length - 1; i > 0; i--) { const j = rng.int(0, i); [round[i], round[j]] = [round[j], round[i]]; }
-      if (rounds > 1 && round[0] === ending) [round[0], round[1]] = [round[1], round[0]];
-    }
-    ending = round.shift()!;
+    ending = backBy === 'ask' ? null : backBy === 'random' || (needsTop(backBy) && land.length === Infinity) ? deal() : backBy;
   };
-  chooseEnding();
+  // The question, as a run ends: each way, named and told in a few words, and by chance; and whether the choice is to be kept.
+  const backToEl = $('backTo'), rememberWay = $<HTMLInputElement>('rememberWay');
+  const WAY_NAMES: [Dealt | 'random', string, string][] = [
+    ['arm', 'Robot arm', 'picked up and thrown'], ['whirlwind', 'Tornado', 'carried up and flung'], ['blast', 'Explosion', 'blown sky high'],
+    ['saucer', 'Flying saucer', 'beamed up and flung'], ['snowman', 'Snowman', 'driven like a golf ball'], ['invert', 'Inside out', 'ride the world upside down'],
+    ['cart', 'Rocket cart', 'drive it back up'], ['random', 'Random', 'a surprise'],
+  ];
+  let asking = false;
+  /** The menu's choice shown as it is (set where the menu is made). */
+  let showBackBy = () => {};
+  const takeWay = (w: Dealt | 'random') => {
+    if (rememberWay.checked) { backBy = w; keep('backBy', w); showBackBy(); }
+    ending = w === 'random' || (needsTop(w) && land.length === Infinity) ? deal() : w;
+    hideAsk();
+  };
+  const wayButtons = WAY_NAMES.map(([w, name, line], k) => {
+    const b = document.createElement('button'), title = document.createElement('b'), about = document.createElement('span');
+    b.type = 'button'; b.title = `${name} (${k + 1})`; title.textContent = name; about.textContent = line;
+    b.append(title, about); b.onclick = () => takeWay(w);
+    backToEl.querySelector('.ways')!.appendChild(b);
+    return b;
+  });
+  /** Asked, the run over: how to get back to the top (the land turned inside out not offered on the groomed slope). */
+  const askWay = () => {
+    if (asking) return;
+    asking = true;
+    wayButtons.forEach((b, k) => { b.hidden = needsTop(WAY_NAMES[k][0]) && land.length === Infinity; });
+    rememberWay.checked = false;
+    backToEl.hidden = false;
+    document.body.classList.add('asking');
+  };
+  function hideAsk() { if (!asking) return; asking = false; backToEl.hidden = true; document.body.classList.remove('asking'); }
+  /** The way back chosen in the menu: for this run too, if it has not ended yet. */
+  const setBackBy = (w: BackBy) => {
+    backBy = w; keep('backBy', w); showBackBy();
+    if (!cat && !inside && !endingAsked) { chooseEnding(); if (ending) hideAsk(); }
+  };
   /** The arm's times, in seconds from when it begins to rise: risen; over what it is to take; down on it; closed on it; lifted; drawn back; let go. */
   const ARM_T = { risen: 1.3, over: 2.0, down: 2.25, closed: 2.65, lifted: 3.2, drawn: 3.95, sweep: 0.34, letGo: 0.24 };
   /** The arm's stance as it rises (folded up, the claw first), held high, and drawn back to throw; and thrown through. */
@@ -1192,6 +1323,15 @@ async function start() {
   const SAUCER_T = { arrives: 2.6, beams: 0.45, rises: 3.0, tips: 0.4 };
   /** The snowman's: risen; the fir set behind what it is to drive; at the top of its swing; on it; through; sinking back; gone. */
   const SNOWMAN_T = { risen: 1.5, address: 2.0, top: 3.0, contact: 3.3, through: 3.95, sinks: 5.2, gone: 6.8 };
+  /**
+   * The land's turning over, either way (asked: "would it be possible to have it as an actual transition where to world transforms to
+   * the inverted state, animated and all?"): the fold set going out after the shock; the skier turned round by; and the ride handed back,
+   * as what is in sight is turned. Each point of the land takes a couple of seconds to turn over, beginning the later the further it is,
+   * the fold going out at a kilometre a second and more: so that the land about the skier sinks and rises first, the peak at the top of
+   * the run goes down into its pit after, and the far mountains after that, all of it seen going. (Gone out as a wave in a second and a
+   * half, a few hundred metres wide, it was past before it was seen.)
+   */
+  const FLIP_T = { wave: 0.4, turned: 3.4, done: 4.6 }, FOLD = { speed: 1100, each: 2.4 };
   /**
    * The arm's own: where it stands and what it reaches for (the middle of what it takes, `grip`), which way that faces, and which way the
    * arm turns to take it and to throw it; its reach for it from over it and down on it, and the claw's turn about its axis to take it
@@ -1226,6 +1366,14 @@ async function start() {
    */
   interface SnowmanTake { base: Vector3; facing: Vector3; grip: Vector3; length: number; u: Vector3; v: Vector3; ball: Vector3; toTop: Vector3; meets: number; turn: number }
   /**
+   * The land's turning over, either way: where it is turned about (on the snow under the skier); the way, level, the skier faced as it
+   * began, and the way it is turned round to (down the run as it will be ridden); which side the view stands; and how far, turned back
+   * the right way up, the land is left lower than it was (and the view and all moved up by as much, the run begun again).
+   */
+  interface FlipTake { on: Vector3; from: Vector3; to: Vector3; side: number; off: number }
+  /** The rocket cart's own: where what it is brought to is (on the snow), where the cart comes down beside it, the way up the run there, which side the view stands, and how high the cart is now. */
+  interface CartTake { on: Vector3; spot: Vector3; up: Vector3; side: number; high: number }
+  /**
    * The run's end at work, from the moment it begins (`t`, seconds): which way it ends, and that way's own; when it has what it takes,
    * and when it gathers it up into the pose it is held in; what it takes as it took it (each body's joints, in the world, gone limp or
    * standing), and whether it has it; the flight from where it lets go, and how far into it; how what it held was turned as it let go of
@@ -1234,7 +1382,7 @@ async function start() {
    */
   interface Catapult {
     t: number; by: Ending;
-    arm: ArmTake | null; whirl: WhirlTake | null; blast: BlastTake | null; saucer: SaucerTake | null; snowman: SnowmanTake | null;
+    arm: ArmTake | null; whirl: WhirlTake | null; blast: BlastTake | null; saucer: SaucerTake | null; snowman: SnowmanTake | null; flip: FlipTake | null; cart: CartTake | null;
     takes: number; gather: [number, number];
     from: Record<string, Vector3>[] | null; held: boolean;
     fly: Throw | null; flown: number; letGo: Quaternion; landing: Vector3; downhill: Vector3; down: number; at: Vector3;
@@ -1244,7 +1392,7 @@ async function start() {
     /** How long since it was let go. */
     loose: number;
   }
-  const NONE = { arm: null, whirl: null, blast: null, saucer: null, snowman: null };
+  const NONE = { arm: null, whirl: null, blast: null, saucer: null, snowman: null, flip: null, cart: null };
   let cat: Catapult | null = null;
   /** The parachute left on the snow at the top as the run begins, spent, for a while: where it came down, how long since, how big. */
   let spent: { riser: Vector3; up: Vector3; t: number; radius: number; reach: number; behind: Vector3 } | null = null;
@@ -1269,7 +1417,7 @@ async function start() {
   /** What it takes, where it lies or stands: a fallen horse and its rider both, from between them. */
   const takenAt = () => (crash ? crash.dolls.reduce((p, d) => p.add(d.doll.middle()), new Vector3()).divideScalar(crash.dolls.length) : rider.position.clone());
   /** What every run's end begins with, `down` the run with its middle at `at`: where the run begins and the way down it; the view as it is. */
-  const endingFrom = (down: number, at: Vector3): Omit<Catapult, 'by' | 'arm' | 'whirl' | 'blast' | 'saucer' | 'snowman' | 'takes' | 'gather'> => {
+  const endingFrom = (down: number, at: Vector3): Omit<Catapult, 'by' | 'arm' | 'whirl' | 'blast' | 'saucer' | 'snowman' | 'flip' | 'cart' | 'takes' | 'gather'> => {
     const top = land.at(0, 0), landing = new Vector3(top.x, ground(top.x, top.z), top.z), downhill = runDir(land.frame(top.x, top.z, 0));
     const look = camera.getWorldDirection(new Vector3()).multiplyScalar(10).add(camera.position);
     return {
@@ -1374,8 +1522,10 @@ async function start() {
     const p = focus();
     return Math.hypot(p.x - whirl.base.x, p.z - whirl.base.z) < whirl.radiusAt(0) + 1.5;
   };
-  /** Put away, all of it: the arm, the whirlwind, the blast, the saucer, the snowman, the parachute, and what any had of the skier; and the next run's end chosen. */
+  /** Put away, all of it: the arm, the whirlwind, the blast, the saucer, the snowman, the parachute, the land turned over, and what any had of the skier; and the next run's end chosen. */
   const endCatapult = () => {
+    unflip();
+    hideAsk();
     cat = null; spent = null;
     robot.hide(); chute.hide(); whirl.hide(); blast.hide(); saucer.hide(); snowman.hide();
     chooseEnding();
@@ -1546,6 +1696,164 @@ async function start() {
     putTumbling(c, middle, s.toTop);
     return middle;
   };
+  /** The shock as the land begins to turn: a flash and the view shaken, the snow thrown up about the skier; and the ground rumbling as it turns. */
+  const flipStep = (c: Catapult, dt: number, was: number) => {
+    const fl = c.flip!, u = c.t - FLIP_T.wave;
+    if (was === 0 && dt > 0) { c.shake = 1.2; thump = 1; snowBurst(fl.on, 4, 40, 4); }
+    else c.shake = Math.max(c.shake * Math.exp(-2.5 * dt), 0.08 * smooth(u / 0.3) * (1 - smooth((u - 2.6) / 1.4)));
+  };
+  /**
+   * The land turning, a step on (`dt`; none while riding is held), whether the skier is held or riding back: the fold going out, its
+   * seam glowing along its front a while; the snow tinged as it turns inside out (or its tinge going, turned back).
+   */
+  const stepFold = (dt: number) => {
+    const f = fold;
+    if (!f) return;
+    foldT += dt;
+    const u = foldT - FLIP_T.wave;
+    if (f.front !== Infinity) {
+      f.front = Math.max(0, FOLD.speed * u);
+      f.width = FOLD.speed * FOLD.each;
+      if (f.front - f.width > 9000) f.front = Infinity;
+    }
+    f.glow = 2 * smooth(u / 0.15) * (1 - smooth((u - 2.4) / 1.4));
+    f.tinge = foldIn ? smooth(u / 3) : 1 - smooth(u / 3);
+    folding.set(f);
+  };
+  /** Stood on the snow where the land turns about, as the shock lifts it to its feet, turned round as the fold goes out: and its middle. */
+  const standFlip = (c: Catapult) => {
+    const fl = c.flip!, k = smooth((c.t - 0.9) / (FLIP_T.turned - 0.9));
+    const round = Math.atan2(fl.from.clone().cross(fl.to).dot(UP), fl.from.dot(fl.to));
+    rider.quaternion.copy(uprightTo(fl.from.clone().applyAxisAngle(UP, round * k)));
+    rider.position.set(fl.on.x, ground(fl.on.x, fl.on.z), fl.on.z);
+    rider.updateMatrixWorld(true);
+    skier.ride({ s: 0, ski: 0, tuck: 0, brake: 0, tall: 0.2, flickL: 0, flickR: 0 });
+    return rider.position.clone().addScaledVector(UP, middleOf());
+  };
+  /** Turned inside out, the run ridden back from here: the skier going a little down it turned round, the ride handed back. */
+  const finishInvert = (c: Catapult): Now => {
+    const fl = c.flip!, eye = camera.position.clone(), look = c.eye.look.clone();
+    inside!.reversed = true;
+    Object.assign(ride, { way: 0, speed: 6, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null });
+    const at = land.frame(fl.on.x, fl.on.z);
+    putAt(at.s, at.left);
+    ride.settle = { spin: 0, flip: 0, left: 0 };
+    air = null; crash = null; joints = jointsBefore = null;
+    seat();
+    cat = null;
+    levelTilt();
+    tell('Inside out', 'ride it back down to the top', false, 4);
+    handOver(eye, look, runDir(here));
+    return { down: ride.down, left: ride.left, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
+  };
+  /**
+   * Turned the right way up, the run begun again at its top: the land as it lies, at its own heights, and the view moved up as the land
+   * is (it was left lower), to go on from there.
+   */
+  const finishRevert = (c: Catapult): Now => {
+    const off = c.flip!.off, eye = camera.position.clone().addScaledVector(UP, -off), look = c.eye.look.clone().addScaledVector(UP, -off);
+    restart();
+    thump = 0.7;
+    const top = land.at(0, 0);
+    handOver(eye, look, runDir(land.frame(top.x, top.z, 0)));
+    return { down: 0, left: 0, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
+  };
+  /** The rocket cart's times: down beside the skier under its parachute; the skier on it; its engine lit; the drive handed over. */
+  const CART_T = { lands: 1.8, board: 2.5, lit: 2.7, done: 3.3 };
+  /** The rocket cart brought down out of the sky beside what it is for, a little up the run, under a parachute, to be driven back up. */
+  const beginCart = () => {
+    const { on, f, begun, across, side } = takenFor(), up = runDir(f).negate();
+    const spot = on.clone().addScaledVector(across, -side * 3.2).addScaledVector(up, 1.5);
+    spot.y = ground(spot.x, spot.z);
+    cart.size(who === 'person' ? 2.3 : 3.4, who === 'person' ? 1 : 1.5);
+    scene.add(cart.group); cart.group.visible = true; cart.set(0, 0);
+    dropKickers();
+    cat = { ...begun, by: 'cart', ...NONE, cart: { on, spot, up, side, high: 40 }, takes: CART_T.lands, gather: [CART_T.lands, CART_T.lands + 0.5] };
+  };
+  /**
+   * The cart a step on: floating down under its canopy, the canopy let go of as it lands, snow thrown up; its engine lit once the skier
+   * is on it, a cough of smoke and then its flame.
+   */
+  const cartStep = (c: Catapult, dt: number, was: number) => {
+    const k = c.cart!, t = c.t;
+    k.high = 40 * (1 - smooth(t / CART_T.lands)) ** 1.3;
+    cart.group.position.copy(k.spot).addScaledVector(UP, CART_DECK + k.high);
+    cart.group.quaternion.copy(uprightTo(k.up));
+    cart.group.updateMatrixWorld(true);
+    const riser = cart.group.localToWorld(new Vector3(0, 1.8, 0));
+    if (t < CART_T.lands) {
+      const corners = [-1, 1].flatMap((x) => [-1, 1].map((z) => cart.group.localToWorld(new Vector3(0.4 * x, 0, 0.9 * z))));
+      chute.set(riser, UP, 3.4, 3.2, smooth(t / 0.4), 0, corners);
+    } else if (was < CART_T.lands) {
+      snowBurst(k.spot, 2.6, 90, 3);
+      // (Let go of on the far side of the cart from the skier: let fall behind it, it lay over the skier getting on.)
+      spent = { riser, up: UP.clone(), t: 0, radius: 3.4, reach: 3.2, behind: k.spot.clone().sub(k.on).setY(0).normalize() };
+    }
+    if (t >= CART_T.lit && was < CART_T.lit) thump = 0.25;
+    cart.set(0.7 * smooth((t - CART_T.lit) / 0.3), dt);
+  };
+  /** Hopped from where it was onto the cart's deck, turned to face up the run, standing. */
+  const boardCart = (c: Catapult) => {
+    const k = c.cart!, u = smooth((c.t - CART_T.lands) / (CART_T.board - CART_T.lands)), mid = middleOf();
+    const from = k.on.clone().addScaledVector(UP, mid), to = k.spot.clone().addScaledVector(UP, CART_DECK + mid);
+    const middle = from.lerp(to, u).addScaledVector(UP, 1.3 * Math.sin(Math.PI * u));
+    rider.quaternion.copy(uprightTo(k.up));
+    rider.position.copy(middle).addScaledVector(UP, -mid);
+    rider.updateMatrixWorld(true);
+    skier.ride({ s: 0, ski: 0, tuck: 0.3, brake: 0, tall: 0, flickL: 0, flickR: 0 });
+    return middle;
+  };
+  /** On the cart, its engine lit: driven from here back up the run, as riding goes, the cart under the skis. */
+  const finishCart = (c: Catapult): Now => {
+    const k = c.cart!, eye = camera.position.clone(), look = c.eye.look.clone();
+    carting = { base: land };
+    land = reversedLand(land);
+    dropKickers();
+    rider.add(cart.group);
+    cart.group.position.set(0, 0, 0); cart.group.quaternion.identity();
+    Object.assign(ride, { way: 0, speed: 4, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null });
+    const at = land.frame(k.spot.x, k.spot.z);
+    putAt(at.s, at.left);
+    ride.settle = { spin: 0, flip: 0, left: 0 };
+    air = null; crash = null; joints = jointsBefore = null;
+    seat();
+    cat = null;
+    levelTilt();
+    tell('Rocket cart', 'drive it back up to the top · tuck for more push', false, 4);
+    handOver(eye, look, runDir(here));
+    return { down: ride.down, left: ride.left, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
+  };
+  /**
+   * The cart's push as the skier asks for it, driving back up the run: tucked for more, standing tall for less; none once at the top.
+   * (Against its weight up the slope and the drag of a cart: some seventy kilometres an hour up the steeps, a hundred up the gentler.
+   * Pushed half as hard again, with only the skis' drag, it went up at a hundred and eighty.)
+   */
+  const cartThrust = () => (carting && !ride.ended ? 8 + 4 * Math.max(0, ask.y) - 4 * Math.max(0, -ask.y) : 0);
+  /** The cart a step on as it is driven: its flame as hard as it pushes, and smoke out of its nozzle, the more the harder. */
+  const stepCart = (dt: number) => {
+    if (!carting) return;
+    cart.set(cartPush, dt);
+    if (dt <= 0 || cartPush < 0.05 || air) return;
+    rider.updateMatrixWorld(true);
+    const mouth = cart.group.localToWorld(cart.nozzle.clone()), back = new Vector3(0, 0, -1).applyQuaternion(rider.quaternion);
+    for (let i = Math.floor(dt * 45 * cartPush + sprayRng.next()); i > 0; i--) {
+      throwPuff(mouth.clone().addScaledVector(back, sprayRng.range(0, 0.6)), back.clone().multiplyScalar(sprayRng.range(3, 7)).add(new Vector3(sprayRng.range(-0.8, 0.8), sprayRng.range(0.3, 1.4), sprayRng.range(-0.8, 0.8))), 1.2 + cartPush, 1.8);
+    }
+  };
+  /**
+   * The cart's coming, filmed (where the sun's shadows are kept about given back): off to the side, a little down the run, looking up at
+   * it coming down out of the sky over the skier, and at the two of them as it lands and the skier gets on.
+   */
+  const cartShot = (c: Catapult, dt: number) => {
+    const k = c.cart!, e = c.eye, across = k.up.clone().cross(UP).multiplyScalar(k.side);
+    const want = k.on.clone().addScaledVector(across, 14).addScaledVector(k.up, -9).addScaledVector(UP, 4);
+    const target = k.on.clone().lerp(k.spot, 0.5).addScaledVector(UP, 1.6 + 0.55 * k.high);
+    standCamera(want, 2, k.on.clone().addScaledVector(UP, 1));
+    e.at.copy(e.start).lerp(want, smooth(c.t / 1.2));
+    e.look.lerp(target, ease(dt, 5) * turnIn(c));
+    camera.position.copy(e.at);
+    return k.on.clone();
+  };
   /**
    * Each way the run may end: how it begins; its own doings a step on, from `was` to now (before it lets go and after); anything it
    * works out as it takes what it takes; what it holds put where it holds it, and where its middle is; whether it lets go now; the view
@@ -1554,6 +1862,8 @@ async function start() {
    */
   interface Way {
     begin(): void; step(c: Catapult, dt: number, was: number): void; took?(c: Catapult): void; hold(c: Catapult, dt: number): Vector3;
+    /** Done with it, without a throw (the land turned over): the ride handed back, and what the ride's step gives this step. */
+    ends?(c: Catapult): Now | null;
     lets(c: Catapult): boolean; shot(c: Catapult, dt: number): Vector3; fov: number; tumbling: boolean; coming: string; holding: string;
     /** How fast it goes as it is let go, of the throw's own pace (struck, near it; floated off, far short of it). */
     launch: number;
@@ -1580,8 +1890,113 @@ async function start() {
       begin: () => beginSnowman(), step: (c, dt, was) => snowmanStep(c, dt, was), hold: (c, dt) => driven(c, dt),
       lets: (c) => c.t >= SNOWMAN_T.contact + 0.1, shot: (c, dt) => snowmanShot(c, dt), fov: 58, tumbling: true, coming: 'A snowman rising', holding: 'Driven', launch: 0.25,
     },
+    invert: {
+      begin: () => beginInvert(), step: (c, dt, was) => flipStep(c, dt, was), hold: (c) => standFlip(c), lets: () => false, ends: (c) => (c.t >= FLIP_T.done ? finishInvert(c) : null),
+      shot: (c, dt) => flipShot(c, dt), fov: 62, tumbling: false, coming: 'The earth shaking', holding: 'Turned inside out', launch: 1,
+    },
+    cart: {
+      begin: () => beginCart(), step: (c, dt, was) => cartStep(c, dt, was), hold: (c) => boardCart(c), lets: () => false, ends: (c) => (c.t >= CART_T.done ? finishCart(c) : null),
+      shot: (c, dt) => cartShot(c, dt), fov: 55, tumbling: false, coming: 'A cart coming down', holding: 'Getting on the cart', launch: 1,
+    },
+    revert: {
+      begin: () => beginRevert(), step: (c, dt, was) => flipStep(c, dt, was), hold: (c) => standFlip(c), lets: () => false, ends: (c) => (c.t >= FLIP_T.done ? finishRevert(c) : null),
+      shot: (c, dt) => flipShot(c, dt), fov: 62, tumbling: false, coming: 'The earth shaking', holding: 'Turned right side up', launch: 1,
+    },
   };
-  const beginEnding = () => WAYS[ending].begin();
+  /**
+   * The world turned inside out, while it is: the land as it lies, and the level it is turned about; and whether the run is ridden back
+   * the other way now (its foot its start, its top its foot). And how the land is folded now (none, as it lies).
+   */
+  let inside: { base: Land; pivot: number; reversed: boolean } | null = null;
+  let fold: Fold | null = null;
+  /** How long since the land began to turn, and which way: inside out, or back. */
+  let foldT = 0, foldIn = true;
+  /** A flash of light as the shock goes through the ground, dying away. */
+  let thump = 0;
+  /**
+   * The land as the ride and the views have it while it is folded: its heights as the fold has them; and, ridden back, its run the
+   * other way about, from its foot to its top, so that riding it back goes as riding down any run does. No kickers stand on it, and
+   * none of what is drawn of the land as it lies is seen (`folding` draws it).
+   */
+  const foldedLand = (base: Land): Land => ({
+    ...base,
+    height: (x, z) => (fold ? heightIn(fold, base.height(x, z), x, z) : base.height(x, z)),
+    frame: (x, z, hint) => {
+      if (!inside?.reversed) return base.frame(x, z, hint);
+      const f = base.frame(x, z, hint === undefined ? undefined : base.length - hint);
+      return { s: base.length - f.s, left: -f.left, dx: -f.dx, dz: -f.dz };
+    },
+    at: (s, left) => { if (!inside?.reversed) return base.at(s, left); const a = base.at(base.length - s, -left); return { x: a.x, z: a.z, dx: -a.dx, dz: -a.dz }; },
+    edges: (s) => { if (!inside?.reversed) return base.edges(s); const [lo, hi] = base.edges(base.length - s); return [-hi, -lo]; },
+    drop: (y) => base.drop(inside?.reversed ? 2 * inside.pivot - y : y),
+    kickable: () => false, keepAbout: () => {}, lod: undefined, trees: undefined,
+  });
+  /** The kickers taken down and forgotten: the land they stood on is not the land now. */
+  const dropKickers = () => { for (const k of kickerAt.values()) if (k?.group) { k.group.removeFromParent(); k.group = undefined; } kickerAt.clear(); kicks = []; };
+  /**
+   * Driving the rocket cart back up the run, while it is: the land as it lies; and how hard its engine pushes now (0 to 1, for its flame
+   * and its smoke).
+   */
+  let carting: { base: Land } | null = null, cartPush = 0;
+  /** The land as the ride and the views have it while the cart is driven back up: its run the other way about, so that driving up it goes as riding down any run does; no kickers on it. */
+  const reversedLand = (base: Land): Land => ({
+    ...base,
+    frame: (x, z, hint) => { const f = base.frame(x, z, hint === undefined ? undefined : base.length - hint); return { s: base.length - f.s, left: -f.left, dx: -f.dx, dz: -f.dz }; },
+    at: (s, left) => { const a = base.at(base.length - s, -left); return { x: a.x, z: a.z, dx: -a.dx, dz: -a.dz }; },
+    edges: (s) => { const [lo, hi] = base.edges(base.length - s); return [-hi, -lo]; },
+    kickable: () => false,
+  });
+  /** The land as it lies again, at its own heights, drawn as it is, its run the right way about; the cart put away. */
+  const unflip = () => {
+    if (carting) {
+      land = carting.base; carting = null; cartPush = 0;
+      scene.add(cart.group); cart.group.visible = false;
+      dropKickers();
+    }
+    if (!inside) return;
+    land = inside.base; inside = null; fold = null;
+    folding.show(false); land.group.visible = true;
+    dropKickers();
+  };
+  /** The level way the skier faces now. */
+  const facingNow = () => { const f = new Vector3(0, 0, 1).applyQuaternion(rider.quaternion).setY(0); return f.lengthSq() > 1e-6 ? f.normalize() : runDir(here); };
+  /**
+   * The shock: the land turned inside out about the level of the snow under the skier, the fold set rolling out from there; drawn
+   * by `folding` from now until it lies the right way up again, the ride going by it too.
+   */
+  const beginInvert = () => {
+    const { on, f, begun, side } = takenFor(), base = land;
+    folding.build(base, base);
+    inside = { base, pivot: on.y, reversed: false };
+    fold = { from: [1, 0], to: [-1, 2 * on.y], x: on.x, z: on.z, front: 0, width: FOLD.speed * FOLD.each, glow: 0, tinge: 0 };
+    foldT = 0; foldIn = true;
+    folding.set(fold); folding.show(true); base.group.visible = false;
+    land = foldedLand(base);
+    dropKickers(); clearGun?.(); clearRideTracks();
+    cat = { ...begun, by: 'invert', ...NONE, flip: { on, from: facingNow(), to: runDir(f).negate(), side, off: 0 }, takes: 0.25, gather: [0.25, 0.9] };
+  };
+  /**
+   * Back at the top, ridden back to it (or fallen on the way): the land turned the right way up again, about the level the skier is at
+   * now, so that it stays where it is as the land turns about it; which leaves the land lower than it was by as much as that level is
+   * under the one it was turned over about, twice (`off`).
+   */
+  const beginRevert = () => {
+    const { on, begun, side } = takenFor(), p = inside!.pivot, base = inside!.base;
+    fold = { from: [-1, 2 * p], to: [1, 2 * (on.y - p)], x: on.x, z: on.z, front: 0, width: FOLD.speed * FOLD.each, glow: 0, tinge: 1 };
+    foldT = 0; foldIn = false;
+    folding.set(fold);
+    // (The tracks ridden back laid on the land turned over: left as they lay, they stood up into the sky as it turned back.)
+    clearRideTracks();
+    cat = { ...begun, by: 'revert', ...NONE, flip: { on, from: facingNow(), to: runDir(base.frame(on.x, on.z)), side, off: 2 * (on.y - p) }, takes: 0.25, gather: [0.25, 0.9] };
+  };
+  const beginEnding = () => {
+    if (inside) { beginRevert(); return; }
+    // (Driven back up to the top: a new run there. Fallen off on the way: another cart brought down.)
+    if (carting) { const top = ride.ended; unflip(); if (top) restart(); else beginCart(); return; }
+    // (Not yet chosen: asked, and begun once it is.)
+    if (!ending) { askWay(); return; }
+    WAYS[needsTop(ending) && land.length === Infinity ? 'arm' : ending].begin();
+  };
   /** Let go, from `from`, flying back up the mountain: the throw to the top of the run worked out, and the view to be carried along after it. */
   const throwFrom = (c: Catapult, from: Vector3) => {
     c.fly = new Throw(from.clone(), c.landing.clone().addScaledVector(UP, middleOf()), c.downhill.clone().negate());
@@ -1639,6 +2054,9 @@ async function start() {
       // once it is gathered up, its rider back in the saddle: let go mid-gather, as the snowman's drive was, the rider flew the whole way
       // posed in the world's frame where it had been taken, far from the horse, which came down under its canopy alone.)
       if (k >= 1 && way.lets(c)) throwFrom(c, middle);
+      // (Or done with it without a throw: the land turned over, and the ride handed back.)
+      const done = k >= 1 ? way.ends?.(c) : null;
+      if (done) return done;
     }
     // (Until it has it, what the ride says goes; and where the view is about, the skier's own place.)
     if (!c.held) { c.at.copy(focus()).addScaledVector(UP, mid); return riding; }
@@ -1733,9 +2151,10 @@ async function start() {
    * is to it. And the blast's flash, lighting everything up for a moment.
    */
   const SUN = sun.intensity;
-  const gloom = () => {
+  const gloom = (dt: number) => {
     const g = whirl.group.visible ? whirl.strength * (1 - smooth((camera.position.distanceTo(whirl.base) - 150) / 350)) : 0;
-    const flash = blast.group.visible ? blast.flash : 0;
+    thump *= Math.exp(-dt / 0.15);
+    const flash = Math.max(blast.group.visible ? blast.flash : 0, thump);
     sun.intensity = SUN * (1 - 0.5 * g) * (1 + 2.5 * flash);
     sky.intensity = land.sky * (1 - 0.3 * g) * (1 + 1.5 * flash);
     uGloom.value = g;
@@ -1869,7 +2288,10 @@ async function start() {
       else g180 = shape180(tr.kind, tr.t / G180[tr.kind].T);
     }
     const sideOn = g180 ? Math.abs(Math.sin(Math.PI * g180.rot)) : 0;
-    const pull = -G * rise * level - 0.04 * into - drag * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
+    // (Driving the rocket cart back up, its engine pushing it on.)
+    const push = cartThrust();
+    cartPush += ((push ? push / 15 : 0) - cartPush) * ease(dt, 6);
+    const pull = push - G * rise * level - 0.04 * into - (drag + (carting ? 0.006 : 0)) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
     ride.speed = Math.max(0, ride.speed + pull * dt);
     ride.x += go.x * ride.speed * level * dt; ride.z += go.z * ride.speed * level * dt;
     ride.time += dt;
@@ -1926,7 +2348,7 @@ async function start() {
     if (!quiet) skier.ride(posed.c as RideControls);
     // (Upright to the snow under it, smoothed over half a metre, as skis bridge what is smaller. In a ground 180: sprung up off it in a
     // pop; tipped onto the tips or the tails in a butter, the pressed ends kept on the snow and the body carried round about them.)
-    const stand = new Vector3(ride.x, ride.y, ride.z);
+    const stand = new Vector3(ride.x, ride.y + (carting ? CART_DECK : 0), ride.z);
     if (ride.turn180 && g180) {
       stand.addScaledVector(UP, g180.lift);
       if (g180.press) {
@@ -1938,12 +2360,13 @@ async function start() {
     standAt(stand, normalAt(ride.x, ride.z, 0.5), ride.facing, here, g180?.pitch ?? 0);
     if (!quiet) keepJoints(dt);
     // At the foot of a world's run: brought to a stop there.
-    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · a new run in a moment`, false, 1e9); }
+    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points`, false, 1e9); }
     return { down: ride.down, left: ride.left, speed: ride.speed, way: ride.way, ski, skid: Math.max(Math.abs(Math.sin(ski - ride.way)), g180 ? g180.scrape * sideOn : 0), tuck: ride.tuck, brake: ride.brake };
   };
   /** What the ridden skier is doing, in words. */
   const doingNow = () => { const d = doing_(); return ride.switch && !air && !crash && !cat ? `${d}, switch` : d; };
   const doing_ = () => {
+    if (asking) return 'Choosing the way back';
     if (cat?.fly) return cat.flown >= cat.fly.free - 0.45 ? 'Under the parachute' : 'Thrown back to the top';
     if (cat?.held) return WAYS[cat.by].holding;
     if (cat && !crash) return WAYS[cat.by].coming;
@@ -2396,6 +2819,7 @@ async function start() {
     await loading.busy(kind !== 'groomed' ? `Laying the snow below ${peakOf(kind)}` : 'Laying the groomed slope');
     const next = await landOf(kind);
     loading.idle();
+    unflip();
     for (const k of kickerAt.values()) if (k?.group) { k.group.removeFromParent(); k.group = undefined; }
     kickerAt.clear();
     kicks = [];
@@ -2609,6 +3033,16 @@ async function start() {
   addEventListener('pointerup', () => void listenTilt(), true);
   screen.orientation?.addEventListener('change', levelTilt);
   addEventListener('orientationchange', levelTilt);
+  // The way back to the top, in the menu: asked each time, by chance, or one way always.
+  const BACK_CHOICES: [BackBy, string, string][] = [
+    ['ask', 'Ask', 'Ask how to get back to the top each time a run ends'], ['random', 'Random', 'A way back to the top chosen by chance each run'],
+    ['arm', 'Arm', 'The robot arm throws you back to the top'], ['whirlwind', 'Tornado', 'A tornado gathers at the foot of the run and flings you back to the top'],
+    ['blast', 'Blast', 'The ground blows up and throws you back to the top'], ['saucer', 'Saucer', 'A flying saucer beams you up and flings you back to the top'],
+    ['snowman', 'Snowman', 'A snowman drives you back to the top'], ['invert', 'Inside out', 'The world turns inside out and you ride back down to the top'],
+    ['cart', 'Cart', 'A rocket cart is brought down to you, and you drive it back up to the top'],
+  ];
+  const backButtons = BACK_CHOICES.map(([w, label, title]) => button('waysSeg', label, () => setBackBy(w), title));
+  showBackBy = () => backButtons.forEach((b, k) => b.classList.toggle('on', BACK_CHOICES[k][0] === backBy));
   const tiltButtons = (['Stick', 'Tilt'] as const).map((label, k) => button('tiltSeg', label, () => setTilt(k === 1), k ? 'Tip the device to steer and to tuck, from however it is held as the run begins' : 'Steer by the stick at the lower left alone'));
   $('tiltField').hidden = !canTilt;
   const setTilt = (on: boolean) => {
@@ -2625,6 +3059,8 @@ async function start() {
     if (mode === 'ride' && e.key === 'Shift') { want.brakeKey = true; return; }
     if (mode === 'ride' && e.key.toLowerCase() === 'x' && !(e.target instanceof HTMLInputElement)) { start180(); e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) { restart(); e.preventDefault(); return; }
+    // (Asked the way back, by its number.)
+    if (asking && /^[1-8]$/.test(e.key) && !wayButtons[+e.key - 1].hidden) { takeWay(WAY_NAMES[+e.key - 1][0]); e.preventDefault(); return; }
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
     if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (v) setView(v[1]);
@@ -2750,7 +3186,7 @@ async function start() {
       const orc = met.orc;
       gunfire.fire(from, dir, met.t, () => {
         const at = horde.middle(orc);
-        if (horde.fall(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6))) gunSound.grunt();
+        if (horde.fall(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6))) { gunSound.grunt(); orcDowned(at, 'shot'); }
         burst(at, 3, 10);
       });
     } else gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : 400, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
@@ -2823,7 +3259,10 @@ async function start() {
     gunfire.step(going, camera.quaternion);
     splatter.step(going);
     const v = !watching && air ? air.v.clone() : go.clone().multiplyScalar(now.speed);
+    // (Any downed as the orcs come on, the skier ran down: the rounds' are counted as they strike.)
+    const downedBefore = horde.downed;
     horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
+    for (let i = horde.downed - downedBefore; i > 0; i--) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run');
     $('orcs').textContent = String(horde.downed);
   };
 
@@ -3122,6 +3561,23 @@ async function start() {
     return s.ball.clone().setY(ground(s.ball.x, s.ball.z));
   };
   /**
+   * The land's turning over, filmed (where the sun's shadows are kept about given back): from behind the skier, rising up and back as
+   * the land turns, high over it and off to one side, looking out the way it will ride: the slopes about it sinking away (or rising),
+   * then the peak at the run's top going down into its pit (or coming up out of it), the far mountains after. Coming down to the skier
+   * as the ride is handed back, the view it rides in takes it from there.
+   */
+  const flipShot = (c: Catapult, dt: number) => {
+    const fl = c.flip!, e = c.eye, across = fl.to.clone().cross(UP).multiplyScalar(fl.side), k = smooth((c.t - 0.1) / (FLIP_T.done - 0.2));
+    // (Up at once out of the snow about it, which rises and sinks first: begun low, the view was for a moment all snow.)
+    const want = fl.on.clone().addScaledVector(fl.to, -(30 + 50 * k)).addScaledVector(across, 10 + 22 * k).addScaledVector(UP, 18 + 56 * k);
+    const target = fl.on.clone().addScaledVector(fl.to, 240 + 360 * k).addScaledVector(UP, 4 - 110 * k);
+    standCamera(want, 2, fl.on.clone().addScaledVector(UP, 1.2));
+    e.at.copy(e.start).lerp(want, smooth(c.t / 1.1));
+    e.look.lerp(target, ease(dt, 4) * turnIn(c));
+    camera.position.copy(e.at);
+    return fl.on.clone();
+  };
+  /**
    * The view of the run's end (`cat`): drawn round from wherever it was to stand off to the side of what the arm takes, across from the
    * arm and a little up the run, looking at them both as it rises, then following what it takes up into the air, and drawn back and up
    * as the arm lifts it high and throws it. As it lets go, carried along after it as it flies, behind it and to the side; under the
@@ -3303,6 +3759,12 @@ async function start() {
   setDistance(Number(kept('distance') ?? 1) || 1);
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
   setTilt(kept('tilt') !== '0');
+  {
+    const k = kept('backBy');
+    backBy = BACK_CHOICES.some(([w]) => w === k) ? (k as BackBy) : 'ask';
+    showBackBy();
+    chooseEnding();
+  }
   // (Closed unless asked for, `?menus=1`: asked, "make the cinematic camera and hide menus enabled as default".)
   setMenu(query.get('menus') === '1');
 
@@ -3413,6 +3875,8 @@ async function start() {
       if (cat) at = stepCatapult(playing && !menuOpen ? dt : 0, at);
       stepSpent(playing && !menuOpen ? dt : 0);
       stepWhirlwind(playing && !menuOpen ? dt : 0);
+      stepFold(playing && !menuOpen ? dt : 0);
+      stepCart(playing && !menuOpen ? dt : 0);
       const onSnow = !air && !crash && !cat;
       if (playing && onSnow) layRide(at);
       stepSpray(playing && !menuOpen ? dt : 0, playing && onSnow ? at : null, !!air);
@@ -3428,7 +3892,7 @@ async function start() {
     // (Where the skier is: on its skis, lain in the snow, or in the arm's hands or thrown.)
     const where = cat ? cat.at.clone() : focus();
     land.keepAbout(where.x, where.z);
-    gloom();
+    gloom(dt);
     land.lod?.(camera.position.x, camera.position.z);
     land.trees?.(camera.position, now / 1000);
     if (kickersOn) placeKickers(at.down);
@@ -3442,7 +3906,8 @@ async function start() {
     if (blurLevel > 0) {
       uShutter.value = clamp(1 / 60 / Math.max(dt, 1e-3), 0.005, 3) * blurLevel;
       uBlur.value = blurLevel;
-      uFocus.value = Math.max(3, camera.position.distanceTo(rider.position));
+      // (The land turning over in focus as it does, rather than the skier, small in the middle of it.)
+      uFocus.value = Math.max(3, camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position));
       pipeline.render();
     } else sharp.render();
     // (For a script making a video a frame at a time: told once each frame is drawn, `__slope.everyFrame`.)
@@ -3526,6 +3991,9 @@ async function start() {
     // (Riding, the run's end: how long since the arm began to rise, whether it has the skier, and how far into its flight, of how long.)
     // (The run's end: which it is to be, or to be it, by chance if none (`null`); and the whirlwind as it is.)
     ending: (kind?: Ending | null) => { if (kind !== undefined) { endingAsked = kind; if (kind) ending = kind; } return ending; },
+    // (The way back as the player has it, or to set it; whether it is being asked, and to answer.)
+    backBy: (w?: BackBy) => { if (w) setBackBy(w); return backBy; }, asking: () => asking, takeWay: (w: Dealt | 'random', remember = false) => { rememberWay.checked = remember; takeWay(w); },
+    inside: () => inside && { pivot: +inside.pivot.toFixed(1), reversed: inside.reversed, front: fold && (fold.front === Infinity ? 'all' : +fold.front.toFixed(0)) },
     whirl: () => ({ shown: whirl.group.visible, strength: +whirl.strength.toFixed(2), at: whirl.base.toArray().map((v) => +v.toFixed(1)), height: +whirl.height().toFixed(0) }),
     arm: () => cat && { by: cat.by, t: +cat.t.toFixed(2), held: cat.held, flown: +cat.flown.toFixed(2), free: cat.fly && +cat.fly.free.toFixed(2), total: cat.fly && +cat.fly.total.toFixed(2), open: cat.fly && +cat.fly.open.toFixed(1) },
     // (Which demo run is watched: the orc hunt, or the tricks'.)
