@@ -95,9 +95,9 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   hundred and fifty, and a double, a triple, for each downed hard on the last.
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
-the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, *Play* (watch the demo or ride;
-watching, pause, its speed and its timeline, which names its parts and can be dragged along; riding, restart the run, which is held
-while the menu is open), *Slope* (*Map of the runs*, the map the game opens on, or `M`; eight runs down the mountain: *Silent Warden* from beside its highest summit along a crest; *Pale
+the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, riding, *Restart run* first, at its
+top; then *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;
+riding is held while the menu is open), *Slope* (*Map of the runs*, the map the game opens on, or `M`; eight runs down the mountain: *Silent Warden* from beside its highest summit along a crest; *Pale
 Crown*, longer, down a spur into the wooded foothills above a bay; *Ashbridge*, short and steep, along the foot of the range
 under its rock walls to a lake in a glen; *Carndale*, long and gentle, down a wooded spur in the west to a lake; *Warden's Spur*, from
 the summit down its south spur; *Lake Wall*, steep, with big kickers, to the lake Ashbridge comes to; *Balestead*, down a crest inside

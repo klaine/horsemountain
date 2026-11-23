@@ -339,7 +339,10 @@
     /* (Steering by tilting, only where there is no mouse.) */
     body.mouse #tiltField { display: none; }
     #tally b { color: #9fd45a; }
+    /* (Riding, the run begun again the first thing in the menu (asked: "make restart run the top menu item in menu if a run is
+       ongoing"), over *Play*; watching, not there.) */
     #restart { font-weight: 600; }
+    #restarts #restart { margin-top: 14px; }
 
     /* What has just happened: a landing named, or a fall, over the upper middle of the picture. */
     #told { position: fixed; left: 50%; top: calc(16% + env(safe-area-inset-top, 0px)); transform: translate(-50%, -6px); padding: 8px 18px 9px; text-align: center;
@@ -512,6 +515,7 @@
   <div id="menu" hidden role="dialog" aria-label="Menu" tabindex="-1">
     <div class="head"><span class="what">Grand Horse Mountain</span><button id="menuClose" class="close" type="button" title="Close the menu (H)" aria-label="Close the menu">✕</button></div>
     <div class="scroll">
+      <div id="restarts" hidden><button id="restart" class="wide" type="button" title="Start the run again from the top (Enter)">Restart run</button></div>
       <h2>Play</h2>
       <div class="seg big" id="modes"></div>
       <div class="field" id="pisteField"><span class="label">Off piste</span><div class="seg" id="pisteSeg" role="group" aria-label="Off piste"></div></div>
@@ -522,7 +526,6 @@
         <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
         <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
       </div>
-      <div id="restarts" hidden><button id="restart" class="wide" type="button" title="Start the run again from the top (Enter)">Restart run</button></div>
       <h2>Slope</h2>
       <button id="openMap" class="wide map" type="button" title="The map of the runs, to choose one to ride (M)">Map of the runs</button>
       <div class="cards" id="lands" role="group" aria-label="Slope"></div>
