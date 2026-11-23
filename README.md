@@ -66,10 +66,12 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   you come down to it into a tornado under a dark turning cloud, the light going grey; stopped at the foot it comes over to you,
   ridden into it takes you there and then, and after a fall one forms beside you and comes for you; it carries the skier round and
   up its funnel, tumbling, and flings it out toward the top of the run. Or cracks run out glowing through the snow beside you, and
-  the ground blows up, a fireball, smoke and slabs of snow and rock, throwing you up out of it. Or a flying saucer comes down out of
-  the sky, takes you up in its beam and flings you out as it tips away. Or a snowman twenty metres high rises out of the snow beside
-  you with a fir pulled up by the roots, and drives you back up the mountain like a golf ball. Whichever, over the top of the run a
-  parachute opens and lets the skier down onto its skis there, and the next run begins, in the view it was ridden in. Or a shock goes
+  the ground blows up, a fireball, smoke and slabs of snow and rock, throwing you up out of it. Or a snowman twenty metres high rises
+  out of the snow beside you with a fir pulled up by the roots, and drives you back up the mountain like a golf ball. Whichever,
+  over the top of the run a parachute opens and lets the skier down onto its skis there, and the next run begins, in the view it was
+  ridden in. Or a flying saucer comes down out of the sky and takes you up in its beam, and carries you back in it, climbing away
+  over the mountain between, to hover over the top of the run and let you down its beam onto your skis there; and off it goes up
+  into the sky, and the next run begins. Or a shock goes
   through the ground and the land turns inside out about you, folding over in a wave that rolls away across the mountains: where you
   stand is now the height of the land and the peaks are pits. You are turned round to ride the run back down to its top; there (or
   wherever you fall on the way) the land folds back the right way up, and the next run begins. Or a rocket cart comes down beside

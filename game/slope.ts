@@ -66,7 +66,7 @@ import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
 import { Tornado } from './slopeStorm';
 import { Blast } from './slopeBlast';
-import { Saucer } from './slopeSaucer';
+import { SAUCER, Saucer } from './slopeSaucer';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
@@ -1682,8 +1682,8 @@ async function start() {
    * happens suddenly near the player and sends player to the same transition"): cracks run out glowing through the snow a few metres
    * from it, on the side away from the top of the run, and in a moment the ground there goes up (`slopeBlast.ts`), throwing it up and
    * away toward the top. And two more of the game's own (asked: "you get the idea maybe! come up with two additional ones on top of
-   * these"): a flying saucer comes down out of the sky over it, takes it up in its beam and flings it out toward the top as it tips
-   * away (`slopeSaucer.ts`); or a snowman twenty metres high rises out of the snow beside it with a fir pulled up by the roots, and
+   * these"): a flying saucer comes down out of the sky over it, takes it up in its beam, and carries it back in its beam to the top
+   * and lets it down there (`slopeSaucer.ts`; asked then: "make the flying saucer transition to actually fly you back instead of throw"); or a snowman twenty metres high rises out of the snow beside it with a fir pulled up by the roots, and
    * drives it back up the mountain as a golfer drives a ball (`slopeSnowman.ts`). From there each as the arm's throw goes.
    *
    * Or the sixth (asked: "an earth inverting shock where the peaks inverts into a valley and player can ride back to the "top" and when
@@ -1744,7 +1744,7 @@ async function start() {
   const backToEl = $('backTo'), rememberWay = $<HTMLInputElement>('rememberWay');
   const WAY_NAMES: [Dealt | 'random', string, string][] = [
     ['arm', 'Robot arm', 'picked up and thrown'], ['whirlwind', 'Tornado', 'carried up and flung'], ['blast', 'Explosion', 'blown sky high'],
-    ['saucer', 'Flying saucer', 'beamed up and flung'], ['snowman', 'Snowman', 'driven like a golf ball'], ['invert', 'Inside out', 'ride the world upside down'],
+    ['saucer', 'Flying saucer', 'beamed up and flown back'], ['snowman', 'Snowman', 'driven like a golf ball'], ['invert', 'Inside out', 'ride the world upside down'],
     ['cart', 'Rocket cart', 'drive it back up'], ['random', 'Random', 'a surprise'],
   ];
   let asking = false;
@@ -1788,8 +1788,11 @@ async function start() {
    * flies free (long enough to be seen thrown up out of it: let go as soon as it went off, the view went with it before the fire was seen).
    */
   const BLAST_T = { booms: 1.3, blown: 1.1 };
-  /** The saucer's: how long it takes to come down out of the sky; to shine its beam; to take it up; to tip and fling it out. */
-  const SAUCER_T = { arrives: 2.6, beams: 0.45, rises: 3.0, tips: 0.4 };
+  /**
+   * The saucer's: how long it takes to come down out of the sky; to shine its beam; to take it up; to let it down at the top; and to be
+   * gone from there. (How long it flies there, by how far it is: `beginSaucer`.)
+   */
+  const SAUCER_T = { arrives: 2.6, beams: 0.45, rises: 2.6, lowers: 2.4, leaves: 1.3 };
   /** The snowman's: risen; the fir set behind what it is to drive; at the top of its swing; on it; through; sinking back; gone. */
   const SNOWMAN_T = { risen: 1.5, address: 2.0, top: 3.0, contact: 3.3, through: 3.95, sinks: 5.2, gone: 6.8 };
   /**
@@ -1824,10 +1827,15 @@ async function start() {
   interface BlastTake { at: Vector3; on: Vector3; away: Vector3; toTop: Vector3; from: Vector3; side: number }
   /**
    * The saucer's own: where it comes in from, high and far off, and where it hovers, over what it takes (on the snow); the way toward the
-   * top of the run, and which side the view stands; where the middle of what it takes was as the beam took it; when it flings it out;
-   * and where it is now.
+   * top of the run, and which side the view stands; where the middle of what it takes was as the beam took it; and where it is now. And
+   * its carry back (asked: "make the flying saucer transition to actually fly you back instead of throw"): when it sets off with it,
+   * how long it flies, where it hovers over the top of the run to let it down, and how much higher than the straight way there it
+   * climbs at the most (over the mountain between); when it lets it down, and when it is gone.
    */
-  interface SaucerTake { from: Vector3; hover: Vector3; on: Vector3; toTop: Vector3; side: number; start: Vector3; flings: number; at: Vector3 }
+  interface SaucerTake {
+    from: Vector3; hover: Vector3; on: Vector3; toTop: Vector3; side: number; start: Vector3; at: Vector3;
+    carries: number; flies: number; over: Vector3; climb: number; lowers: number; done: number;
+  }
   /**
    * The snowman's own: where it stands, facing what it drives, and where its hands are risen; the fir's length from its hands to its
    * head; the plane of its swing (from its hands down to what it drives, and on toward the top of the run); the middle of what it drives;
@@ -1967,9 +1975,33 @@ async function start() {
     const hover = on.clone().addScaledVector(UP, 24);
     // (From beyond what it takes, as the view looks: seen coming all the way.)
     const from = hover.clone().addScaledVector(across, -side * rng.range(200, 260)).addScaledVector(toTop, rng.range(-80, 80)).addScaledVector(UP, rng.range(120, 170));
-    const takes = SAUCER_T.arrives + SAUCER_T.beams, flings = takes + SAUCER_T.rises + SAUCER_T.tips;
+    const takes = SAUCER_T.arrives + SAUCER_T.beams, carries = takes + SAUCER_T.rises;
+    // (Over the top of the run, as high over it as it hovered here; there as quickly as a few seconds and the way's length allow; and
+    // high enough all the way to pass over the mountain between, forty metres clear of it.)
+    const over = begun.landing.clone().addScaledVector(UP, 24), far = Math.hypot(over.x - hover.x, over.z - hover.z), flies = clamp(3 + far / 260, 4, 9);
+    let climb = 0;
+    for (let k = 0.05; k < 0.96; k += 0.05) {
+      const p = hover.clone().lerp(over, k), lift = ground(p.x, p.z) + 40 + SAUCER.belly + middleOf() + 1.4 - p.y;
+      climb = Math.max(climb, lift / Math.sin(Math.PI * k));
+    }
+    const lowers = carries + flies, done = lowers + SAUCER_T.lowers + SAUCER_T.leaves;
     saucer.place(from, new Quaternion());
-    cat = { ...begun, by: 'saucer', ...NONE, saucer: { from, hover, on, toTop, side, start: begun.at.clone(), flings, at: from.clone() }, takes, gather: [takes, takes + 0.8] };
+    cat = {
+      ...begun, by: 'saucer', ...NONE, takes, gather: [takes, takes + 0.8],
+      saucer: { from, hover, on, toTop, side, start: begun.at.clone(), at: from.clone(), carries, flies, over, climb, lowers, done },
+    };
+  };
+  /** Where the saucer is on its way back with what it took, `k` of the way (0 to 1): the straight way, and climbed over what lies between. */
+  const saucerWay = (s: SaucerTake, k: number) => s.hover.clone().lerp(s.over, k).addScaledVector(UP, s.climb * Math.sin(Math.PI * k));
+  /** How far along its way back the saucer is at `t`: eased off and slowing again to a hover. */
+  const saucerAlong = (s: SaucerTake, t: number) => { const u = clamp((t - s.carries) / s.flies, 0, 1); return u * u * u * (u * (6 * u - 15) + 10); };
+  /** Let down at the top, the saucer gone: the run begun again there (or on the piste, thrown out of bounds). */
+  const finishSaucer = (c: Catapult): Now => {
+    const eye = camera.position.clone(), look = c.eye.look.clone(), onto = backOnto, wasShow = showEnding;
+    if (onto) resumeAt(onto); else restart();
+    if (wasShow) showBack = 1.4;
+    handOver(eye, look, c.downhill);
+    return { down: ride.down, left: ride.left, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
   };
   /**
    * The snowman risen beside what it takes, on the side nearer the middle of the run, square to the way to the top of the run (as a
@@ -2110,32 +2142,50 @@ async function start() {
   };
   /**
    * The saucer a step on: swooping down out of the sky, slowing to a hover, banked into its way as it comes and level as it hovers,
-   * bobbing; its beam shining down to the snow; tipped toward the top of the run as it flings what it took, its beam flashing; then off
-   * up into the sky the way it came, faster and faster, and gone.
+   * bobbing; its beam shining down to the snow. Then, what it took drawn up under it, carried back to the top of the run in its beam:
+   * climbing away, over the mountain between, tipped into its way as it goes the faster, and slowing to a hover over the top; its beam
+   * let down to the snow there, a flash as what it carried stands on the snow; and then off up into the sky, faster and faster, gone.
    */
   const saucerStep = (c: Catapult, dt: number) => {
-    const s = c.saucer!, t = c.t, T = SAUCER_T, k = clamp(t / T.arrives, 0, 1), gone = t - s.flings;
-    const at = s.from.clone().lerp(s.hover, 1 - (1 - k) ** 3);
+    const s = c.saucer!, t = c.t, T = SAUCER_T, k = clamp(t / T.arrives, 0, 1), gone = t - (s.lowers + T.lowers);
+    const carried = saucerAlong(s, t), at = t < s.carries ? s.from.clone().lerp(s.hover, 1 - (1 - k) ** 3) : saucerWay(s, carried);
     at.y += Math.sin(t * 2.1) * 0.35 * smooth((t - T.arrives) / 0.6);
     const way = s.hover.clone().sub(s.from).setY(0).normalize(), tip = new Quaternion().setFromAxisAngle(UP.clone().cross(way).normalize(), 0.5 * (1 - k));
-    tip.premultiply(new Quaternion().setFromAxisAngle(UP.clone().cross(s.toTop).normalize(), 0.45 * smooth((t - (s.flings - T.tips)) / T.tips) * (1 - smooth(gone / 1.2))));
-    if (gone > 0) at.add(s.toTop.clone().negate().addScaledVector(UP, 1.3).normalize().multiplyScalar(25 * gone + 70 * gone * gone));
+    // (Tipped forward into its way back as hard as it goes: hardest halfway, level again over the top.)
+    const back = s.over.clone().sub(s.hover).setY(0).normalize(), pace = t > s.carries && t < s.lowers ? Math.sin(Math.PI * clamp((t - s.carries) / s.flies, 0, 1)) : 0;
+    if (back.lengthSq() > 0.5) tip.premultiply(new Quaternion().setFromAxisAngle(UP.clone().cross(back).normalize(), 0.32 * pace));
+    if (gone > 0) at.addScaledVector(c.downhill.clone().negate().addScaledVector(UP, 1.6).normalize(), 20 * gone + 90 * gone * gone);
     s.at.copy(at);
-    if (gone > 3) { saucer.hide(); return; }
     saucer.place(at, tip);
-    const on = smooth((t - T.arrives) / T.beams) * (1 - smooth(gone / 0.3)) + 2 * Math.exp(-((gone / 0.12) ** 2));
-    saucer.shine(on, saucer.belly().y - ground(at.x, at.z));
+    // (Its beam down to the snow as it takes and lets down; carrying, only down to what it carries, which hangs in it.)
+    const reach = saucer.belly().y - ground(at.x, at.z), held = SAUCER.belly + middleOf() + 3.5;
+    const down = smooth((t - s.carries + 0.6) / 0.8) * (1 - smooth((t - s.lowers + 0.3) / 0.6));
+    const on = smooth((t - T.arrives) / T.beams) * (1 - smooth(gone / 0.25)) + 1.5 * Math.exp(-(((t - (s.lowers + T.lowers - 0.3)) / 0.12) ** 2));
+    saucer.shine(on, reach + (Math.min(reach, held) - reach) * down);
     saucer.step(dt, camera);
   };
-  /** Taken up in the saucer's beam, floating up it to just under its belly, turning slowly about the upright, its limbs spread. */
+  /**
+   * Taken up in the saucer's beam, floating up it to just under its belly, turning slowly about the upright, its limbs spread; carried
+   * there in the beam back to the top of the run, swaying as the saucer goes; and let down the beam onto the snow there, turned to face
+   * down the run, standing on its skis.
+   */
   const floatUp = (c: Catapult) => {
     const s = c.saucer!, u = smooth((c.t - c.takes) / SAUCER_T.rises), mid = middleOf(), w = c.t - c.takes;
     const top = saucer.belly().addScaledVector(UP, -(mid + 1.4)), middle = s.start.clone().lerp(top, u);
-    middle.x += Math.sin(w * 1.7) * 0.3 * u; middle.z += Math.cos(w * 1.3) * 0.3 * u;
-    rider.quaternion.copy(uprightTo(s.toTop)).premultiply(new Quaternion().setFromAxisAngle(UP, 1.6 * w * w / (1 + w)));
+    // (Swaying in the beam; swung back the harder as the saucer goes off, and on past as it slows.)
+    const sway = 0.3 * u + 0.5 * Math.sin(Math.PI * clamp((c.t - s.carries) / s.flies, 0, 1));
+    middle.x += Math.sin(w * 1.7) * sway; middle.z += Math.cos(w * 1.3) * sway;
+    // (Let down, from under the belly to standing on the snow at the top, turned on the way to face down the run.)
+    const low = smooth((c.t - s.lowers) / SAUCER_T.lowers), stand = c.landing.clone().addScaledVector(UP, mid);
+    middle.lerp(stand, low);
+    const turning = uprightTo(s.toTop).premultiply(new Quaternion().setFromAxisAngle(UP, 1.6 * w * w / (1 + w)));
+    rider.quaternion.copy(turning).slerp(uprightTo(c.downhill), smooth((c.t - s.lowers) / (0.8 * SAUCER_T.lowers)));
     rider.position.copy(middle).addScaledVector(UP, -mid);
     rider.updateMatrixWorld(true);
-    skier.air({ tuck: 0.1, flight: 0, open: 1, throw: 0, wrap: 0, ski: 0.15 * Math.sin(w * 2.3), spin: 0, flip: 0.18 * Math.sin(w * 1.4), spread: 0.85 + 0.15 * Math.sin(w * 3.1), cross: 0 });
+    // (Spread out in the beam; drawn in and reaching for the snow as it comes down to it; standing.)
+    const calm = 1 - low;
+    if (low < 0.98) skier.air({ tuck: 0.1, flight: 0, open: 1, throw: 0, wrap: 0, ski: 0.15 * Math.sin(w * 2.3) * calm, spin: 0, flip: 0.18 * Math.sin(w * 1.4) * calm, spread: (0.85 + 0.15 * Math.sin(w * 3.1)) * calm, cross: 0, reach: smooth((low - 0.6) / 0.4) });
+    else skier.ride({ s: 0, ski: 0, tuck: 0, brake: 0, tall: 0.2, flickL: 0, flickR: 0 });
     return middle;
   };
   /**
@@ -2356,7 +2406,8 @@ async function start() {
     },
     saucer: {
       begin: () => beginSaucer(), step: (c, dt) => saucerStep(c, dt), took: (c) => { c.saucer!.start.copy(c.at); }, hold: (c) => floatUp(c),
-      lets: (c) => c.t >= c.saucer!.flings, shot: (c, dt) => saucerShot(c, dt), fov: 60, tumbling: false, coming: 'Lights in the sky', holding: 'Taken up', launch: 0.08,
+      lets: () => false, ends: (c) => (c.t >= c.saucer!.done ? finishSaucer(c) : null),
+      shot: (c, dt) => saucerShot(c, dt), fov: 60, tumbling: false, coming: 'Lights in the sky', holding: 'Taken up', launch: 1,
     },
     snowman: {
       begin: () => beginSnowman(), step: (c, dt, was) => snowmanStep(c, dt, was), hold: (c, dt) => driven(c, dt),
@@ -3777,7 +3828,7 @@ async function start() {
   const BACK_CHOICES: [BackBy, string, string][] = [
     ['ask', 'Ask', 'Ask how to get back to the top each time a run ends'], ['random', 'Random', 'A way back to the top chosen by chance each run'],
     ['arm', 'Robot arm', 'The robot arm throws you back to the top'], ['whirlwind', 'Tornado', 'A tornado gathers at the foot of the run and flings you back to the top'],
-    ['blast', 'Explosion', 'The ground blows up and throws you back to the top'], ['saucer', 'Flying saucer', 'A flying saucer beams you up and flings you back to the top'],
+    ['blast', 'Explosion', 'The ground blows up and throws you back to the top'], ['saucer', 'Flying saucer', 'A flying saucer beams you up and flies you back to the top'],
     ['snowman', 'Snowman', 'A snowman drives you back to the top'], ['invert', 'Inside out', 'The world turns inside out and you ride back down to the top'],
     ['cart', 'Rocket cart', 'A rocket cart is brought down to you, and you drive it back up to the top'],
   ];
@@ -4643,10 +4694,35 @@ async function start() {
     const want = s.on.clone().addScaledVector(across, 34).addScaledVector(s.toTop, -6).addScaledVector(UP, 3);
     const target = s.at.clone().lerp(mid.clone().lerp(s.at, 0.45), smooth(c.t / SAUCER_T.arrives));
     standCamera(want, 2, mid);
-    e.at.copy(e.start).lerp(want, smooth(c.t / 1.3));
-    e.look.lerp(target, ease(dt, 4) * turnIn(c));
+    const eye = e.start.clone().lerp(want, smooth(c.t / 1.3));
+    // Carried back: kept along with the two of them, behind and to the side and a little below, looking up at them against the sky.
+    const back = s.over.clone().sub(s.hover).setY(0).normalize(), off = back.clone().multiplyScalar(-30).addScaledVector(across, 18).addScaledVector(UP, -4);
+    e.off.lerp(off, c.t > s.carries ? ease(dt, 1.5) : 1);
+    const alongside = standCamera(mid.clone().add(e.off), 3, mid), chase = smooth((c.t - s.carries) / 2);
+    eye.lerp(alongside, chase);
+    target.lerp(mid.clone().lerp(s.at, 0.3), chase);
+    // Over the top: from the side of it and a little up the run, low, looking up the beam at it coming down to the snow.
+    const side = across.clone().multiplyScalar(-1);
+    const watching = standCamera(c.landing.clone().addScaledVector(side, 22).addScaledVector(c.downhill, 8).addScaledVector(UP, 4), 2, c.landing);
+    const atTop = smooth((c.t - (s.lowers - 1.2)) / 1.8);
+    eye.lerp(watching, atTop);
+    target.lerp(mid.clone().lerp(s.at, 0.2), atTop);
+    // And as the saucer goes, to where the rider's own view will stand at the top (the cinematic view cuts to its first shot).
+    const end = smooth((c.t - (s.done - 1.5)) / 1.5), own = end > 0 ? viewAtTop(c) : null;
+    if (own) {
+      eye.lerp(own.eye, end); target.lerp(own.look, end);
+      if (view === 'above') camera.up.lerp(c.downhill, end).normalize();
+    }
+    e.at.copy(eye);
+    // (Where it looks eased against the two of them, not the world: carried off faster than any eased look follows, it fell behind
+    // them, at the mountainside below.)
+    if (!e.started) e.rel.copy(e.look).sub(mid);
+    e.rel.lerp(target.sub(mid), ease(dt, 4) * turnIn(c));
+    e.look.copy(mid).add(e.rel);
     camera.position.copy(e.at);
-    return s.on.clone();
+    // (High over the snow, the sun's shadows kept about the snow under it.)
+    const g = ground(mid.x, mid.z);
+    return mid.y - g > 30 ? mid.clone().setY(g) : mid.clone();
   };
   /**
    * The snowman's shots (where the sun's shadows are kept about given back): from beyond what it drives, away from the snowman and back
@@ -5263,7 +5339,7 @@ async function start() {
     backBy: (w?: BackBy) => { if (w) setBackBy(w); return backBy; }, asking: () => asking, takeWay: (w: Dealt | 'random', remember = false) => { rememberWay.checked = remember; takeWay(w); },
     inside: () => inside && { pivot: +inside.pivot.toFixed(1), reversed: inside.reversed, front: fold && (fold.front === Infinity ? 'all' : +fold.front.toFixed(0)) },
     whirl: () => ({ shown: whirl.group.visible, strength: +whirl.strength.toFixed(2), at: whirl.base.toArray().map((v) => +v.toFixed(1)), height: +whirl.height().toFixed(0) }),
-    arm: () => cat && { by: cat.by, t: +cat.t.toFixed(2), held: cat.held, flown: +cat.flown.toFixed(2), free: cat.fly && +cat.fly.free.toFixed(2), total: cat.fly && +cat.fly.total.toFixed(2), open: cat.fly && +cat.fly.open.toFixed(1) },
+    arm: () => cat && { by: cat.by, t: +cat.t.toFixed(2), carry: cat.saucer && { flies: +cat.saucer.flies.toFixed(2), climb: +cat.saucer.climb.toFixed(0), far: +Math.hypot(cat.saucer.over.x - cat.saucer.hover.x, cat.saucer.over.z - cat.saucer.hover.z).toFixed(0) }, held: cat.held, flown: +cat.flown.toFixed(2), free: cat.fly && +cat.fly.free.toFixed(2), total: cat.fly && +cat.fly.total.toFixed(2), open: cat.fly && +cat.fly.open.toFixed(1) },
     // (Which demo run is watched: the orc hunt, or the tricks'.)
     hunt: (on: boolean) => { setDemoKind(on ? 'orcs' : 'tricks'); },
     // (The showcase, watched; and where it has got to: its arm now, and whether its end is ridden out or it has gone back to its top.)
