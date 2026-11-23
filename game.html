@@ -40,7 +40,9 @@
     html, body { margin: 0; height: 100%; overflow: hidden; }
     [hidden] { display: none !important; }
     body { background: var(--ground); color: var(--ink); font: 13px/1.45 var(--sans); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
-    #view { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+    #view { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; outline: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
+    /* (No page pinched larger, which an iPad allows whatever the page asks: the scrolling lists still scroll.) */
+    html { touch-action: pan-x pan-y; }
 
     /* What the skier is doing, at the top left: kept clear of the menu's button at the top right, and short of the menu's panel while it
        is open beside the picture. */

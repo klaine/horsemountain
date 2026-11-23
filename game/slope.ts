@@ -3852,7 +3852,17 @@ async function start() {
    * finger is broad and an orc far up the run small. Where the finger is, across and up the picture (-1 to 1); which, held.
    */
   const finger = { id: -1, x: 0, y: 0 };
-  const fingerAt = (e: PointerEvent) => { finger.x = (e.clientX / innerWidth) * 2 - 1; finger.y = 1 - (e.clientY / innerHeight) * 2; };
+  // (Against the picture as it lies on the page, not the window: on an iPad the page can be pinched larger whatever it asks, and then
+  // the window's measures are of the part of it in sight, and a finger was taken to be somewhere else on the picture than it was.)
+  const fingerAt = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); finger.x = ((e.clientX - r.left) / r.width) * 2 - 1; finger.y = 1 - ((e.clientY - r.top) / r.height) * 2; };
+  /**
+   * (A finger held on the picture kept for the game (asked: "Aimin by touch is not working on ipad"): an iPad takes a finger held still
+   * for half a second to be lifting what is under it out to drag it elsewhere, or asking for its menu, or its magnifier, and takes the
+   * finger from the page, so that the gun stopped and lost its aim; and two fingers apart, to be pinching the page larger. None of them
+   * is let begin on the picture, nor a pinch anywhere.)
+   */
+  for (const kind of ['touchstart', 'touchmove'] as const) canvas.addEventListener(kind, (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
   const fingerOff = (e: PointerEvent) => { if (e.pointerId === finger.id) { finger.id = -1; firing = false; } };
   canvas.addEventListener('pointermove', (e) => { if (e.pointerId === finger.id) fingerAt(e); });
   canvas.addEventListener('pointerup', fingerOff);
@@ -3881,7 +3891,10 @@ async function start() {
   });
   canvas.addEventListener('pointerup', () => { aim.brake = false; firing = false; });
   canvas.addEventListener('lostpointercapture', () => { aim.brake = false; firing = false; });
-  canvas.addEventListener('contextmenu', (e) => { if (mode !== 'ride') return; e.preventDefault(); if (!menuOpen) start180(); });
+  // (A right click turns the skier round; a finger held long, which an iPad may also call one, does not: it is firing.)
+  let lastPointer = '';
+  addEventListener('pointerdown', (e) => { lastPointer = e.pointerType; }, true);
+  canvas.addEventListener('contextmenu', (e) => { if (mode !== 'ride') return; e.preventDefault(); if (!menuOpen && lastPointer === 'mouse') start180(); });
   // (Not in the free view, whose own turning about the skier takes the wheel; nor the cinematic, which keeps its own distances.)
   canvas.addEventListener('wheel', (e) => {
     if (view === 'free' || view === 'cinema') return;
@@ -4259,7 +4272,7 @@ async function start() {
         for (const p of horde.where()) {
           const at = p.clone().setY(p.y + 0.75);
           if (at.clone().applyMatrix4(camera.matrixWorldInverse).z > -1) continue;
-          const s = at.project(camera), dx = (s.x - finger.x) * innerWidth / 2, dy = (s.y - finger.y) * innerHeight / 2;
+          const s = at.project(camera), dx = (s.x - finger.x) * canvas.clientWidth / 2, dy = (s.y - finger.y) * canvas.clientHeight / 2;
           if (dx * dx + dy * dy < near) { near = dx * dx + dy * dy; ndc.set(s.x, s.y); }
         }
       }
