@@ -112,7 +112,8 @@ const KICK = { first: 70, every: 130, length: 7, height: 1.5, power: 1.7, back: 
  * The sizes a kicker is built at, the biggest first: from four fifths of `KICK` (a lip a metre high) to nearly twice it (a lip of three
  * and a half metres at the end of a ramp of thirteen). And the speed it is sized for, about what a run is taken at (some 72 km/h); how
  * hard, at the most, a skier off one bigger than size 1 at that speed is to come into the snow, metres a second (a fall is past 12.5);
- * and how hard off one of size 1, before it is made smaller.
+ * and how hard off one of size 1, before it is made smaller. (And off one bigger than size 1 at the speed a rider tucked would
+ * bring to it, no harder than `KICK_HARD` either: `kickApproach`.)
  */
 const KICK_SIZES = [1.8, 1.55, 1.35, 1.15, 1, 0.88, 0.78], KICK_SPEED = 20, KICK_BLOW = 10, KICK_HARD = 11;
 /**
@@ -583,6 +584,21 @@ async function start() {
     const f = fall(u);
     return { u, f, after: fall(u + 6), blow: Math.max(0, -(vu * f + vy) / Math.hypot(f, 1)) };
   };
+  /**
+   * How fast a rider tucked comes to a kicker's foot at `s`, `left` of the run's line: run straight down the line there over the two
+   * hundred metres before it, from `KICK_SPEED` (or from standing, at the top of the run), as `stepRide` has a skier go: pulled down the
+   * slope by its weight, held back by the snow and by the air, tucked. (Not turning, nor braking: as fast as a rider could well come.)
+   */
+  const kickApproach = (s: number, left: number) => {
+    const h = (u: number) => { const p = land.at(u, left); return land.height(p.x, p.z); }, dt = 0.05;
+    let u = Math.max(0, s - 200), v = u > 0 ? KICK_SPEED : 3;
+    while (u < s) {
+      const rise = h(u + 1) - h(u), level = 1 / Math.hypot(1, rise);
+      v = Math.max(1, v + (-G * rise * level - 0.04 * G * level - 0.0037 * v * v) * dt);
+      u += v * level * dt;
+    }
+    return v;
+  };
   const kickSize = (i: number, s: number, left: number, at: { x: number; z: number; dx: number; dz: number }, spare: number): KickDims => {
     if (land.length === Infinity) return kickDims(new Rng('kicker sizes').fork(`kicker ${i}`).pick(KICK_SIZES));
     const one = kickDims(1), flight = (d: KickDims, v0: number) => kickFlight(at, d, v0);
@@ -591,12 +607,17 @@ async function start() {
     // of size 1 there would; and one smaller than 1 only where size 1 would come down harder than `KICK_HARD`: kickers of size 1 are
     // what the demo runs' tricks were made on, and a smaller one keeps a skier too short a time in the air for a flip.)
     const fits = (d: KickDims) => d.size === 1 || (land.kickable(s, left, d.L + d.B) && (d.size < 1 || d.half + d.side - one.half - one.side <= spare));
-    const base = flight(one, KICK_SPEED);
+    // (And taken as fast as a rider tucked would come to it, it must not throw one past its landing onto flatter land, nor harder than
+    // size 1 would there (asked: "the fifth kicker on below the silent warden run seems to often make such a jump that it ends up
+    // crashing too hard"): sized for 72 km/h alone, the fifth there was built at 1.8, at the foot of a steep stretch that brings a rider
+    // to its lip at 85 to 100 km/h, and off it over 88 km/h a rider came down too hard to stand.)
+    const fast = kickApproach(s, left), base = flight(one, KICK_SPEED), baseFast = flight(one, fast);
     for (const size of KICK_SIZES.filter((z) => z > 1)) {
       const d = kickDims(size);
       if (!fits(d)) continue;
       const o = flight(d, KICK_SPEED);
-      if (s + o.u + 36 < land.length && o.f >= Math.tan((10 * Math.PI) / 180) && o.after >= Math.tan((8 * Math.PI) / 180) && o.blow <= Math.max(KICK_BLOW, base.blow)) return d;
+      if (!(s + o.u + 36 < land.length && o.f >= Math.tan((10 * Math.PI) / 180) && o.after >= Math.tan((8 * Math.PI) / 180) && o.blow <= Math.max(KICK_BLOW, base.blow))) continue;
+      if (fast <= KICK_SPEED || flight(d, fast).blow <= Math.max(KICK_HARD, baseFast.blow)) return d;
     }
     if (base.blow <= KICK_HARD) return one;
     for (const size of KICK_SIZES.filter((z) => z < 1)) { const d = kickDims(size); if (fits(d) && flight(d, KICK_SPEED).blow <= KICK_HARD) return d; }
@@ -5075,6 +5096,8 @@ async function start() {
     state: () => ({ air: air && { ...air }, crash: crash && { why: crash.why, still: stillFor(), rest: atRest(), at: fallenAt().toArray(), bodies: crash.dolls.map((d) => d.doll.middle().toArray()) }, told: { ...told } }),
     // (The `i`th kicker that stands, counting from the top; and where the skier is put, by how far down the run and across it.)
     // (How each size would land off the `i`th kicker standing, slower and faster: for weighing `kickSize`.)
+    // (How hard a flight off the `i`th kicker comes down, built at `size`, taken at each of `speeds` (metres a second, on the run before it).)
+    landings: (i: number, size: number, speeds: number[]) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return speeds.map((v) => { const o = kickFlight(k, kickDims(size), v); return { v, u: +o.u.toFixed(1), f: +o.f.toFixed(2), blow: +o.blow.toFixed(1) }; }); },
     flights: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return KICK_SIZES.map((size) => ({ size, slow: kickFlight(k, kickDims(size), KICK_SPEED - 3), fast: kickFlight(k, kickDims(size), KICK_SPEED + 3) })); },
 // (The orcs brought down riding, over the session, which say the arm carried: read, or set, as a script would to try each arm; and
     // the trigger, held or let go, as the button is, and pulled once as a click does.)
@@ -5110,7 +5133,7 @@ async function start() {
       return null;
     },
     swingAt: (k: number, side: number) => { swing = { t: k * SLASH_T, side, struck: new Set() }; },
-    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
+    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, approach: land.length < Infinity ? +(kickApproach(k.s, k.left) * 3.6).toFixed(0) : null, height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
     put: (o: Partial<typeof ride>) => { Object.assign(ride, o); if (o.down !== undefined || o.left !== undefined) { putAt(ride.down, ride.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); } placed = false; },
     land: () => ({ name: land.name, length: land.length, half: land.half, about: land.about }),
     setSkier: (w: Who, skis?: HorseSkis) => setSkier(w, skis), who: () => who,
