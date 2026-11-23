@@ -791,6 +791,17 @@ async function start() {
     if (pitch) rider.quaternion.multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -pitch));
     rider.updateMatrixWorld(true);
   };
+  /**
+   * The skier, as `standAt` has put it, rolled over sideways by `roll` about the way it faces (a barrel roll), through the middle of
+   * its body (a person's, over the hips; a horse's barrel, which its rider sits on): the whole of it, horse and rider together.
+   */
+  const rollAbout = (roll: number) => {
+    if (!roll) return;
+    const mid = new Vector3(0, who === 'person' ? 1.0 : 1.35, 0), before = mid.clone().applyQuaternion(rider.quaternion);
+    rider.quaternion.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), roll));
+    rider.position.add(before.sub(mid.applyQuaternion(rider.quaternion)));
+    rider.updateMatrixWorld(true);
+  };
   // A person's joints where they are in the world, as a body gone limp takes them: its bones', and its skis' tips and tails.
   const humanJoints = (m: Object3D, skis: Object3D[] | null): Record<string, Vector3> => {
     rider.updateMatrixWorld(true);
@@ -1198,20 +1209,28 @@ async function start() {
    * was as it left; how far into each style it is (`style`: a mute grab, a tail grab, a spread eagle, a flip laid out) and how long each
    * has been held (`held`); and when its turns were made, if they have been. And (asked: "make it also possible to ride switch or
    * land switch (180/540/900...)"): which way it spins and whether the spin is still being held, so that it goes on round another
-   * half turn for as long as it is held; whether it left the lip riding switch.
+   * half turn for as long as it is held; whether it left the lip riding switch. And (asked: "would double backflips and doublecorks be
+   * possible? barrel rolls? add them if yes"): a barrel roll, the whole body rolled over sideways about the way it goes (`roll`,
+   * `rollTo`; `rollAbout`); a double backflip, a flip of two turns; a double cork, a cork with two flips made through its spin.
    */
   type Style = 'mute' | 'tail' | 'spread' | 'layout';
   interface Air {
-    kind: 'air' | 'flip' | 'flight' | 'hop'; spinTo: number; flipTo: number; spin: number; flip: number; t: number; T: number; v: Vector3; from: Vector3; nose: number; name: string;
-    cork: number; rate: { spin: number; flip: number }; set: number; pop0: number; style: Record<Style, number>; held: Record<Style, number>; done: number | null;
+    kind: 'air' | 'flip' | 'flight' | 'hop' | 'roll'; spinTo: number; flipTo: number; spin: number; flip: number; roll: number; rollTo: number;
+    t: number; T: number; v: Vector3; from: Vector3; nose: number; name: string;
+    cork: number; rate: { spin: number; flip: number; roll: number }; set: number; pop0: number; style: Record<Style, number>; held: Record<Style, number>; done: number | null;
     spinDir: number; holding: boolean; fromSwitch: boolean;
   }
   const STYLES: Style[] = ['mute', 'tail', 'spread', 'layout'];
   /** How fast a spin and a flip go round at the quickest, untucked: turns a second. */
-  const SPIN_RATE = 1.9, FLIP_RATE = 1.3;
+  const SPIN_RATE = 1.9, FLIP_RATE = 1.3, ROLL_RATE = 1.3;
   /** How hard a turn is held to keep a spin going round. */
   const HOLD = 0.6;
   let air: Air | null = null;
+  /**
+   * The trick about to be made off the kicker ahead, by the demo run's pilot or for the rider (`rideTrick`): what the stance at the lip
+   * cannot say of it, `takeOff` takes from it: a barrel roll, and a second flip.
+   */
+  let planned: DemoTrick | null = null;
   /** Gone limp, every body of it (a horse and its rider each their own), and why. */
   let crash: { dolls: { body: Body; doll: Ragdoll }[]; why: string; settled: number; anchors: Vector3[] } | null = null;
   /** The skier's bodies' joints as the last two steps left them, and how long the last step was: what a body gone limp goes on from. */
@@ -1320,31 +1339,36 @@ async function start() {
    * grab is a whip and its spread eagle a capriole (on four short skis) or the splits (on a long pair); its rider's grab a superman,
    * and its spread eagle a no-hander.
    */
-  const nameOf = (kind: Air['kind'], halves: number, cork: boolean, style: Style | '', fromSwitch = false) => {
-    const named = nameOfTrick(kind, halves, cork, style);
+  const nameOf = (kind: Air['kind'], halves: number, cork: boolean, style: Style | '', fromSwitch = false, flips = kind === 'flip' ? 1 : 0) => {
+    const named = nameOfTrick(kind, halves, cork, style, flips);
     return fromSwitch && kind !== 'hop' ? `Switch ${named.charAt(0).toLowerCase()}${named.slice(1)}` : named;
   };
   /** (A spin by how far it goes round, in half turns: a 180, a 540, a 900, which land switch, and a 360, a 720, which do not.) */
-  const nameOfTrick = (kind: Air['kind'], halves: number, cork: boolean, style: Style | '') => {
+  const nameOfTrick = (kind: Air['kind'], halves: number, cork: boolean, style: Style | '', flips: number) => {
     const spin = halves ? `${halves * 180}` : '', horse_ = who !== 'person', rider_ = who === 'mounted';
     const grab = horse_ ? (rider_ ? 'superman whip' : 'whip') : '', four = horse.skis === 'four';
     if (kind === 'hop') return 'Hop';
     if (kind === 'flight') return 'Ski-jump flight';
     const lower = (t: string) => t.charAt(0).toLowerCase() + t.slice(1), upper = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+    if (kind === 'roll') {
+      if (style === 'mute' || style === 'tail') return horse_ ? `Barrel roll ${grab}` : `Barrel roll ${style === 'mute' ? 'mute' : 'tail grab'}`;
+      return 'Barrel roll';
+    }
     if (kind === 'flip') {
-      const base = spin ? `Backflip ${spin}` : 'Backflip';
+      const back = flips > 1 ? 'Double backflip' : 'Backflip', base = spin ? `${back} ${spin}` : back;
       if (style === 'layout') return `Layout ${lower(base)}`;
       if (style === 'mute' || style === 'tail') return horse_ ? `${upper(grab)} ${lower(base)}` : `${style === 'mute' ? 'Mute' : 'Tail grab'} ${lower(base)}`;
       return base;
     }
-    const base = cork ? `Cork ${spin}` : spin;
+    const base = cork ? `${flips > 1 ? 'Double cork' : 'Cork'} ${spin}` : spin;
     if (style === 'mute' || style === 'tail') return horse_ ? (base ? `${base} ${grab}` : upper(grab)) : base ? `${base} ${style === 'mute' ? 'mute' : 'tail grab'}` : style === 'mute' ? 'Mute grab' : 'Tail grab';
     if (style === 'spread' && !base) return horse_ ? `${four ? 'Capriole' : 'Splits'}${rider_ ? ' no-hander' : ''}` : 'Spread eagle';
     // (A horse's straight air is a show jumper's.)
     return base || (who === 'person' ? 'Straight air' : 'Show jump');
   };
   const halvesOf = (a: Air) => Math.round(Math.abs(a.spinTo) / Math.PI);
-  const trickName = (a: Air) => nameOf(a.kind, halvesOf(a), !!a.cork, styleOf(a), a.fromSwitch);
+  const flipsOf = (a: Air) => Math.round(Math.abs(a.flipTo) / TURN);
+  const trickName = (a: Air) => nameOf(a.kind, halvesOf(a), !!a.cork, styleOf(a), a.fromSwitch, flipsOf(a));
   // What has just happened, said over the picture for a while: a landing, or a fall.
   let told = { text: '', small: '', bad: false, until: 0 };
   const tell = (text: string, small: string, bad: boolean, seconds: number) => { told = { text, small, bad, until: ride.time + seconds }; };
@@ -1423,8 +1447,9 @@ async function start() {
   };
   /** What a jump landed is worth: what was made of it, the more the longer in the air, and its length. */
   const trickPoints = (a: Air, far: number) => {
-    const flips = Math.round(Math.abs(a.flipTo) / TURN), grab = STYLES.reduce((g, s) => g + Math.min(1, a.held[s]), 0);
-    const made = 50 + 100 * halvesOf(a) + 400 * flips + (a.cork ? 150 : 0) + 120 * Math.min(1.5, grab) + (a.fromSwitch ? 100 : 0);
+    const flips = flipsOf(a), grab = STYLES.reduce((g, s) => g + Math.min(1, a.held[s]), 0);
+    // (A barrel roll as a flip; a second flip worth more than the first.)
+    const made = 50 + 100 * halvesOf(a) + 400 * flips + 200 * Math.max(0, flips - 1) + (a.rollTo ? 350 : 0) + (a.cork ? 150 : 0) + 120 * Math.min(1.5, grab) + (a.fromSwitch ? 100 : 0);
     return Math.round((made * (1 + 0.5 * a.t) + 3 * far) / 10) * 10;
   };
 
@@ -1494,16 +1519,19 @@ async function start() {
     // (Off a knoll, `plain`: not set off on purpose, so no spin and no flip, whatever the stick was asking as the snow fell away.)
     const spinning = !plain && long && Math.abs(ask.x) > 0.3, dir = spinning ? -Math.sign(ask.x) : 0;
     // (Tucked and turning, a cork: the spin laid over off its axis; tucked and straight, a ski jumper's flight.)
-    const tucked = ride.tuck > 0.55, kind: Air['kind'] = !long ? 'hop' : tucked && !spinning ? 'flight' : ride.tall > 0.5 && !plain ? 'flip' : 'air';
-    const flips = kind === 'flip' ? 1 : 0;
+    const tucked = ride.tuck > 0.55, stance: Air['kind'] = !long ? 'hop' : tucked && !spinning ? 'flight' : ride.tall > 0.5 && !plain ? 'flip' : 'air';
+    // (A barrel roll, set off straight and neither tucked nor tall; two flips for a double backflip or a double cork, as planned.)
+    const plan = plain ? null : planned, cork = tucked && spinning && stance === 'air';
+    const rolls = stance === 'air' && !spinning && plan?.kind === 'roll', kind: Air['kind'] = rolls ? 'roll' : stance;
+    const flips = kind === 'flip' ? (plan?.kind === 'flip' && (plan.flips ?? 1) > 1 ? 2 : 1) : cork && plan?.cork && (plan.flips ?? 0) > 1 ? 2 : 0;
     // Paced to the time in the air: the flip set off the lip to be made a little before the snow, no slower than about half the
     // quickest (a long air) and no quicker than the quickest (a short one wants a tighter tuck to come round). (A spin is paced once
     // let go of, in `stepAir`.)
     const avail = Math.max(0.3, T - 0.5), pace = (n: number, rate: number) => clamp(n / (rate * avail), 0.5, 1);
     air = {
-      kind, spinTo: dir * Math.PI, flipTo: -flips * TURN, spin: 0, flip: 0, t: 0, T, v, from, nose, name: '',
-      cork: tucked && spinning && kind === 'air' ? deg(42) : 0, rate: { spin: 1, flip: pace(flips, FLIP_RATE) }, set: ride.tall, pop0: pop,
-      style: { mute: 0, tail: 0, spread: 0, layout: 0 }, held: { mute: 0, tail: 0, spread: 0, layout: 0 }, done: spinning || flips ? null : 0,
+      kind, spinTo: dir * Math.PI, flipTo: -flips * TURN, spin: 0, flip: 0, roll: 0, rollTo: rolls ? (plan?.side ?? 1) * TURN : 0, t: 0, T, v, from, nose, name: '',
+      cork: cork ? deg(42) : 0, rate: { spin: 1, flip: pace(flips, FLIP_RATE), roll: pace(1, ROLL_RATE) }, set: ride.tall, pop0: pop,
+      style: { mute: 0, tail: 0, spread: 0, layout: 0 }, held: { mute: 0, tail: 0, spread: 0, layout: 0 }, done: spinning || flips || rolls ? null : 0,
       spinDir: dir, holding: spinning && Math.abs(ask.x) > HOLD, fromSwitch: ride.switch,
     };
     air.name = trickName(air);
@@ -1514,12 +1542,12 @@ async function start() {
   let knollAfter = 0;
   const land_ = () => {
     const a = air!, up = normalAt(ride.x, ride.z, 0.5), into = a.v.dot(up), blow = Math.max(0, -into);
-    const flipShort = Math.abs(a.flipTo - a.flip), spinShort = Math.abs(a.spinTo - a.spin);
+    const flipShort = Math.max(Math.abs(a.flipTo - a.flip), Math.abs(a.rollTo - a.roll)), spinShort = Math.abs(a.spinTo - a.spin);
     const far = Math.hypot(ride.x - a.from.x, ride.z - a.from.z);
     air = null;
     knollAfter = ride.time + KNOLL.after;
     if (flipShort > deg(55) || spinShort > deg(75) || blow > 12.5) {
-      const why = blow > 12.5 ? 'landed too hard' : flipShort > deg(55) ? (flipShort > deg(200) ? 'landed on its back' : 'short of the flip') : `short of the ${halvesOf(a) * 180}`;
+      const why = blow > 12.5 ? 'landed too hard' : flipShort > deg(55) ? (flipShort > deg(200) ? (a.rollTo ? 'landed on its side' : 'landed on its back') : a.rollTo ? 'short of the roll' : 'short of the flip') : `short of the ${halvesOf(a) * 180}`;
       fall(why);
       return;
     }
@@ -2639,7 +2667,7 @@ async function start() {
     // Opening up to land, the last few tenths of a second before the snow, or once its turns are made (a moment after, if it holds a
     // grab); a tighter tuck turns it quicker, laid out or spread it turns slower.
     const left = timeToSnow(new Vector3(ride.x, ride.y, ride.z), a.v);
-    const made = a.done === null || !(a.spinTo || a.flipTo) ? 0 : smooth((a.t - a.done - 0.12 - 0.2 * Math.max(a.style.mute, a.style.tail)) / 0.3);
+    const made = a.done === null || !(a.spinTo || a.flipTo || a.rollTo) ? 0 : smooth((a.t - a.done - 0.12 - 0.2 * Math.max(a.style.mute, a.style.tail)) / 0.3);
     const open = a.kind === 'hop' ? 0 : Math.max(1 - smooth(left / 0.4), made);
     // The styles, from what is asked in the air (not at once off the lip, where the ask made the trick): up and to a side, a grab, to
     // the left a mute, to the right a tail grab; down, in straight air a spread eagle and in a flip a flip laid out.
@@ -2670,7 +2698,8 @@ async function start() {
     };
     a.flip = turned(a.flip, a.flipTo, FLIP_RATE * a.rate.flip);
     a.spin = turned(a.spin, a.spinTo, SPIN_RATE * a.rate.spin);
-    if (a.done === null && a.flip === a.flipTo && a.spin === a.spinTo) a.done = a.t;
+    a.roll = turned(a.roll, a.rollTo, ROLL_RATE * a.rate.roll);
+    if (a.done === null && a.flip === a.flipTo && a.spin === a.spinTo && a.roll === a.rollTo) a.done = a.t;
     a.name = trickName(a);
     const way = Math.atan2(a.v.dot(runLeft(here)), a.v.dot(runDir(here)));
     ride.way = way;
@@ -2688,6 +2717,7 @@ async function start() {
     if (!quiet) skier.air(posed.c as AirControls);
     // (Upright to the land under it, smoothed over some metres; its nose up as it left the lip, coming level over the flight.)
     standAt(new Vector3(ride.x, ride.y, ride.z), normalAt(ride.x, ride.z, 1.5), ride.facing, here, a.nose * (1 - smooth(a.t / (0.75 * a.T))));
+    rollAbout(a.roll);
     if (!quiet) keepJoints(dt);
     if (ride.y <= ground(ride.x, ride.z)) land_();
     return { down: here.s, left: here.left, speed: Math.hypot(a.v.x, a.v.z), way, ski: ride.way, skid: 0, tuck: ride.tuck, brake: 0 };
@@ -2928,7 +2958,7 @@ async function start() {
    * whether corked, its style in the air, and whether it is taken switch (as the trick before it leaves it: a 540 lands switch, and
    * the switch 540 after it brings it round again).
    */
-  interface DemoTrick { kind: Air['kind']; halves: number; cork?: boolean; side?: number; style?: Style; switch?: boolean }
+  interface DemoTrick { kind: Air['kind']; halves: number; cork?: boolean; side?: number; style?: Style; switch?: boolean; flips?: number }
   const DEMO_TRICKS: DemoTrick[] = [
     { kind: 'air', halves: 4, side: 1 }, { kind: 'flip', halves: 0 }, { kind: 'flip', halves: 2, side: -1 }, { kind: 'flight', halves: 0 },
     { kind: 'air', halves: 3, cork: true, side: 1 }, { kind: 'air', halves: 3, side: -1, switch: true },
@@ -2948,14 +2978,14 @@ async function start() {
   const flip = (halves: number, side: number, o: Partial<DemoTrick> = {}): DemoTrick => ({ kind: 'flip', halves, side, ...o });
   const ORC_TRICKS: DemoTrick[][] = [
     [spin(4, 1, { cork: true }), spin(4, 1), spin(2, 1)],
-    [flip(4, -1), flip(2, -1), flip(0, -1)],
+    [flip(0, -1, { flips: 2 }), flip(4, -1), flip(2, -1), flip(0, -1)],
     [spin(5, 1), spin(3, 1, { cork: true }), spin(3, 1), spin(1, 1)],
     [spin(5, -1, { switch: true }), spin(3, -1, { switch: true }), spin(1, -1, { switch: true })],
     [flip(2, 1, { style: 'mute' }), flip(2, 1), flip(0, 1, { style: 'mute' })],
-    [spin(6, -1), spin(4, -1, { cork: true }), spin(4, -1)],
+    [spin(6, -1, { cork: true, flips: 2 }), spin(6, -1), spin(4, -1, { cork: true }), spin(4, -1)],
     [flip(4, 1), flip(2, 1), flip(0, 1, { style: 'layout' })],
     [spin(4, 1, { style: 'tail' }), spin(2, 1, { style: 'tail' }), spin(4, 1)],
-    [flip(4, -1), flip(2, -1, { style: 'mute' }), flip(2, -1)],
+    [{ kind: 'roll', halves: 0, side: -1, style: 'mute' }, flip(4, -1), flip(2, -1, { style: 'mute' }), flip(2, -1)],
     [spin(3, -1, { cork: true }), spin(3, -1), spin(1, -1)],
     [spin(5, 1, { switch: true }), spin(3, 1, { switch: true }), spin(1, 1, { switch: true })],
     [spin(6, 1), spin(4, 1, { cork: true }), spin(4, 1)],
@@ -2972,12 +3002,12 @@ async function start() {
   // general"): a 540 among them, it came down backwards, and took every kicker after it switch.)
   const SHOW_TRICKS: (DemoTrick[] | null)[] = [
     [spin(4, 1, { cork: true }), spin(4, 1), spin(2, 1)],
-    [flip(2, -1), flip(0, -1, { style: 'mute' }), flip(0, -1)],
+    [{ kind: 'roll', halves: 0, side: -1 }, flip(2, -1), flip(0, -1, { style: 'mute' }), flip(0, -1)],
     [spin(4, -1, { style: 'tail' }), spin(4, -1), spin(2, -1)],
     [flip(2, 1, { style: 'mute' }), flip(2, 1), flip(0, 1, { style: 'mute' })],
-    [spin(6, 1), spin(4, 1, { cork: true }), spin(4, 1)],
+    [spin(6, 1, { cork: true, flips: 2 }), spin(6, 1), spin(4, 1, { cork: true }), spin(4, 1)],
     null,
-    [flip(4, -1), flip(2, -1, { style: 'layout' }), flip(2, -1)],
+    [flip(0, -1, { flips: 2 }), flip(4, -1), flip(2, -1, { style: 'layout' }), flip(2, -1)],
   ];
   /**
    * Which demo run is watched: the tricks', the orc hunt, or the showcase (the opening's); and each kicker's tricks for it, wildest first
@@ -3008,7 +3038,7 @@ async function start() {
    */
   const askInAir = (trick: DemoTrick | undefined, a: Air) => {
     const left = a.T - a.t, style = trick?.style, spinning = !!trick && a.holding && halvesOf(a) < trick.halves;
-    const toGo = Math.max(Math.abs(a.spinTo - a.spin) / (SPIN_RATE * TURN), Math.abs(a.flipTo - a.flip) / (FLIP_RATE * TURN * a.rate.flip));
+    const toGo = Math.max(Math.abs(a.spinTo - a.spin) / (SPIN_RATE * TURN), Math.abs(a.flipTo - a.flip) / (FLIP_RATE * TURN * a.rate.flip), Math.abs(a.rollTo - a.roll) / (ROLL_RATE * TURN * a.rate.roll));
     const behind = toGo > left - 0.42, styling = !!style && a.t > 0.14 && left > 0.5 && !spinning;
     let x = spinning ? (trick?.side ?? 1) * 0.9 : 0, y = behind && !spinning ? 1 : 0;
     if (styling && (style === 'mute' || style === 'tail')) { x = style === 'mute' ? -0.8 : 0.8; y = 0.75; }
@@ -3016,9 +3046,11 @@ async function start() {
     return { x, y };
   };
   /** What a trick is, to tell one landed from another: what it did off the lip, how many half turns, whether corked, its style, switch. */
-  const keyOf = (kind: Air['kind'], halves: number, cork: boolean, style: Style | '', sw: boolean) => `${kind}|${halves}|${cork ? 1 : 0}|${style}|${sw ? 'switch' : ''}`;
-  const trickKey = (t: DemoTrick) => keyOf(t.kind, t.halves, !!t.cork, t.style ?? '', !!t.switch);
-  const demoName = (t?: DemoTrick) => (t ? nameOf(t.kind, t.halves, !!t.cork, t.style ?? '', !!t.switch) : 'Carving');
+  const keyOf = (kind: Air['kind'], halves: number, cork: boolean, style: Style | '', sw: boolean, flips: number) => `${kind}|${halves}|${cork ? 1 : 0}|${style}|${sw ? 'switch' : ''}|${flips}`;
+  /** How many flips a trick asks: a backflip's one unless it is a double; a double cork's two; none else. */
+  const flipsAsked = (t: DemoTrick) => t.flips ?? (t.kind === 'flip' ? 1 : 0);
+  const trickKey = (t: DemoTrick) => keyOf(t.kind, t.halves, !!t.cork, t.style ?? '', !!t.switch, flipsAsked(t));
+  const demoName = (t?: DemoTrick) => (t ? nameOf(t.kind, t.halves, !!t.cork, t.style ?? '', !!t.switch, flipsAsked(t)) : 'Carving');
   /** The speeds a kicker is taken at, the first first, the others if that one does not make its trick. */
   const DEMO_SPEEDS = [17, 20, 14, 23, 11, 26];
   interface DemoFrame { p: Vector3; q: Quaternion; air: boolean; c: RideControls | AirControls; now: Now; sw: boolean }
@@ -3096,6 +3128,7 @@ async function start() {
       // still on the ramp.)
       const toLip = kick ? kick.L - ((ride.x - kick.x) * kick.dx + (ride.z - kick.z) * kick.dz) : Infinity;
       want.brake = false;
+      if (!air) planned = kick && toLip < 75 && trick ? trick : null;
       if (air) {
         // In the air: the style asked, from a moment off the lip until a moment before the snow; tucked, if its turns would not
         // otherwise come round in time (at the rate it set off the lip, before it opens up to land).
@@ -3178,7 +3211,7 @@ async function start() {
       // (The whole flight named as it landed, or fell: it is named as it goes, and a grab is not one until it has been held.)
       if (air && !wasAir) airFrom = labels.length;
       if (wasAir && !air && wasAir.kind !== 'hop') for (let i = airFrom; i < labels.length; i++) labels[i] = wasAir.name;
-      if (wasAir && !air && !crash && wasAir.kind !== 'hop') { landed.push(wasAir.name); last = keyOf(wasAir.kind, halvesOf(wasAir), !!wasAir.cork, styleOf(wasAir), wasAir.fromSwitch); lastT = wasAir.t; off += `${wasAir.name} in ${wasAir.t.toFixed(2)} s; `; }
+      if (wasAir && !air && !crash && wasAir.kind !== 'hop') { landed.push(wasAir.name); last = keyOf(wasAir.kind, halvesOf(wasAir), !!wasAir.cork, styleOf(wasAir), wasAir.fromSwitch, flipsOf(wasAir)); lastT = wasAir.t; off += `${wasAir.name} in ${wasAir.t.toFixed(2)} s; `; }
       if (keep) { frames.push({ p: rider.position.clone(), q: rider.quaternion.clone(), air: posed.air, c: { ...posed.c }, now: { ...now }, sw: ride.switch }); labels.push(label); }
       if (crash) { note(`fell, ${crash.why}`); if (again()) continue; fell = crash.why; break; }
       if ((ride.ended || stopAt < Infinity) && ride.speed < 0.3) break;
@@ -3251,8 +3284,14 @@ async function start() {
     { t: { kind: 'air', halves: 2, style: 'tail' }, wild: 0.46, need: 1.1 }, { t: { kind: 'air', halves: 3 }, wild: 0.52, need: 1.05 },
     { t: { kind: 'flip', halves: 0, style: 'layout' }, wild: 0.56, need: 1.1 }, { t: { kind: 'air', halves: 4 }, wild: 0.62, need: 1.2 },
     { t: { kind: 'air', halves: 3, cork: true }, wild: 0.67, need: 1.15 }, { t: { kind: 'flip', halves: 2 }, wild: 0.72, need: 1.22 },
-    { t: { kind: 'air', halves: 4, cork: true }, wild: 0.8, need: 1.3 }, { t: { kind: 'air', halves: 5 }, wild: 0.88, need: 1.48 },
-    { t: { kind: 'flip', halves: 4 }, wild: 0.94, need: 1.48 }, { t: { kind: 'air', halves: 6 }, wild: 1, need: 1.65 },
+    { t: { kind: 'air', halves: 4, cork: true }, wild: 0.8, need: 1.3 }, { t: { kind: 'air', halves: 5 }, wild: 0.86, need: 1.48 },
+    { t: { kind: 'flip', halves: 4 }, wild: 0.9, need: 1.48 }, { t: { kind: 'air', halves: 6 }, wild: 0.96, need: 1.65 },
+    // (Asked: "would double backflips and doublecorks be possible? barrel rolls? add them if yes". Each wants as long in the air as it
+    // was seen to come round in off the Silent Warden's kickers, and a little more: a barrel roll 0.75 seconds, a double backflip 1.37,
+    // a double cork 720 1.62 and a 1080 1.65.)
+    { t: { kind: 'roll', halves: 0 }, wild: 0.5, need: 0.95 }, { t: { kind: 'roll', halves: 0, style: 'mute' }, wild: 0.6, need: 1.1 },
+    { t: { kind: 'flip', halves: 0, flips: 2 }, wild: 0.88, need: 1.5 }, { t: { kind: 'air', halves: 4, cork: true, flips: 2 }, wild: 0.94, need: 1.7 },
+    { t: { kind: 'air', halves: 6, cork: true, flips: 2 }, wild: 1, need: 1.78 },
   ];
   /** How long a kicker keeps a skier going at `speed` off its lip in the air, as near as can be told before it gets there. */
   const airtimeOff = (k: Kicker, speed: number) => {
@@ -3316,6 +3355,7 @@ async function start() {
       return;
     }
     if (rideTrick?.air) rideTrick = null;
+    planned = rideTrick?.trick ?? null;
     if (rideTrick) {
       const k = rideTrick.k, toLip = k.L - ((ride.x - k.x) * k.dx + (ride.z - k.z) * k.dz);
       // (Gone by it, not off it: steered off its line.)
@@ -3326,7 +3366,7 @@ async function start() {
       return;
     }
     const ahead = kickerAhead();
-    if (ahead) rideTrick = { k: ahead.k, trick: pickTrick(ahead.k, ahead.toLip / Math.max(ride.speed, 1)), air: null };
+    if (ahead) { rideTrick = { k: ahead.k, trick: pickTrick(ahead.k, ahead.toLip / Math.max(ride.speed, 1)), air: null }; planned = rideTrick.trick; }
   };
 
   const showWatchTracks = (t: number | null) => watchTracks.forEach((m, k) => showStrip(m, t === null || k >= watchSkis ? 0 : Math.max(0, Math.floor(t / (2 * STEP))) * 6));
@@ -5096,6 +5136,19 @@ async function start() {
     state: () => ({ air: air && { ...air }, crash: crash && { why: crash.why, still: stillFor(), rest: atRest(), at: fallenAt().toArray(), bodies: crash.dolls.map((d) => d.doll.middle().toArray()) }, told: { ...told } }),
     // (The `i`th kicker that stands, counting from the top; and where the skier is put, by how far down the run and across it.)
     // (How each size would land off the `i`th kicker standing, slower and faster: for weighing `kickSize`.)
+    // (Riding, the `i`th kicker taken with `trick` from 40 metres before it at `kmh`, straight at it: what came of it; or, `stop` seconds
+    // into the air, held there, for a picture of it.)
+    fly: (i: number, trick: DemoTrick, kmh: number, stop?: number) => {
+      const k = standing(i + 1)[i];
+      restart();
+      ride.way = ride.facing = 0; ride.switch = !!trick.switch;
+      putAt(k.s - 40, k.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); ride.speed = kmh / 3.6;
+      rideTrick = { k, trick, air: null };
+      let flew: Air | null = null, lip = 0;
+      for (let n = 0; n < 1200; n++) { askRide(); const was = ride.speed; stepRide(1 / 120); if (air && !flew) { flew = air; lip = was; } if (crash || (flew && !air) || (stop !== undefined && air && air.t >= stop)) break; }
+      if (stop !== undefined) { playing = false; placed = false; reflect(); }
+      return { lip: +(lip * 3.6).toFixed(0), T: flew ? +flew.T.toFixed(2) : 0, did: flew?.name ?? '', fell: crash?.why ?? null };
+    },
     // (How hard a flight off the `i`th kicker comes down, built at `size`, taken at each of `speeds` (metres a second, on the run before it).)
     landings: (i: number, size: number, speeds: number[]) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return speeds.map((v) => { const o = kickFlight(k, kickDims(size), v); return { v, u: +o.u.toFixed(1), f: +o.f.toFixed(2), blow: +o.blow.toFixed(1) }; }); },
     flights: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return KICK_SIZES.map((size) => ({ size, slow: kickFlight(k, kickDims(size), KICK_SPEED - 3), fast: kickFlight(k, kickDims(size), KICK_SPEED + 3) })); },
