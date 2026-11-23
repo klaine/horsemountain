@@ -1241,6 +1241,8 @@ async function start() {
     spun: { flip: number; spin: number } | null; tumble: { flip: number; spin: number };
     eye: { start: Vector3; look: Vector3; at: Vector3; off: Vector3; rel: Vector3; side: number; fov: number; started: boolean };
     shake: number;
+    /** How long since it was let go. */
+    loose: number;
   }
   const NONE = { arm: null, whirl: null, blast: null, saucer: null, snowman: null };
   let cat: Catapult | null = null;
@@ -1272,7 +1274,7 @@ async function start() {
     const look = camera.getWorldDirection(new Vector3()).multiplyScalar(10).add(camera.position);
     return {
       t: 0, from: null, held: false, fly: null, flown: 0, letGo: new Quaternion(), landing, downhill, down, at: at.clone(), spun: null, tumble: { flip: 0, spin: 0 },
-      eye: { start: camera.position.clone(), look, at: camera.position.clone(), off: new Vector3(), rel: new Vector3(), side: 1, fov: camera.fov, started: false }, shake: 0,
+      eye: { start: camera.position.clone(), look, at: camera.position.clone(), off: new Vector3(), rel: new Vector3(), side: 1, fov: camera.fov, started: false }, shake: 0, loose: 0,
     };
   };
   /**
@@ -1553,28 +1555,30 @@ async function start() {
   interface Way {
     begin(): void; step(c: Catapult, dt: number, was: number): void; took?(c: Catapult): void; hold(c: Catapult, dt: number): Vector3;
     lets(c: Catapult): boolean; shot(c: Catapult, dt: number): Vector3; fov: number; tumbling: boolean; coming: string; holding: string;
+    /** How fast it goes as it is let go, of the throw's own pace (struck, near it; floated off, far short of it). */
+    launch: number;
   }
   const WAYS: Record<Ending, Way> = {
     arm: {
       begin: () => beginArm(), step: (c, dt, was) => armStep(c, dt, was), hold: (c) => { putInClaw(); skier.air(kicking(c.t)); return robot.holding(); },
-      lets: (c) => c.t >= ARM_T.drawn + ARM_T.letGo, shot: (c, dt) => armShot(c, dt), fov: 56, tumbling: false, coming: 'Something under the snow', holding: 'In the claw',
+      lets: (c) => c.t >= ARM_T.drawn + ARM_T.letGo, shot: (c, dt) => armShot(c, dt), fov: 56, tumbling: false, coming: 'Something under the snow', holding: 'In the claw', launch: 0.25,
     },
     whirlwind: {
       begin: () => beginWhirl(), step: (c, dt, was) => { if (!c.fly) { comeOver(c); if (was < c.takes && c.t >= c.takes) snowBurst(c.whirl!.to, 2.2, 60, 5); } },
-      took: (c) => takeUp(c), hold: (c, dt) => carry(c, dt), lets: (c) => c.t >= c.takes + c.whirl!.lift, shot: (c, dt) => whirlShot(c, dt), fov: 62, tumbling: true,
+      took: (c) => takeUp(c), hold: (c, dt) => carry(c, dt), lets: (c) => c.t >= c.takes + c.whirl!.lift, shot: (c, dt) => whirlShot(c, dt), fov: 62, tumbling: true, launch: 0.15,
       coming: 'The whirlwind coming', holding: 'In the whirlwind',
     },
     blast: {
       begin: () => beginBlast(), step: (c, dt, was) => blastStep(c, dt, was), took: (c) => { c.blast!.from.copy(c.at); }, hold: (c, dt) => blown(c, dt),
-      lets: (c) => c.t >= c.takes + BLAST_T.blown, shot: (c, dt) => blastShot(c, dt), fov: 60, tumbling: true, coming: 'The snow cracking', holding: 'Blown sky high',
+      lets: (c) => c.t >= c.takes + BLAST_T.blown, shot: (c, dt) => blastShot(c, dt), fov: 60, tumbling: true, coming: 'The snow cracking', holding: 'Blown sky high', launch: 0.08,
     },
     saucer: {
       begin: () => beginSaucer(), step: (c, dt) => saucerStep(c, dt), took: (c) => { c.saucer!.start.copy(c.at); }, hold: (c) => floatUp(c),
-      lets: (c) => c.t >= c.saucer!.flings, shot: (c, dt) => saucerShot(c, dt), fov: 60, tumbling: false, coming: 'Lights in the sky', holding: 'Taken up',
+      lets: (c) => c.t >= c.saucer!.flings, shot: (c, dt) => saucerShot(c, dt), fov: 60, tumbling: false, coming: 'Lights in the sky', holding: 'Taken up', launch: 0.08,
     },
     snowman: {
       begin: () => beginSnowman(), step: (c, dt, was) => snowmanStep(c, dt, was), hold: (c, dt) => driven(c, dt),
-      lets: (c) => c.t >= SNOWMAN_T.contact + 0.1, shot: (c, dt) => snowmanShot(c, dt), fov: 58, tumbling: true, coming: 'A snowman rising', holding: 'Driven',
+      lets: (c) => c.t >= SNOWMAN_T.contact + 0.1, shot: (c, dt) => snowmanShot(c, dt), fov: 58, tumbling: true, coming: 'A snowman rising', holding: 'Driven', launch: 0.25,
     },
   };
   const beginEnding = () => WAYS[ending].begin();
@@ -1582,7 +1586,7 @@ async function start() {
   const throwFrom = (c: Catapult, from: Vector3) => {
     c.fly = new Throw(from.clone(), c.landing.clone().addScaledVector(UP, middleOf()), c.downhill.clone().negate());
     c.letGo.copy(rider.quaternion);
-    c.flown = 0;
+    c.flown = 0; c.loose = 0;
     c.eye.off.copy(camera.position).sub(from);
     c.eye.rel.copy(c.eye.look).sub(from);
     c.eye.side = Math.sign(camera.position.clone().sub(from).dot(c.fly.dir.clone().cross(UP))) || 1;
@@ -1631,14 +1635,20 @@ async function start() {
         if (who === 'mounted') rider.add(jockey.model);
         skier.bodies().forEach((b, i) => b.poseJoints(Object.fromEntries(Object.entries(to[i]).map(([n, v]) => [n, (c.from![i][n] ?? v).clone().lerp(v, k)]))));
       }
-      // Let go: as the arm's throw comes round over the top; as the whirlwind has carried it up as high as it carries it; and so on.
-      if (way.lets(c)) throwFrom(c, middle);
+      // Let go: as the arm's throw comes round over the top; as the whirlwind has carried it up as high as it carries it; and so on. (Only
+      // once it is gathered up, its rider back in the saddle: let go mid-gather, as the snowman's drive was, the rider flew the whole way
+      // posed in the world's frame where it had been taken, far from the horse, which came down under its canopy alone.)
+      if (k >= 1 && way.lets(c)) throwFrom(c, middle);
     }
     // (Until it has it, what the ride says goes; and where the view is about, the skier's own place.)
     if (!c.held) { c.at.copy(focus()).addScaledVector(UP, mid); return riding; }
     if (c.fly) {
       const fly = c.fly;
-      c.flown = Math.min(fly.total, c.flown + dt);
+      // (Its flight brought up to its pace over its first moments: from the throw's own speed at once, hundreds of metres a second, the
+      // view following it was flung away in a single frame.)
+      c.loose += dt;
+      const pace = way.launch + (1 - way.launch) * smooth(c.loose / 0.8);
+      c.flown = Math.min(fly.total, c.flown + dt * pace);
       const ft = c.flown, opening = fly.free - 0.45, v = fly.velocity(ft);
       middle = fly.at(ft);
       speed = v.length();
@@ -3022,6 +3032,8 @@ async function start() {
     sun.position.copy(at).addScaledVector(sunFrom, 50);
     sun.target.position.copy(at);
   };
+  /** How quickly the run's end's view turns to what it looks at, as it begins: slowly at first, so that it turns rather than swings. */
+  const turnIn = (c: Catapult) => 0.12 + 0.88 * smooth(c.t / 0.9);
   /**
    * The arm's shots, before it lets go (where the sun's shadows are kept about given back): up the run from what it takes, a little to
    * the far side of it from the arm, the arm reaching over it seen from its side; then round to the side of the throw, far enough off to
@@ -3038,7 +3050,7 @@ async function start() {
     target.lerp(a.base.clone().addScaledVector(UP, 8).lerp(mid, 0.45), smooth((c.t - T.closed) / 1.3));
     standCamera(want, 2, target);
     e.at.copy(e.start).lerp(want, smooth(c.t / 1.3));
-    e.look.lerp(target, e.started ? ease(dt, c.t > T.drawn ? 11 : 5) : 1);
+    e.look.lerp(target, ease(dt, c.t > T.drawn ? 11 : 5) * turnIn(c));
     camera.position.copy(e.at);
     return both;
   };
@@ -3060,7 +3072,7 @@ async function start() {
     // (Raised until it sees what is taken, not only what it looks at: fallen on a mountainside, it lay hidden behind a rise in the snow.)
     standCamera(want, 2, mid);
     e.at.copy(e.start).lerp(want, smooth(c.t / 1.3));
-    e.look.lerp(target, e.started ? ease(dt, 5) : 1);
+    e.look.lerp(target, ease(dt, 5) * turnIn(c));
     camera.position.copy(e.at);
     const g = ground(mid.x, mid.z);
     return high > 30 ? mid.clone().setY(g) : w.to.clone();
@@ -3076,7 +3088,7 @@ async function start() {
     const target = b.on.clone().lerp(b.at, 0.45).addScaledVector(UP, 1.5).lerp(b.at.clone().addScaledVector(UP, 9).lerp(mid, 0.5), k);
     standCamera(want, 2, b.on.clone().addScaledVector(UP, 1));
     e.at.copy(e.start).lerp(want, smooth(c.t / 1.0));
-    e.look.lerp(target, e.started ? ease(dt, 6) : 1);
+    e.look.lerp(target, ease(dt, 6) * turnIn(c));
     camera.position.copy(e.at);
     return b.on.clone();
   };
@@ -3090,7 +3102,7 @@ async function start() {
     const target = s.at.clone().lerp(mid.clone().lerp(s.at, 0.45), smooth(c.t / SAUCER_T.arrives));
     standCamera(want, 2, mid);
     e.at.copy(e.start).lerp(want, smooth(c.t / 1.3));
-    e.look.lerp(target, e.started ? ease(dt, 4) : 1);
+    e.look.lerp(target, ease(dt, 4) * turnIn(c));
     camera.position.copy(e.at);
     return s.on.clone();
   };
@@ -3105,7 +3117,7 @@ async function start() {
     const target = s.ball.clone().lerp(s.base.clone().addScaledVector(UP, 10), 0.5);
     standCamera(want, 2, s.ball);
     e.at.copy(e.start).lerp(want, smooth(c.t / 1.3));
-    e.look.lerp(target, e.started ? ease(dt, 5) : 1);
+    e.look.lerp(target, ease(dt, 5) * turnIn(c));
     camera.position.copy(e.at);
     return s.ball.clone().setY(ground(s.ball.x, s.ball.z));
   };
@@ -3120,7 +3132,9 @@ async function start() {
    */
   const placeCatapultView = (dt: number) => {
     const c = cat!, e = c.eye, mid = c.at;
-    // (Whatever view the rider rides in, the run's end's own cinematic view, which gives it back as the run begins: `handOver`.)
+    // (Whatever view the rider rides in, the run's end's own cinematic view, which gives it back as the run begins: `handOver`. Turned
+    // from where the view was looking to what each way looks at, from the first moment, rather than cut to it: cut, the picture jumped
+    // as each way began.)
     camera.up.set(0, 1, 0);
     let sunAt: Vector3;
     if (!c.fly) sunAt = WAYS[c.by].shot(c, dt);
