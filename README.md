@@ -24,7 +24,7 @@ come under it.
   the picture, no button held: to either side of the middle to turn (skidded out at the sides of the faint guide drawn about the skier),
   above it to tuck, below to stand straight; it takes the skier once it is brought within the guide, and lets it go, running straight,
   when it leaves the picture. Held down, its button brakes; a right click (a tap with two fingers) turns you round; scrolled or
-  pinched, the view comes nearer or goes further off. The arrow keys too, and Shift to brake. You make no tricks: line up on a kicker
+  pinched, the view comes nearer or goes further off. The arrow keys too, and Shift to brake. Each run begins with a push off the poles, and going slowly on the snow you skate on. You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
   speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *180 to switch* (or *180 to regular*, `X`) turns you
   round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends after a fall or at

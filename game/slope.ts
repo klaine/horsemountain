@@ -867,7 +867,24 @@ async function start() {
     flex: 0, back: 0,
     /** A 180 on the snow it is in the middle of, if it is: which, how far into it (seconds), and which way round (to the left, 1). */
     turn180: null as { kind: Ground180; t: number; dir: number } | null,
+    /** How long it has left of pushing off with its poles, a run begun (seconds). */
+    shove: 0,
   };
+  /**
+   * The push off at a run's start (asked: "maybe just add always a small push for new run to get things moving"): for its first moments
+   * the skier pushes off with both poles, a push dying away over them; and, riding (not the demo run's pilot), skates on whenever it is
+   * going slowly on the snow, not braking and not at the end of its run, so that no flat stretch or stop leaves it standing there with
+   * no way on: the run back up the land turned inside out began at its foot, where the run flattens out, and could stall there.
+   */
+  const SHOVE = { long: 1.6, most: 3.5, skate: 2.2, below: 4 };
+  let flyingDemo = false;
+  const shoveNow = () => {
+    if (carting || ride.ended || ride.brake > 0.3) return 0;
+    const start = SHOVE.most * smooth(ride.shove / SHOVE.long), skate = flyingDemo || mode !== 'ride' ? 0 : SHOVE.skate * (1 - smooth(ride.speed / SHOVE.below));
+    return Math.max(start, skate);
+  };
+  /** A run begun riding: pushed off with both poles, planted together. */
+  const pushOff = () => { ride.shove = SHOVE.long; ride.flickL = ride.flickR = FLICK; };
   /** An angle brought within half a turn either way of nothing. */
   const wrapAngle = (a: number) => a - TURN * Math.round(a / TURN);
   /** Half a turn, when riding switch. */
@@ -1200,7 +1217,7 @@ async function start() {
   };
   /** The skier back at the top, going a little. */
   const resetRide = () => {
-    Object.assign(ride, { way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null });
+    Object.assign(ride, { shove: 0, way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null });
     here = land.frame(0, 0);
     putAt(0, 0);
     ride.settle = { spin: 0, flip: 0, left: 0 };
@@ -1223,6 +1240,7 @@ async function start() {
     clearRideTracks();
     clearSpray();
     clearGun?.();
+    pushOff();
     placed = false;
     reflect();
   };
@@ -1778,6 +1796,7 @@ async function start() {
     seat();
     cat = null;
     levelTilt();
+    pushOff();
     tell('Inside out', 'ride it back down to the top', false, 4);
     handOver(eye, look, runDir(here));
     return { down: ride.down, left: ride.left, speed: ride.speed, way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
@@ -2327,7 +2346,8 @@ async function start() {
     // (Driving the rocket cart back up, its engine pushing it on.)
     const push = cartThrust();
     cartPush += ((push ? push / 15 : 0) - cartPush) * ease(dt, 6);
-    const pull = push - G * rise * level - 0.04 * into - (drag + (carting ? 0.006 : 0)) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
+    ride.shove = Math.max(0, ride.shove - dt);
+    const pull = push + shoveNow() - G * rise * level - 0.04 * into - (drag + (carting ? 0.006 : 0)) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
     ride.speed = Math.max(0, ride.speed + pull * dt);
     ride.x += go.x * ride.speed * level * dt; ride.z += go.z * ride.speed * level * dt;
     ride.time += dt;
@@ -2525,6 +2545,7 @@ async function start() {
   /** Flies the demo run on the land as it is, for the skier as it is. */
   const flyDemo = (): Demo => {
     const TRICKS = demoTricks(), kicked = standing(TRICKS.length).filter((k) => k.s + 40 < land.length), was = kicks;
+    flyingDemo = true;
     // (Which of each kicker's tricks it is making, wildest first: the next once one is not made at any speed.)
     const rung: number[] = [], trickAt = (n: number) => TRICKS[n]?.[rung[n] ?? 0];
     // (Every kicker under it as it goes, without drawing any.)
@@ -2639,6 +2660,7 @@ async function start() {
       if ((ride.ended || stopAt < Infinity) && ride.speed < 0.3) break;
     }
     quiet = false;
+    flyingDemo = false;
     // (The run's parts: each stretch kept under one name.)
     const parts: Demo['parts'] = [];
     labels.forEach((l, i) => { const p = parts[parts.length - 1]; if (p && p.label === l) p.to = (i + 1) * STEP; else parts.push({ label: l, from: i * STEP, to: (i + 1) * STEP }); });
