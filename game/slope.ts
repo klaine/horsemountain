@@ -3053,10 +3053,13 @@ async function start() {
   // general"): a 540 among them, it came down backwards, and took every kicker after it switch.)
   const SHOW_TRICKS: (DemoTrick[] | null)[] = [
     [spin(4, 1, { cork: true }), spin(4, 1), spin(2, 1)],
-    [{ kind: 'roll', halves: 0, side: -1 }, flip(2, -1), flip(0, -1, { style: 'mute' }), flip(0, -1)],
+    [flip(2, -1), flip(0, -1, { style: 'mute' }), flip(0, -1)],
     [spin(4, -1, { style: 'tail' }), spin(4, -1), spin(2, -1)],
     [flip(2, 1, { style: 'mute' }), flip(2, 1), flip(0, 1, { style: 'mute' })],
-    [spin(6, 1, { cork: true, flips: 2 }), spin(6, 1), spin(4, 1, { cork: true }), spin(4, 1)],
+    // (The fifth a barrel roll (asked: "barrel rolls? add them if yes"): made smaller for how fast a rider comes to it, it no longer
+    // gives the time for the 1080 it had. Off the second, as it was first tried, the roll wanted taking fast, and the third, close after
+    // it, could not be slowed for, and was not made at any speed.)
+    [{ kind: 'roll', halves: 0, side: 1, style: 'mute' }, { kind: 'roll', halves: 0, side: 1 }, spin(4, 1)],
     null,
     [flip(0, -1, { flips: 2 }), flip(4, -1), flip(2, -1, { style: 'layout' }), flip(2, -1)],
   ];
