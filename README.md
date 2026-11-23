@@ -55,8 +55,8 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   crest that rounds over sharply, you spring off it into the air as a skier does off a roller (not often: at 70 km/h and more, where
   the snow falls away nearly as fast as you would fall). You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
-  speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *180 to switch* (or *180 to regular*, `X`) turns you
-  round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends after a fall (a body sliding on down steep snow dug in after a second and a half, and soon stopped) or at
+  speed, milder or wilder as the upright slider at the lower right says, *Wild* at its top and *Mild* at its foot. Over it, *180* (`X`; lit
+  while you ride switch) turns you round on the snow, to switch or back, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends after a fall (a body sliding on down steep snow dug in after a second and a half, and soon stopped) or at
   the foot of the run, and you are asked how to get back to the top: one of seven ways, or *Random*. Tick *Remember my choice* and
   you are not asked again; *Back to the top* in the menu changes it (or sets it to be asked again). By chance, each way comes once
   in every round of them, in an order shuffled afresh. A huge robot arm rises out of
@@ -76,7 +76,7 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   next run begins (fall off, and another comes down). (Neither of the last two on the groomed slope, which has no top to come back
   to.) The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
-  Enter, a click, or on a phone a tap, begins the next run at once. Riding wins points, counted at the top left and thrown up over the picture where
+  Enter, a click, or on a phone a tap, begins the next run at once. Riding wins points, thrown up over the picture where
   they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the
   longer in the air, and its length; the most won in one run on each slope is kept in the browser, and shown beside them. With *Orcs & weapons* on in the menu (off at first), the skier alone or the
   horse's rider carries a weapon in place of its poles, and takes up a better one as it brings orcs down, counted over every run
@@ -90,8 +90,8 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   phone or a tablet, a finger on the picture fires it there, an orc near the finger aimed at itself, while tilting or the stick
   steers (fewer orcs at a time there). What is carried is said beside the count, and a bar at the left of the picture fills toward the next, how many more at its
   foot, gilt as it is taken up. Orcs come up the
-  run in hordes to be brought down, red blood on the snow (none from the burnt or the struck by lightning), how many counted at the
-  top left; each shot, burnt or struck down a hundred points and a white cross where a round struck, each run down or cut down a
+  run in hordes to be brought down, red blood on the snow (none from the burnt or the struck by lightning), how many counted with
+  the info; each shot, burnt or struck down a hundred points and a white cross where a round struck, each run down or cut down a
   hundred and fifty, and a double, a triple, for each downed hard on the last.
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
@@ -108,6 +108,9 @@ rider, the horse alone, or a person on skis, an adventurer with a sword on its b
 riding from behind, and each keeps the one it was last left in; and its distance; from behind on a phone held upright, twice as far
 off to begin with) and *Picture* (the snow detailed or plain, the minimap shown or
 hidden, how finely the picture is drawn, the blur). Escape or `H` closes it. `M` opens the map of the runs (riding, the ride held while it is open). `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so).
+
+The info at the top left (what the skier is doing, how fast, how far down, the points and the orcs brought down) is hidden at
+first, the picture clear: *Info at the top left* in the menu under *Picture* shows it (`I`; `?info=1`), kept in the browser.
 
 The minimap, at the right under *Menu* (`N` shows or hides it; `?minimap=0`): the whole run small, turned so that the way down it
 points up, as the way ahead does in the picture seen from behind; its marked piste pale, its kickers in brass, its top a green dot

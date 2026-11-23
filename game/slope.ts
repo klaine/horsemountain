@@ -3382,6 +3382,16 @@ async function start() {
     const f = land.at(at.down, at.left), way = along(at.way, f);
     mini.show(where.x, where.z, way.x, way.z, offPisteFor > 0);
   };
+  // The info at the top left (what the skier is doing, how fast, how far down, the points), hidden unless asked for (asked: "lets
+  // remove the text box in top left altogether (as default, can be enabled in menu)"): kept in this browser; `?info=1`; `I`.
+  let infoOn = false;
+  const infoButtons = (['Hidden', 'Shown'] as const).map((label, k) => button('infoSeg', label, () => setInfo(k === 1), k ? 'What the skier is doing, how fast, how far down and the points, at the top left (I)' : 'The picture clear at the top left'));
+  const setInfo = (on: boolean) => {
+    infoOn = on;
+    keep('info', on ? '1' : '0');
+    infoButtons.forEach((b, k) => b.classList.toggle('on', (k === 1) === on));
+    document.body.classList.toggle('info', on);
+  };
   const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => { if (k === 1) gunSound.wake(); setOrcs(k === 1); }, k ? 'The skier, or the horse\'s rider, carries arms in place of its poles, and orcs come up the run: a sword first, then a pistol, a shotgun, a flamethrower, a tommy gun, a lightning gun and a bazooka as more are brought down; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
   const setOrcs = (on: boolean) => {
     orcsOn = on;
@@ -3466,7 +3476,8 @@ async function start() {
   const stanceButton = $('stance');
   stanceButton.onclick = () => { start180(); };
   let stanceShown = '';
-  const showStance = () => { const to = ride.switch ? '180 to regular' : '180 to switch'; if (to !== stanceShown) { stanceShown = to; stanceButton.textContent = to; } };
+  // (The button says only "180"; where it goes, in its name for a screen reader, and lit while riding switch.)
+  const showStance = () => { const to = ride.switch ? '180 to regular' : '180 to switch'; if (to !== stanceShown) { stanceShown = to; stanceButton.setAttribute('aria-label', to); stanceButton.classList.toggle('switch', ride.switch); } };
   // How wild the tricks are, kept in this browser for next time.
   wildInput.addEventListener('input', () => keep('wild', wildInput.value));
   const line = $('line'), head = line.querySelector('.head') as HTMLElement;
@@ -3731,7 +3742,7 @@ async function start() {
     if (asking && /^[1-8]$/.test(e.key) && !wayButtons[+e.key - 1].hidden) { takeWay(WAY_NAMES[+e.key - 1][0]); e.preventDefault(); return; }
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
-    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (v) setView(v[1]);
+    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; });
@@ -4805,6 +4816,7 @@ async function start() {
   setDistance(Number(kept('distance') ?? 1) || 1);
   setOffPiste(query.has('offpiste') ? query.get('offpiste') !== '0' : kept('offpiste') !== '0');
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
+  setInfo(query.has('info') ? query.get('info') !== '0' : kept('info') === '1');
   setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
   resetScore();
   setTilt(kept('tilt') !== '0');
