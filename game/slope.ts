@@ -113,7 +113,7 @@ const KICK = { first: 70, every: 130, length: 7, height: 1.5, power: 1.7, back: 
 /**
  * The sizes a kicker is built at, the biggest first: from four fifths of `KICK` (a lip a metre high) to nearly twice it (a lip of three
  * and a half metres at the end of a ramp of thirteen). And the speed it is sized for, about what a run is taken at (some 72 km/h); how
- * hard, at the most, a skier off one bigger than size 1 at that speed is to come into the snow, metres a second (a fall is past 12.5);
+ * hard, at the most, a skier off one bigger than size 1 at that speed is to come into the snow, metres a second (a fall is past `FALL_BLOW`);
  * and how hard off one of size 1, before it is made smaller.
  */
 const KICK_SIZES = [1.8, 1.55, 1.35, 1.15, 1, 0.88, 0.78], KICK_SPEED = 20, KICK_BLOW = 10, KICK_HARD = 11;
@@ -577,7 +577,7 @@ async function start() {
   /**
    * Flown off a kicker of measures `d` standing at `at` from `v0` metres a second on the run before it (less what climbing to its lip
    * costs), straight on down its way over the land as it lies: how far from its foot it comes down, how steeply the land falls there and
-   * six metres on (rise over run), and how hard it comes into the snow (the blow, as `land_` has it, which past 12.5 metres a second is
+   * six metres on (rise over run), and how hard it comes into the snow (the blow, as `land_` has it, which past `FALL_BLOW` metres a second is
    * a fall).
    */
   const kickFlight = (at: { x: number; z: number; dx: number; dz: number }, d: KickDims, v0: number) => {
@@ -1585,6 +1585,11 @@ async function start() {
   };
 
   /** Comes down onto the snow: landed, if the turns are near enough made and the blow (how fast it comes into the snow) not too hard; else gone limp. */
+  /**
+   * How hard a skier may come into the snow, metres a second across it, before it falls (asked: "You can increase a bit the limit when
+   * a fall would happen also"): 14, where it had been 12.5.
+   */
+  const FALL_BLOW = 14;
   /** When the skier may next spring off a knoll (by `ride.time`): a moment after it last came down. (Or at once, on a run begun since, whose clock has gone back.) */
   let knollAfter = 0;
   const land_ = () => {
@@ -1593,8 +1598,8 @@ async function start() {
     const far = Math.hypot(ride.x - a.from.x, ride.z - a.from.z);
     air = null;
     knollAfter = ride.time + KNOLL.after;
-    if (flipShort > deg(55) || spinShort > deg(75) || blow > 12.5) {
-      const why = blow > 12.5 ? 'landed too hard' : flipShort > deg(55) ? (flipShort > deg(200) ? (a.rollTo ? 'landed on its side' : 'landed on its back') : a.rollTo ? 'short of the roll' : 'short of the flip') : `short of the ${halvesOf(a) * 180}`;
+    if (flipShort > deg(55) || spinShort > deg(75) || blow > FALL_BLOW) {
+      const why = blow > FALL_BLOW ? 'landed too hard' : flipShort > deg(55) ? (flipShort > deg(200) ? (a.rollTo ? 'landed on its side' : 'landed on its back') : a.rollTo ? 'short of the roll' : 'short of the flip') : `short of the ${halvesOf(a) * 180}`;
       fall(why);
       return;
     }
@@ -3825,21 +3830,22 @@ async function start() {
    * no faster: over the run up to it, before its ramp, and before the trick off it is chosen, which is chosen for the speed it then
    * goes. (The kickers kept as they were: made smaller for it, the demo runs' pilot could not line up on two of them.)
    */
-  // (A fall is past 12.5 m/s into the snow; braked to come down no harder than 12.3. To `KICK_HARD`'s 11, which a kicker is sized by, a
+  // (A fall is past `FALL_BLOW`, 14 m/s into the snow; braked to come down no harder than 13: closer to the fall, a cork 900 and a spread eagle taken at their limits came down too hard, the flight reckoned for the limit a little lower than the ride makes it off a kicker's curve. To `KICK_HARD`'s 11, which a kicker is sized by, a
   // rider was checked before most of the Silent Warden's kickers at 67 to 70 km/h, slower than they are sized for.) And (asked: "The
   // speedcheck comes too easily now"): only lined up on a kicker and going its way, not going by beside it; only `slack` metres a second
   // over what it lands softly at, and then braked down to that; and only from as far before its foot as it takes to brake so much, at
   // some `slows` metres a second each second, and `lead` metres more as the brake bites. It had braked any rider within four metres of a
   // kicker's sides and going its way at all, from 110 metres out, at the least speed over.
   // (A little over it, taken off its lip absorbed, as a skier soaks up a lip to fly less far: off it no faster than its limit, `soak`.)
-  const SPEED_CHECK = { until: 4, blow: 12.3, slack: 3, slows: 4.5, lead: 10 };
+  const SPEED_CHECK = { until: 4, blow: 13, slack: 3, slows: 4.5, lead: 10 };
   /** Off a kicker's lip faster than it lands softly at: the lip absorbed, the skier off it no faster than that. (Riding only.) */
   const soak = (v: Vector3) => {
     if (!speedChecks || flyingDemo || mode !== 'ride') return;
     for (const k of kicks) {
       const toLip = k.L - ((ride.x - k.x) * k.dx + (ride.z - k.z) * k.dz), off = (ride.x - k.x) * k.dz - (ride.z - k.z) * k.dx;
       if (Math.abs(toLip) > 2.5 || Math.abs(off) > k.half + 1) continue;
-      const safe = safeOff(k), speed = v.length();
+      // (A little under its limit, the limit reckoned by a flight a little lower than the ride makes off a kicker's curve.)
+      const safe = 0.97 * safeOff(k), speed = v.length();
       if (speed > safe) v.multiplyScalar(safe / speed);
       return;
     }
