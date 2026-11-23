@@ -14,6 +14,9 @@
  * of the stretch of the world about them, on a lattice of `--cell` metres (sixteen), and each run's line and what it is like, from its
  * slice (made for it, and written only if it is named on its own too).
  *
+ * A run named in `RAISED` is carried further up its mountain than the search began it, to the point given there; it is listed,
+ * written and mapped so.
+ *
  *   npx tsx tools/skiRun.ts [world seed, w2] [which runs kept to write: 1 3 ...] [--picture <folder>] [--map 1,3,8,10] [--cell 16]
  *
  * (With no runs named it only lists them, and writes nothing.)
@@ -21,7 +24,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { world } from '../src/core/world';
-import { findSkiRun, RUN, sliceOfRun, type SkiRun } from '../src/core/skiRun';
+import { findSkiRun, RUN, skiableLand, sliceOfRun, smoothed, squash, type SkiRun } from '../src/core/skiRun';
 import { writeSlice, type SkiSlice } from '../src/core/skiSlice';
 import { landOfWorld } from '../src/core/worldLand';
 import { HeightField } from '../src/core/terrain';
@@ -40,13 +43,90 @@ console.log(`  great peaks: ${w.peaks.map((q, k) => `${w.peakNames[k]} (${q.y.to
 t = performance.now();
 const found = findSkiRun(w);
 console.log(`  ${found.tried} starts tried, ${found.kept.length} runs kept, in ${((performance.now() - t) / 1000).toFixed(1)} s`);
+
+/**
+ * Runs carried further up than the search began them: by the world and their place among the runs kept, the point each is to start
+ * from. (Asked: "Can we make the Lake wall run longer by making it start more from uphill as marked", on the map, at the knoll at the
+ * head of the spur it comes down, some six hundred metres up the spur from where it began. The search lets a line go on only where
+ * the land ahead falls by `RUN.gentle` at least, and the spur lies all but level for a hundred metres above where Lake Wall began, so
+ * no line let go from higher up it came through.)
+ */
+const RAISED: Record<string, Record<number, [number, number]>> = { w2: { 14: [1664, -2244] } };
+
+/** The world's land as the search reads it: brought lower above `RUN.squash.above`, smoothed, and where a path can be skied. */
+let searched: { h: (x: number, z: number) => number; band: Uint8Array; cellOf: (x: number, z: number) => number } | null = null;
+const searchLand = () => {
+  if (searched) return searched;
+  const f = new HeightField(w.field.x0, w.field.z0, w.field.cell, w.field.nx, w.field.nz);
+  f.data.set(w.field.data.map(squash));
+  const soft = smoothed(f, 1), { band } = skiableLand(w, f);
+  const cellOf = (x: number, z: number) => {
+    const i = Math.round((x - f.x0) / f.cell), j = Math.round((z - f.z0) / f.cell);
+    return i < 0 || j < 0 || i >= f.nx || j >= f.nz ? -1 : j * f.nx + i;
+  };
+  return (searched = { h: (x, z) => soft.smoothAt(x, z), band, cellOf });
+};
+const deg = (r: number) => (r * 180) / Math.PI;
+
+/**
+ * A run carried up to a point above its top: walked up from its top a step at a time, setting off the way the run comes down to it
+ * turned about (so that it goes on into the run with no bend), turning toward the point no more sharply than a curve of `RUN.bend`
+ * allows, over land where a path can be skied, never steeper than can be skied and never falling (as it is skied down, climbing no
+ * more than half a metre in eight). Then measured again as the search measures a run.
+ */
+function raise(run: SkiRun, [tx, tz]: [number, number]): SkiRun {
+  const { h, band, cellOf } = searchLand(), turnMost = RUN.step / RUN.bend, seg = RUN.ahead / 5, steep = Math.tan((RUN.steep * Math.PI) / 180);
+  let [x, z] = run.points[0], a = Math.atan2(run.points[0][1] - run.points[1][1], run.points[0][0] - run.points[1][0]);
+  const up: [number, number][] = [];
+  while (Math.hypot(tx - x, tz - z) >= RUN.step) {
+    if (up.length * RUN.step > RUN.longest) throw new Error(`run carried up to ${tx},${tz}: lost on the way`);
+    // (Each way it could turn to, looking as far ahead as the search does, or only to the point, where it is nearer.)
+    const toward = Math.atan2(tz - z, tx - x), look = Math.max(1, Math.min(5, Math.floor(Math.hypot(tx - x, tz - z) / seg)));
+    let best = Infinity, to = a;
+    for (let turn = -turnMost; turn <= turnMost + 1e-9; turn += turnMost / 3) {
+      const b = a + turn, dx = Math.cos(b), dz = Math.sin(b);
+      let prev = h(x, z), ok = true;
+      for (let k = 1; k <= look && ok; k++) {
+        const px = x + dx * seg * k, pz = z + dz * seg * k, c = cellOf(px, pz), y = h(px, pz);
+        ok = c >= 0 && !!band[c] && y - prev <= steep * seg && y >= prev - 0.5;
+        prev = y;
+      }
+      const off = Math.abs(Math.atan2(Math.sin(toward - b), Math.cos(toward - b)));
+      if (ok && off < best) { best = off; to = b; }
+    }
+    if (best === Infinity) throw new Error(`run carried up to ${tx},${tz}: no way up from ${x.toFixed(0)},${z.toFixed(0)}`);
+    a = to;
+    x += Math.cos(a) * RUN.step; z += Math.sin(a) * RUN.step;
+    up.push([x, z]);
+  }
+  const points = [...up.reverse(), ...run.points], hs = points.map(([px, pz]) => h(px, pz));
+  const length = (points.length - 1) * RUN.step, drop = hs[0] - hs[hs.length - 1];
+  // (As the search measures a run: how much of it keeps to a crest, its steepest over the look ahead, its steepness on the whole.)
+  const crestAt = (px: number, pz: number, b: number) => {
+    const dx = Math.cos(b), dz = Math.sin(b), c = RUN.crest;
+    return h(px, pz) - (h(px - dz * c, pz + dx * c) + h(px + dz * c, pz - dx * c)) / 2;
+  };
+  let crest = 0, steepest = 0;
+  for (let k = 1; k < points.length; k++) { const [px, pz] = points[k], [qx, qz] = points[k - 1]; if (crestAt(px, pz, Math.atan2(pz - qz, px - qx)) > 5) crest += RUN.step; }
+  const per = Math.round(RUN.ahead / RUN.step);
+  for (let k = per; k < points.length; k += per) steepest = Math.max(steepest, deg(Math.atan((hs[k - per] - hs[k]) / RUN.ahead)));
+  return { step: RUN.step, points, heights: hs, drop, length, score: drop + 2 * hs[0] + 0.25 * length + 0.6 * crest, steepest, mean: deg(Math.atan(drop / length)), crest };
+}
+
+/** The runs kept, those named in `RAISED` carried up. */
+const kept = found.kept.map((r, i) => {
+  const top = RAISED[seed]?.[i + 1];
+  return top ? raise(r, top) : r;
+});
+
 /** The nearest of a list to a point, and how far, kilometres. */
 const nearest = <T extends { x: number; z: number }>(list: T[], [x, z]: [number, number]) =>
   list.reduce<{ it: T | null; d: number }>((best, it) => { const d = Math.hypot(it.x - x, it.z - z); return d < best.d ? { it, d } : best; }, { it: null, d: Infinity });
 const peaks = w.peaks.map((q, k) => ({ ...q, name: w.peakNames[k] ?? '' }));
-found.kept.forEach((r, i) => {
+kept.forEach((r, i) => {
   const [a, b] = [r.points[0], r.points[r.points.length - 1]], peak = nearest(peaks, a), town = nearest(w.towns, b);
-  console.log(`  ${String(i + 1).padStart(2)}. from ${a.map((v) => v.toFixed(0))} at ${r.heights[0].toFixed(0)} m to ${b.map((v) => v.toFixed(0))} at ${r.heights[r.heights.length - 1].toFixed(0)} m: ${r.length} m long, falling ${r.drop.toFixed(0)} m, ${r.mean.toFixed(1)} degrees on the whole, ${r.steepest.toFixed(1)} at most over ${RUN.ahead} m, ${r.crest} m along a crest; ${(peak.d / 1000).toFixed(1)} km from ${peak.it?.name}, its foot ${(town.d / 1000).toFixed(1)} km from ${town.it?.name} (${town.it?.kind})`);
+  const more = r === found.kept[i] ? '' : ` (carried ${r.length - found.kept[i].length} m further up than the search began it)`;
+  console.log(`  ${String(i + 1).padStart(2)}. from ${a.map((v) => v.toFixed(0))} at ${r.heights[0].toFixed(0)} m to ${b.map((v) => v.toFixed(0))} at ${r.heights[r.heights.length - 1].toFixed(0)} m: ${r.length} m long, falling ${r.drop.toFixed(0)} m, ${r.mean.toFixed(1)} degrees on the whole, ${r.steepest.toFixed(1)} at most over ${RUN.ahead} m, ${r.crest} m along a crest; ${(peak.d / 1000).toFixed(1)} km from ${peak.it?.name}, its foot ${(town.d / 1000).toFixed(1)} km from ${town.it?.name} (${town.it?.kind})${more}`);
 });
 
 /** A run's slice, made as it would be alone. */
@@ -60,7 +140,7 @@ const sliceAlone = (run: SkiRun) => {
 const idOf = (pick: number) => (pick === 1 ? seed : `${seed}-${pick}`);
 
 for (const pick of picks) {
-  const run = found.kept[pick - 1];
+  const run = kept[pick - 1];
   if (!run) { console.log(`  no run ${pick} kept`); process.exitCode = 1; continue; }
   t = performance.now();
   const slice = sliceAlone(run);
@@ -78,7 +158,7 @@ if (folder) picture(`${folder}/${seed}-runs.png`, [0, 0], Math.max(w.plan.hx, w.
 
 if (mapOf?.length) {
   t = performance.now();
-  const chosen = mapOf.map((n) => ({ n, run: found.kept[n - 1] })).filter((c): c is { n: number; run: SkiRun } => !!c.run);
+  const chosen = mapOf.map((n) => ({ n, run: kept[n - 1] })).filter((c): c is { n: number; run: SkiRun } => !!c.run);
   // The stretch: about the runs, half a kilometre more every way, within the world.
   const xs = chosen.flatMap((c) => c.run.points.map(([x]) => x)), zs = chosen.flatMap((c) => c.run.points.map(([, z]) => z)), margin = 500;
   const p = w.plan, area = {
@@ -158,11 +238,11 @@ function picture(file: string, [mx, mz]: [number, number], half: number, px: num
   };
   const colours = [[230, 30, 30], [255, 140, 0], [255, 230, 0], [0, 200, 0], [0, 220, 220], [40, 80, 255], [200, 0, 255], [255, 255, 255], [0, 0, 0], [255, 120, 200]];
   if (chosen) {
-    found.kept.filter((k) => k !== chosen).forEach((k) => k.points.forEach(([x, z]) => dot(x, z, [255, 200, 0])));
+    kept.filter((k) => k !== chosen).forEach((k) => k.points.forEach(([x, z]) => dot(x, z, [255, 200, 0])));
     chosen.points.forEach(([x, z]) => dot(x, z, [230, 30, 30]));
   } else {
-    found.kept.slice(10).forEach((k) => k.points.forEach(([x, z]) => dot(x, z, [120, 60, 30], 0)));
-    found.kept.slice(0, 10).forEach((k, i) => k.points.forEach(([x, z]) => dot(x, z, colours[i])));
+    kept.slice(10).forEach((k) => k.points.forEach(([x, z]) => dot(x, z, [120, 60, 30], 0)));
+    kept.slice(0, 10).forEach((k, i) => k.points.forEach(([x, z]) => dot(x, z, colours[i])));
   }
   for (const q of [...w.places.map((p) => ({ ...p, r: RUN.place })), ...w.towns.map((t) => ({ ...t, r: RUN.town }))]) for (let a = 0; a < 200; a++) dot(q.x + Math.cos(a / 32) * q.r, q.z + Math.sin(a / 32) * q.r, [255, 0, 255], 0);
   for (const q of w.peaks) dot(q.x, q.z, [0, 0, 0], 4);
