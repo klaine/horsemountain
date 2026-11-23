@@ -16,8 +16,8 @@ by stage (painting the snow and rock, laying the snow, teaching the rider to ski
 demo run, inking the map, lighting the mountain), with what is being done and how much has come under it.
 
 - **The showcase**, the opening's (*Showcase* in the menu too), down the Silent Warden: the horse and its rider (or the skier alone)
-  taking a trick off six of its kickers, each coming down facing the way it went (a cork 720, a backflip, a 720, a superman whip
-  backflip, a 1080, a double backflip), and passing the sixth by off the piste, out in the deep powder beside it on whichever side no
+  taking a trick off six of its kickers, each coming down facing the way it went (a cork 720, a backflip 360, a 720, a barrel roll
+  with a superman whip, a double cork 1080, a double backflip), and passing the sixth by off the piste, out in the deep powder beside it on whichever side no
   stones show and no tree stands; orcs coming up the run all the while (whether or not *Orcs & weapons* is on), met with every arm in
   turn, the sword to the bazooka, changing at the camera's cuts, the flamethrower pouring the whole while it is carried; and at the
   foot the robot arm coming up out of the snow, throwing it back to the top under the parachute, and the showcase again from there.
@@ -28,8 +28,8 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   it round again, a superman whip), with turns on the snow to switch and back on the way to the foot; filmed by a cinematic camera
   that cuts from shot to shot, cameras set down by each kicker for its jump.
 - **The orc hunt**, once *Orcs & weapons* is on in the menu (*Orc hunt* there, or `O`): a second demo run, the horse
-  and its rider, the wildest trick each kicker will give them (a cork 720, a backflip 720, a 900 and a switch 900, a superman whip
-  backflip 360, a 1080...), and the rider shooting down the orcs coming up the run with a tommy gun as they go.
+  and its rider, the wildest trick each kicker will give them (a cork 720, a double backflip, a 900 and a switch 900, a superman whip
+  backflip 360, a double cork 1080...), and the rider shooting down the orcs coming up the run with a tommy gun as they go.
 - **Riding it yourself**, seen from behind: on a phone or a tablet, tipping it steers, from however it is held as each run begins:
   its right edge lowered (as a wheel is turned, or tipped lying flat) to turn right, further to skid; its top tipped away to tuck,
   toward you to stand straight (*Steering* in the menu: *Tilt*, at first, or *Stick*); held still a few seconds a little off level, it
@@ -51,7 +51,9 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   ski on the outside of a turn goes a little ahead. Each run begins with a push off the poles, and slowed below 10 km/h on the snow (not braking)
   you skate, a stride with each leg in turn (the horse a side at a time), until you are going 25 km/h again; uphill too, or in deep
   snow, pushing the harder, climbing at a walk, so that nowhere leaves you stuck. The kickers are of many sizes, from a lip a metre high to one of three and a half at the end
-  of a ramp of thirteen: each as big as the land after it gives room to come down on softly at some 72 km/h. And taken fast over a
+  of a ramp of thirteen: each as big as the land after it gives room to come down on softly at some 72 km/h. Coming up on one
+  faster than it is safe to take (a big one at the foot of a steep stretch, as the Silent Warden's fifth), your skis are thrown across
+  to check your speed until you are no faster, *Speed check* said over the picture, before the trick off it is chosen. And taken fast over a
   crest that rounds over sharply, you spring off it into the air as a skier does off a roller (not often: at 70 km/h and more, where
   the snow falls away nearly as fast as you would fall). You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
