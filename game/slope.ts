@@ -3384,10 +3384,12 @@ async function start() {
    * no faster: over the run up to it, before its ramp, and before the trick off it is chosen, which is chosen for the speed it then
    * goes. (The kickers kept as they were: made smaller for it, the demo runs' pilot could not line up on two of them.)
    */
-  const SPEED_CHECK = { from: 110, until: 4 };
+  // (A fall is past 12.5 m/s into the snow; braked to come down no harder than 12. To `KICK_HARD`'s 11, which a kicker is sized by, a
+  // rider was checked before most of the Silent Warden's kickers at 67 to 70 km/h, slower than they are sized for.)
+  const SPEED_CHECK = { from: 110, until: 4, blow: 12 };
   let speedChecks = true;
   /**
-   * The fastest a kicker is come to that a skier off it comes down no harder than `KICK_HARD`; worked out once. (As fast as it comes to
+   * The fastest a kicker is come to that a skier off it comes down no harder than `SPEED_CHECK.blow`; worked out once. (As fast as it comes to
    * it, it goes off the lip: riding, the ramp's climb costs it little. `kickFlight` takes the speed on the run before it, and takes the
    * climb off that, so it is given the speed that leaves its lip at as fast as the skier came. Given that speed itself, a rider braked
    * to it still left the lip a little faster than was safe, and one in five came down too hard.)
@@ -3396,7 +3398,7 @@ async function start() {
     if (k.safe !== undefined) return k.safe;
     const before = (v: number) => { let v0 = v; for (let n = 0; n < 6; n++) v0 = Math.sqrt((v + 0.0065 * v0 * k.L) ** 2 + 2 * G * k.H); return v0; };
     k.safe = Infinity;
-    for (let v = 14; v <= 36; v += 0.5) if (kickFlight(k, k, before(v)).blow > KICK_HARD) { k.safe = v - 0.5; break; }
+    for (let v = 14; v <= 36; v += 0.5) if (kickFlight(k, k, before(v)).blow > SPEED_CHECK.blow) { k.safe = v - 0.5; break; }
     return k.safe;
   };
   /** Whether the skier is coming up on a kicker, going its way and lined up on it or near it, faster than it lands softly at. */
