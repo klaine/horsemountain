@@ -1192,7 +1192,7 @@ async function start() {
   const HOLD = 0.6;
   let air: Air | null = null;
   /** Gone limp, every body of it (a horse and its rider each their own), and why. */
-  let crash: { dolls: { body: Body; doll: Ragdoll }[]; why: string } | null = null;
+  let crash: { dolls: { body: Body; doll: Ragdoll }[]; why: string; settled: number; anchors: Vector3[] } | null = null;
   /** The skier's bodies' joints as the last two steps left them, and how long the last step was: what a body gone limp goes on from. */
   let joints: Record<string, Vector3>[] | null = null, jointsBefore: Record<string, Vector3>[] | null = null, jointsDt = 1 / 120;
   /** What the rider asks: across (-1 to 1, to the right positive) and up (1 the deepest tuck, -1 standing tallest); and braking. */
@@ -1534,7 +1534,7 @@ async function start() {
         if (i > 0) { const thrown = going.clone().multiplyScalar(1.5).addScaledVector(UP, 2.2).multiplyScalar(jointsDt); before = Object.fromEntries(Object.entries(before).map(([k, v]) => [k, v.clone().sub(thrown)])); }
         return { body, doll: new Ragdoll(body.spec, now[i], before, jointsDt, groundUnder) };
       }),
-      why,
+      why, settled: 0, anchors: [],
     };
     rider.position.set(0, 0, 0);
     rider.quaternion.identity();
@@ -2672,10 +2672,30 @@ async function start() {
     return { down: here.s, left: here.left, speed: Math.hypot(a.v.x, a.v.z), way, ski: ride.way, skid: 0, tuck: ride.tuck, brake: 0 };
   };
 
+  /**
+   * Gone limp and sliding on (asked: "when player falls and goes into a long (5+ sec glide down the slopes out of bound) make the body
+   * brake down to bring the transition happen faster"): the snow's hold on a body (0.55 of its weight) is less than the pull down a slope
+   * steeper than some 29 degrees, as much of the land off the piste is, and a body fallen there slid on for many seconds before the run
+   * could end. So after `after` seconds down, the hold grows by `rate` a second up to `most`, as a body digs into the snow: one that has
+   * stopped is no different, one sliding on is brought to a stop within a couple of seconds more. A body tumbling on, which friction
+   * holds only as it strikes the snow (a rider thrown from the horse rolled on down for five seconds more), slowed from `dragAfter`
+   * seconds by a drag on it all that grows by `dragRate` a second up to `dragMost`. And stopped so on steep snow, its
+   * limbs may twitch on for seconds, never all still at once (`stillFor`): so the run may end too once every body's middle has stayed
+   * within `near` metres of where it was for `settled` seconds together (`crash.settled`, from `crash.anchors`).
+   */
+  const FALL_BRAKE = { after: 1.5, rate: 1.2, most: 3, dragAfter: 3, dragRate: 0.8, dragMost: 2, near: 0.4, settled: 1 };
   /** Gone limp, a step on. */
   const stepFallen = (dt: number): Now => {
     const was = fallenAt();
-    for (const { body, doll } of crash!.dolls) { doll.step(dt); body.poseJoints(doll.joints()); }
+    const c = crash!;
+    for (const { body, doll } of c.dolls) {
+      doll.friction = clamp(0.55 + (doll.time - FALL_BRAKE.after) * FALL_BRAKE.rate, 0.55, FALL_BRAKE.most);
+      doll.drag = clamp(0.03 + (doll.time - FALL_BRAKE.dragAfter) * FALL_BRAKE.dragRate, 0.03, FALL_BRAKE.dragMost);
+      doll.step(dt); body.poseJoints(doll.joints());
+    }
+    // (Moved off from where they were, the clock begun again from where they are now.)
+    if (c.anchors.length && c.dolls.every((d, i) => d.doll.middle().distanceTo(c.anchors[i]) < FALL_BRAKE.near)) c.settled += dt;
+    else { c.anchors = c.dolls.map((d) => d.doll.middle().clone()); c.settled = 0; }
     ride.time += dt;
     const at = fallenAt(), went = at.clone().sub(was), f = land.frame(at.x, at.z, ride.down);
     return { down: f.s, left: f.left, speed: went.length() / dt, way: ride.way, ski: ride.way, skid: 0, tuck: 0, brake: 0 };
@@ -2684,6 +2704,8 @@ async function start() {
   const fallenAt = () => crash!.dolls[0].doll.middle().clone();
   /** How long all of it has lain still. */
   const stillFor = () => Math.min(...crash!.dolls.map((d) => d.doll.still));
+  /** Whether what has fallen has come to rest: all of it still, or its middles barely moving for a second (`FALL_BRAKE`). */
+  const atRest = () => stillFor() > 0.6 || crash!.settled > FALL_BRAKE.settled;
 
   const stepRide = (dt: number): Now => {
     easeAsk(dt);
@@ -2851,7 +2873,7 @@ async function start() {
     if (cat && !crash) return WAYS[cat.by].coming;
     if (ride.turn180) return `${G180[ride.turn180.kind].name}…`;
     if (rideTrick && !rideTrick.air && !air && !crash) return `Up to the kicker: ${demoName(rideTrick.trick)}`;
-    if (crash) return stillFor() > 0.5 ? 'Down in the snow' : 'Tumbling';
+    if (crash) return stillFor() > 0.5 || atRest() ? 'Down in the snow' : 'Tumbling';
     if (air) return air.kind === 'hop' ? 'In the air' : `${air.name}…`;
     if (ride.brake > 0.5) return who === 'person' ? 'Braking' : 'Sliding stop';
     if (ride.speed < 0.5) return ride.ended ? 'At the foot of the run' : 'Standing';
@@ -3980,16 +4002,20 @@ async function start() {
     return Number.isFinite(snowAt) ? from.clone().addScaledVector(dir, snowAt) : null;
   };
   /**
-   * The lightning gun's bolt: to the first orc along its way, or else the one nearest its way within some ten degrees of it, a hundred
+   * The lightning gun's bolt: to the first orc along its way, or else the one nearest its way within some seven degrees of it, a hundred
    * and twenty metres out (lightning goes where it will, and finds what stands nearest it); and from it on to the nearest orc within
-   * fourteen metres not yet struck, and on, five leaps at the most; each struck falls. With none to strike, a short bolt into the snow.
+   * eleven metres not yet struck, and on, three leaps at the most; each struck falls. With none to strike, a short bolt into the snow.
+   * (Weaker than it was (asked: "make the lightning gun somehow a little bit weaker, its super imba now"): it had aimed itself within
+   * ten degrees, leapt fourteen metres five times and thrown a bolt every third of a second, some nineteen orcs a second at the most;
+   * now some nine, a bolt every 0.45 seconds, `LADDER`.)
    */
+  const ZAP = { aim: 7, leap: 11, most: 4 };
   const zap = (arm: Arm) => {
     const { from, dir } = muzzleOf(arm), snowAt = snowAlong(from, dir, 120), reach = Math.min(snowAt, 120);
     const through = [from.clone()], struck = new Set<number>();
     let met = horde.hit(from, dir, reach)?.orc ?? -1;
     if (met < 0) {
-      let best = Math.tan((10 * Math.PI) / 180);
+      let best = Math.tan((ZAP.aim * Math.PI) / 180);
       for (const o of horde.near(from, reach)) {
         const d = o.at.clone().sub(from), along2 = d.dot(dir);
         if (along2 < 4 || along2 > reach) continue;
@@ -3997,15 +4023,15 @@ async function start() {
         if (off < best && snowAlong(from, o.at.clone().sub(from).normalize(), o.at.distanceTo(from)) > o.at.distanceTo(from) - 1) { best = off; met = o.orc; }
       }
     }
-    while (met >= 0 && struck.size < 6) {
+    while (met >= 0 && struck.size < ZAP.most) {
       struck.add(met);
       const at = horde.middle(met);
       through.push(at);
       if (horde.fall(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), false)) { gunSound.grunt(); orcDowned(at, 'zapped'); }
       burst(at, 2, 6);
       met = -1;
-      let near = 14;
-      for (const o of horde.near(at, 14)) { if (struck.has(o.orc)) continue; const d = o.at.distanceTo(at); if (d < near) { near = d; met = o.orc; } }
+      let near = ZAP.leap;
+      for (const o of horde.near(at, ZAP.leap)) { if (struck.has(o.orc)) continue; const d = o.at.distanceTo(at); if (d < near) { near = d; met = o.orc; } }
     }
     if (through.length === 1) { const end = from.clone().addScaledVector(dir, Number.isFinite(snowAt) ? Math.min(snowAt, 30) : 30); through.push(end); burst(end, 2, 8); }
     bolts.strike(through);
@@ -4272,6 +4298,8 @@ async function start() {
   /** A shot: what kind, from when to when, to which side, how wide, and where its camera stands if it stands still. */
   interface Shot { kind: ShotKind; t0: number; t1: number; side: number; fov: number; eye?: Vector3; high?: number; far?: number }
   const FOV = 50;
+  /** Whether there is a mouse or a touchpad to point with: a computer, not a phone or a tablet. */
+  const finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
   const shotFov: Record<ShotKind, number> = { chase: 50, track: 40, ahead: 34, pass: 42, aerial: 46, orbit: 46, side: 36, low: 30, lip: 50 };
   /** A camera set down at `p` as high over the snow as asked, and raised until nothing of the land stands between it and `to`. */
   const standCamera = (p: Vector3, up: number, to: Vector3) => {
@@ -4431,8 +4459,10 @@ async function start() {
     } else {
       // (Each kept over the snow where it is: on a world's land the snow behind and beside the skier can lie well above it.)
       const wantAt = new Vector3(), aim = new Vector3();
-      // (Each as far off as the *Distance* slider says, from half as far to three times.)
-      const d = distance;
+      // (Each as far off as the *Distance* slider says, from half as far to three times. From behind on a phone held upright, twice as
+      // far again (asked: "make the default mobile portrait from behind view 2x farther"): the picture there is narrow, and close
+      // behind it showed the skier and little of the run ahead or either side of it.)
+      const d = distance * (view === 'behind' && innerHeight > innerWidth && !finePointer ? 2 : 1);
       if (view === 'behind') { over(wantAt.copy(follow).addScaledVector(ahead, -9 * d), 3.4 * d); over(aim.copy(follow).addScaledVector(ahead, 6), 0.6); wantAt.y = Math.max(wantAt.y, at.y + 1.6 * d); }
       // (From the side and a little behind, back far enough to see the slope it is on as well as the skier; looking a little ahead of
       // it the way it goes, eased, so that there is room in the picture on the side it is heading to (asked: "adjust besides camera so
@@ -4952,7 +4982,7 @@ async function start() {
       if (!cat?.held) for (let i = 0; i < steps; i++) { askRide(); at = stepRide(dt / steps); }
       // (A run over: fallen and lain still, or stopped at the foot of the run; and the arm comes for it.)
       // (Or, the run to end in the whirlwind, ridden into it.)
-      if (playing && !cat && ((crash && stillFor() > 0.6) || (ride.ended && ride.speed < 0.5) || riddenInto())) beginEnding();
+      if (playing && !cat && ((crash && atRest()) || (ride.ended && ride.speed < 0.5) || riddenInto())) beginEnding();
       if (cat) at = stepCatapult(playing && !menuOpen ? dt : 0, at);
       stepSpent(playing && !menuOpen ? dt : 0);
       stepWhirlwind(playing && !menuOpen ? dt : 0);
@@ -5025,7 +5055,7 @@ async function start() {
     onScreen: () => { const p = focus().addScaledVector(UP, 0.9).project(camera); return [+p.x.toFixed(2), +p.y.toFixed(2)]; },
     step: (seconds: number) => { let at: Now | null = null; for (let i = 0; i < Math.round(seconds * 120); i++) { askRide(); at = stepRide(1 / 120); } if (at && !air && !crash) layRide(at); placed = false; return { ...ride }; },
     // (Riding: what is happening in the air or on the ground, the kickers, and to put the skier anywhere going anyhow.)
-    state: () => ({ air: air && { ...air }, crash: crash && { why: crash.why, still: stillFor(), at: fallenAt().toArray(), bodies: crash.dolls.map((d) => d.doll.middle().toArray()) }, told: { ...told } }),
+    state: () => ({ air: air && { ...air }, crash: crash && { why: crash.why, still: stillFor(), rest: atRest(), at: fallenAt().toArray(), bodies: crash.dolls.map((d) => d.doll.middle().toArray()) }, told: { ...told } }),
     // (The `i`th kicker that stands, counting from the top; and where the skier is put, by how far down the run and across it.)
     // (How each size would land off the `i`th kicker standing, slower and faster: for weighing `kickSize`.)
     flights: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return KICK_SIZES.map((size) => ({ size, slow: kickFlight(k, kickDims(size), KICK_SPEED - 3), fast: kickFlight(k, kickDims(size), KICK_SPEED + 3) })); },

@@ -77,12 +77,15 @@ export class Ragdoll {
   /** How long it has been nearly still; and how long since it fell. */
   get still(): number { return this.stillFor; }
   time = 0;
+  /** How much of its speed the air takes from it a second (which may be raised, as `friction` may, to bring it to a stop sooner). */
+  drag = 0.03;
 
   /**
    * A body of `spec`'s making, from where its points are now and where they were `dt` seconds before (so that it goes on as it was
-   * going, turning as it was turning). `friction`: of the body on the ground, against its weight.
+   * going, turning as it was turning). `friction`: of the body on the ground, against its weight (which may be raised as it goes, to
+   * bring a body that would slide on and on to a stop sooner).
    */
-  constructor(readonly spec: BodySpec, now: Record<string, Vector3>, before: Record<string, Vector3>, dt: number, private readonly ground: Ground, private readonly friction = 0.55) {
+  constructor(readonly spec: BodySpec, now: Record<string, Vector3>, before: Record<string, Vector3>, dt: number, private readonly ground: Ground, public friction = 0.55) {
     const names = spec.joints;
     this.points = names.map((j) => now[j].clone());
     this.speeds = names.map((j) => now[j].clone().sub(before[j]).divideScalar(dt));
@@ -114,7 +117,7 @@ export class Ragdoll {
     for (let n = 0; n < this.points.length; n++) {
       const v = this.speeds[n];
       v.y -= g * dt;
-      v.multiplyScalar(1 - 0.03 * dt);
+      v.multiplyScalar(Math.max(0, 1 - this.drag * dt));
       this.points[n].addScaledVector(v, dt);
     }
     const d = new Vector3();

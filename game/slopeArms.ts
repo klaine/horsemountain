@@ -50,7 +50,7 @@ export const LADDER: Arm[] = [
   { kind: 'shotgun', name: 'Shotgun', after: 15, firing: 'single', every: 0.75, hint: 'a click a blast, a spread of shot', muzzle: new Vector3(0, BORE, 0.78), fore: 0.36, kick: 1.8, stance: 'shoulder', make: () => shotgun() },
   { kind: 'flamer', name: 'Flamethrower', after: 20, firing: 'stream', every: 1 / 30, hint: 'hold to pour fire on them', muzzle: new Vector3(0, BORE, 0.66), fore: 0.32, kick: 0.35, make: () => flamer() },
   { kind: 'smg', name: 'Tommy gun', after: 25, firing: 'auto', every: 60 / 700, hint: 'hold to fire', muzzle: MUZZLE, fore: FORE_GRIP, kick: 1, stance: 'shoulder', make: () => tommyGun() },
-  { kind: 'lightning', name: 'Lightning gun', after: 30, firing: 'bolt', every: 0.32, hint: 'hold to throw lightning, which leaps from orc to orc', muzzle: new Vector3(0, BORE + 0.01, 0.6), fore: 0.3, kick: 0.4, stance: 'shoulder', make: () => lightningGun() },
+  { kind: 'lightning', name: 'Lightning gun', after: 30, firing: 'bolt', every: 0.45, hint: 'hold to throw lightning, which leaps from orc to orc', muzzle: new Vector3(0, BORE + 0.01, 0.6), fore: 0.3, kick: 0.4, stance: 'shoulder', make: () => lightningGun() },
   { kind: 'bazooka', name: 'Bazooka', after: 35, firing: 'single', every: 1.1, hint: 'a click a rocket, which blows up all about where it strikes', muzzle: new Vector3(0, TUBE, 0.66), fore: 0.34, kick: 2.6, stance: 'tube', make: () => bazooka() },
 ];
 /** The arm carried after `slain` orcs brought down; and the next, and how many more it wants. */

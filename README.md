@@ -56,7 +56,7 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   the snow falls away nearly as fast as you would fall). You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
   speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *180 to switch* (or *180 to regular*, `X`) turns you
-  round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends after a fall or at
+  round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends after a fall (a body sliding on down steep snow dug in after a second and a half, and soon stopped) or at
   the foot of the run, and you are asked how to get back to the top: one of seven ways, or *Random*. Tick *Remember my choice* and
   you are not asked again; *Back to the top* in the menu changes it (or sets it to be asked again). By chance, each way comes once
   in every round of them, in an order shuffled afresh. A huge robot arm rises out of
@@ -84,8 +84,8 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   a cut at a click (or a tap), a second and a half to each, drawn up slowly over a shoulder and down past that side quickly (the side the orcs within reach are on, else the right and
   the left in turn), and you can ride them down too; ten more down, a pistol, held out in both hands on straight arms, a shot a click; fifteen more, a shotgun, put to the shoulder, a spread
   of shot a click; twenty more, a flamethrower, held, a jet of burning fuel thrown some twenty metres that splashes over the snow and
-  leaves it burning; twenty-five more, the tommy gun, put to the shoulder, held to fire; thirty more, a lightning gun, held, whose bolts
-  leap from orc to orc; thirty-five more, a bazooka, laid on the shoulder, a rocket a click, which blows up all within seven metres of where it strikes, the run's end's
+  leaves it burning; twenty-five more, the tommy gun, put to the shoulder, held to fire; thirty more, a lightning gun, held, a bolt every
+  0.45 seconds, which leaps from orc to orc, four at the most; thirty-five more, a bazooka, laid on the shoulder, a rocket a click, which blows up all within seven metres of where it strikes, the run's end's
   explosion made small. On a computer each is aimed at the guide's mark, the button firing it (and Shift braking); on a
   phone or a tablet, a finger on the picture fires it there, an orc near the finger aimed at itself, while tilting or the stick
   steers (fewer orcs at a time there). What is carried is said beside the count, and a bar at the left of the picture fills toward the next, how many more at its
@@ -105,7 +105,8 @@ the range; *Arford*, long, gentle and broad, to the shore; or a groomed slope
 going on for ever: one run is held at a time, the one left let go of), *Skier* (the horse with its
 rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
 *Camera* (*Cinema*, *Behind*, *Beside*, *Above*, or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and
-riding from behind, and each keeps the one it was last left in; and its distance) and *Picture* (the snow detailed or plain, the minimap shown or
+riding from behind, and each keeps the one it was last left in; and its distance; from behind on a phone held upright, twice as far
+off to begin with) and *Picture* (the snow detailed or plain, the minimap shown or
 hidden, how finely the picture is drawn, the blur). Escape or `H` closes it. `M` opens the map of the runs (riding, the ride held while it is open). `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so).
 
 The minimap, at the right under *Menu* (`N` shows or hides it; `?minimap=0`): the whole run small, turned so that the way down it
