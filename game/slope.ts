@@ -3111,9 +3111,18 @@ async function start() {
   // tip against the level, so that it goes alike held up before the face and turned as a wheel, or lying flat and tipped. A thumb on
   // the stick takes over while it is held. (*Steering* in the menu: the stick alone, or tilting too; kept for next time. A browser
   // that asks before a page may read how the device is held, as an iPhone's does, is asked at the first touch.)
-  const tilt = { x: 0, y: 0, roll: 0, pitch: 0, heard: 0, zero: null as { roll: number; pitch: number; until: number } | null };
+  const tilt = { x: 0, y: 0, roll: 0, pitch: 0, heard: 0, calm: 0, zero: null as { roll: number; pitch: number; until: number } | null };
   /** How far tipped asks a full turn, and a full tuck or stance; and how far it may be tipped either way and ask nothing. */
   const TILT = { roll: deg(26), pitch: deg(24), give: deg(2.5) };
+  /**
+   * Levelled again by itself (asked: "steering should recalibrate/reorient to center on its own if player holds the phone relatively
+   * still for a few seconds without making "steering moves""): held still, turning by less than so much a second, for so long, however
+   * it is held then is eased to be the level, over some seconds, so that a hold that has crept off its level as the run went on comes
+   * back to running straight. Only as far off its level as a hold creeps, a third of the way to the hardest turn (some nine degrees):
+   * further is a turn meant, held through a long carve, which is not taken out from under it (levelled, it turned the other way as
+   * the phone was brought back).
+   */
+  const RELEVEL = { still: deg(6), after: 2.5, over: 2, most: 0.35 };
   const canTilt = typeof DeviceOrientationEvent !== 'undefined';
   let tiltWanted = true, tiltHeard = false, tiltAsking = false;
   /** Whether tilting steers now: chosen, heard from, and no mouse. */
@@ -3126,14 +3135,22 @@ async function start() {
     const turned = deg(screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0);
     const sx = ux * Math.cos(turned) - uy * Math.sin(turned), sy = ux * Math.sin(turned) + uy * Math.cos(turned);
     // (Its right edge lowered under the level; its top tipped back from standing up. Eased a little, the sensor being unsteady.)
-    const roll = Math.asin(clamp(-sx, -1, 1)), pitch = Math.atan2(uz, sy), now = performance.now();
-    const k = tiltHeard ? 1 - Math.exp(-Math.min(0.1, (now - tilt.heard) / 1000) / 0.06) : 1;
+    const roll = Math.asin(clamp(-sx, -1, 1)), pitch = Math.atan2(uz, sy), now = performance.now(), since = Math.min(0.1, (now - tilt.heard) / 1000);
+    const k = tiltHeard ? 1 - Math.exp(-since / 0.06) : 1, was = { roll: tilt.roll, pitch: tilt.pitch };
     tilt.roll += wrapAngle(roll - tilt.roll) * k; tilt.pitch += wrapAngle(pitch - tilt.pitch) * k;
+    // (How long it has been held still: turned by less than `RELEVEL.still` a second, either way.)
+    const turning = since > 0 ? Math.hypot(wrapAngle(tilt.roll - was.roll), wrapAngle(tilt.pitch - was.pitch)) / since : 0;
+    tilt.calm = tiltHeard && turning < RELEVEL.still ? tilt.calm + since : 0;
     tilt.heard = now; tiltHeard = true;
     // (Levelled, taken from how it is held over the next moment, once it has settled there: so that a run begun as the device is
     // still being brought to hand begins straight.)
     if (!tilt.zero) { tilt.roll = roll; tilt.pitch = pitch; tilt.zero = { roll, pitch, until: now + 300 }; }
     if (now < tilt.zero.until) { tilt.zero.roll = tilt.roll; tilt.zero.pitch = tilt.pitch; }
+    else if (tilt.calm > RELEVEL.after) {
+      const ease_ = 1 - Math.exp(-since / RELEVEL.over), offRoll = wrapAngle(tilt.roll - tilt.zero.roll), offPitch = wrapAngle(tilt.pitch - tilt.zero.pitch);
+      if (Math.abs(offRoll) < RELEVEL.most * TILT.roll) tilt.zero.roll += offRoll * ease_;
+      if (Math.abs(offPitch) < RELEVEL.most * TILT.pitch) tilt.zero.pitch += offPitch * ease_;
+    }
     const ask_ = (a: number, full: number) => Math.sign(a) * clamp((Math.abs(a) - TILT.give) / (full - TILT.give), 0, 1);
     tilt.x = ask_(wrapAngle(tilt.roll - tilt.zero.roll), TILT.roll);
     tilt.y = ask_(wrapAngle(tilt.pitch - tilt.zero.pitch), TILT.pitch);
@@ -3394,11 +3411,14 @@ async function start() {
       ndc.set((x * reach) / (innerWidth / 2), (y * reach) / (innerHeight / 2));
       if (finger.id >= 0) {
         ndc.set(finger.x, finger.y);
-        // (An orc within some forty-five points of the finger aimed at itself, the nearest to it.)
+        // (An orc within some forty-five points of the finger aimed at itself, the nearest to it; only one before the eye, as one behind
+        // it is put on the picture turned about.)
         let near = 45 * 45;
         for (const p of horde.where()) {
-          const s = p.clone().setY(p.y + 0.75).project(camera), dx = (s.x - finger.x) * innerWidth / 2, dy = (s.y - finger.y) * innerHeight / 2;
-          if (s.z < 1 && dx * dx + dy * dy < near) { near = dx * dx + dy * dy; ndc.set(s.x, s.y); }
+          const at = p.clone().setY(p.y + 0.75);
+          if (at.clone().applyMatrix4(camera.matrixWorldInverse).z > -1) continue;
+          const s = at.project(camera), dx = (s.x - finger.x) * innerWidth / 2, dy = (s.y - finger.y) * innerHeight / 2;
+          if (dx * dx + dy * dy < near) { near = dx * dx + dy * dy; ndc.set(s.x, s.y); }
         }
       }
       ray.setFromCamera(ndc, camera);
@@ -3408,6 +3428,19 @@ async function start() {
       if (met) far = met.t;
       target = eye.clone().addScaledVector(look, far);
       if (target.distanceTo(muzzle) < 3) target = muzzle.clone().addScaledVector(look, 30);
+      // (By touch, a finger held low on the picture is over snow between the eye and the skier, or under it, which the gun cannot be
+      // turned to, and it fired somewhere else altogether: then it fires at the snow some way ahead the way the finger points, as near
+      // to it across the run as the arms let the gun turn.)
+      if (finger.id >= 0 && !met) {
+        const rel = target.clone().sub(rider.position);
+        if (rel.x * go.x + rel.z * go.z < 12) {
+          const level = look.clone().setY(0);
+          if (level.lengthSq() < 1e-6) level.copy(go);
+          const off = clamp(Math.atan2(go.x * level.z - go.z * level.x, go.x * level.x + go.z * level.z), -0.9, 0.9);
+          const way = go.clone().applyAxisAngle(UP, -off).setY(0).normalize(), p = rider.position.clone().addScaledVector(way, 16);
+          target = p.setY(ground(p.x, p.z) + 0.3);
+        }
+      }
     }
     // The gun turned to it from the muzzle, as far round as the arms let it (in the frame of what holds the human: a skier's own, a
     // horse's saddle's).
@@ -4156,7 +4189,7 @@ async function start() {
     seek: (to: number) => { t = to; clearSpray(); placed = false; }, pause: (p: boolean) => { playing = !p; reflect(); }, setView, setMode,
     steer: (x: number, y: number) => { stick.x = x; stick.y = y; }, brake: (on: boolean) => { want.brakeKey = on; }, ride: () => ({ ...ride }),
     // (Steering by tilting: whether it steers now, and what it asks, from how the device was held as the run began.)
-    tilt: () => ({ on: tilting(), x: +tilt.x.toFixed(2), y: +tilt.y.toFixed(2), ask: { x: +ask.x.toFixed(2), y: +ask.y.toFixed(2) } }),
+    tilt: () => ({ on: tilting(), x: +tilt.x.toFixed(2), y: +tilt.y.toFixed(2), calm: +tilt.calm.toFixed(1), ask: { x: +ask.x.toFixed(2), y: +ask.y.toFixed(2) } }),
     // (Riding: how wild the tricks are, and the trick being made, if one is.)
     wild: (w: number) => { wildInput.value = String(w); }, trick: () => (rideTrick ? demoName(rideTrick.trick) : null),
     // (How long the `i`th kicker that stands is reckoned to keep a skier going at `speed` in the air.)

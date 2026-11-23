@@ -18,7 +18,8 @@ come under it.
   backflip 360, a 1080...), and the rider shooting down the orcs coming up the run with a tommy gun as they go.
 - **Riding it yourself**, seen from behind: on a phone or a tablet, tipping it steers, from however it is held as each run begins:
   its right edge lowered (as a wheel is turned, or tipped lying flat) to turn right, further to skid; its top tipped away to tuck,
-  toward you to stand straight (*Steering* in the menu: *Tilt*, at first, or *Stick*). The stick at the lower left steers too, and
+  toward you to stand straight (*Steering* in the menu: *Tilt*, at first, or *Stick*); held still a few seconds a little off level, it
+  takes that as level again by itself. The stick at the lower left steers too, and
   takes over while a thumb is on it: to either side to turn (carved, or skidded out at its rim), up to tuck, down to stand straight
   (an iPhone asks, at the first touch, whether the game may read how it is held). With a mouse or a touchpad, the pointer steers from wherever it is over
   the picture, no button held: to either side of the middle to turn (skidded out at the sides of the faint guide drawn about the skier),
