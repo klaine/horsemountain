@@ -70,6 +70,7 @@ import { Saucer } from './slopeSaucer';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
+import { MiniMap } from './slopeMini';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
 import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowLiesAt, snowUniforms } from '../src/render/siteMaterial';
 
@@ -3328,6 +3329,37 @@ async function start() {
     keep('offpiste', on ? '1' : '0');
     pisteButtons.forEach((b, k) => b.classList.toggle('on', (k === 0) === on));
   };
+  // The minimap (`slopeMini.ts`), shown or not: kept in this browser; `?minimap=0` or `1`; `N`.
+  const miniEl = $<HTMLCanvasElement>('mini'), mini = new MiniMap(miniEl);
+  let miniOn = true, miniTall = 0;
+  const miniButtons = (['Shown', 'Hidden'] as const).map((label, k) => button('miniSeg', label, () => setMini(k === 0), k ? 'No minimap' : 'The whole run small at the right, the skier on it, the way down pointing up (N)'));
+  const setMini = (on: boolean) => {
+    miniOn = on;
+    keep('minimap', on ? '1' : '0');
+    miniButtons.forEach((b, k) => b.classList.toggle('on', (k === 0) === on));
+  };
+  /**
+   * The minimap a frame on: the run drawn again when the land is another, or the picture another size (smaller on a phone held
+   * sideways); and the skier's mark set at `where`, heading as it goes (`at`). Drawn from the land as it lies, not as the cart's ride
+   * up it or the land turned inside out have it, which are the same land turned about: drawn from them, its kickers would be none.
+   */
+  const stepMini = (where: Vector3, at: Now) => {
+    const show = miniOn && landKind !== 'groomed';
+    if (show && !carting && !inside) {
+      const tall = innerHeight <= 500 && innerWidth > innerHeight ? 84 : 140;
+      if (mini.of !== land || tall !== miniTall) {
+        miniTall = tall;
+        const kicks: { s: number; left: number }[] = [];
+        for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) kicks.push(k); }
+        mini.draw(land, kicks, tall, innerWidth < 420 ? 84 : 108);
+      }
+    }
+    const shown = show && mini.has && !cat;
+    if (miniEl.hidden === shown) miniEl.hidden = !shown;
+    if (!shown) return;
+    const f = land.at(at.down, at.left), way = along(at.way, f);
+    mini.show(where.x, where.z, way.x, way.z, offPisteFor > 0);
+  };
   const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => { if (k === 1) gunSound.wake(); setOrcs(k === 1); }, k ? 'The skier, or the horse\'s rider, carries arms in place of its poles, and orcs come up the run: a sword first, then a pistol, a shotgun, a flamethrower, a tommy gun, a lightning gun and a bazooka as more are brought down; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
   const setOrcs = (on: boolean) => {
     orcsOn = on;
@@ -3677,7 +3709,7 @@ async function start() {
     if (asking && /^[1-8]$/.test(e.key) && !wayButtons[+e.key - 1].hidden) { takeWay(WAY_NAMES[+e.key - 1][0]); e.preventDefault(); return; }
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
-    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (v) setView(v[1]);
+    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (v) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; });
@@ -4743,6 +4775,7 @@ async function start() {
   setDistance(Number(kept('distance') ?? 1) || 1);
   setOffPiste(query.has('offpiste') ? query.get('offpiste') !== '0' : kept('offpiste') !== '0');
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
+  setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
   resetScore();
   setTilt(kept('tilt') !== '0');
   {
@@ -4952,6 +4985,7 @@ async function start() {
     say(speedEl, (at.speed * 3.6).toFixed(0));
     // (How far down, as height come down from the top: vertical metres, as the world's heights have it.)
     say(downEl, Math.max(0, land.drop(where.y)).toFixed(0));
+    stepMini(where, at);
     // (Before the first frame is drawn, its shaders made a few at a time with the page given a moment between them, rather than all at
     // once as it is drawn: made so, the page stood frozen for the four seconds they took, the loading screen's bar with it, and they
     // took a second and more longer. With WebGPU only: with WebGL 2, made this way they took twice as long, ten seconds for five.)

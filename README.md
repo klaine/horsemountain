@@ -105,8 +105,14 @@ the range; *Arford*, long, gentle and broad, to the shore; or a groomed slope
 going on for ever: one run is held at a time, the one left let go of), *Skier* (the horse with its
 rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
 *Camera* (*Cinema*, *Behind*, *Beside*, *Above*, or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and
-riding from behind, and each keeps the one it was last left in; and its distance) and *Picture* (the snow detailed or plain, how finely
-the picture is drawn, the blur). Escape or `H` closes it. `M` opens the map of the runs (riding, the ride held while it is open). `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so).
+riding from behind, and each keeps the one it was last left in; and its distance) and *Picture* (the snow detailed or plain, the minimap shown or
+hidden, how finely the picture is drawn, the blur). Escape or `H` closes it. `M` opens the map of the runs (riding, the ride held while it is open). `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so).
+
+The minimap, at the right under *Menu* (`N` shows or hides it; `?minimap=0`): the whole run small, turned so that the way down it
+points up, as the way ahead does in the picture seen from behind; its marked piste pale, its kickers in brass, its top a green dot
+and its foot a dark bar; and the skier on it, an arrow the way it goes, gold while off the piste and hollow at the map's edge when
+further out than it shows. Light to draw: the run is drawn once for each run, and each frame only the arrow set over it. (None on
+the groomed slope, which has no foot.)
 
 In the address: `?nointro` (no title, no map), `?offpiste=0` (kept between the poles), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run; `#w2-8`, `#w2-10`, `#w2-2`, `#w2-14`, `#w2-17`, `#w2-25`, the third to the eighth), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
 `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as

@@ -385,6 +385,12 @@
       #armBar .left { font-size: 10px; padding: 1px 5px 2px; }
       #armBar .track { width: 10px; margin-left: 5px; }
     }
+    /* The minimap (`slopeMini.ts`): the whole run small at the right, under the menu's button, the way down pointing up and the skier's
+       mark on it; on a sheet as faint as the rest, and only told, never pressed, as what the skier is doing is. */
+    #mini { position: fixed; top: calc(66px + env(safe-area-inset-top, 0px)); right: var(--gutter-r); z-index: 2; display: block;
+      background: rgba(11, 10, 9, .42); border: 1px solid var(--rule); border-radius: 8px; pointer-events: none; }
+    body.choosing #mini, body.menu-open #mini { display: none; }
+    @media (max-height: 500px) and (orientation: landscape) { #mini { top: calc(46px + env(safe-area-inset-top, 0px)); border-radius: 6px; } }
     #told .text { display: block; font: 600 20px/1.25 var(--sans); color: var(--ink); text-wrap: balance; }
     #told .small { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 
@@ -470,6 +476,7 @@
     <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span><span id="tally" hidden><b id="orcs">0</b> orcs down<span id="armSay"></span></span><span id="points"><b id="score">0</b> points<span id="best"></span></span></div>
   </div>
   <button id="menuButton" type="button" aria-expanded="false" aria-controls="menu" title="Menu (H)"><span class="bars" aria-hidden="true"></span>Menu</button>
+  <canvas id="mini" hidden aria-hidden="true"></canvas>
   <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
   <div id="offPiste" hidden role="alert"><span class="say">Back to the marked slopes</span><b class="n">5</b></div>
   <div id="armBar" hidden role="progressbar" aria-valuemin="0"><span class="next"></span><div class="track"><div class="fill"></div></div><span class="left"></span></div>
@@ -527,10 +534,11 @@
       <label class="row slider"><span class="label">Distance</span><input id="distance" type="range" min="0.5" max="3" step="0.05" value="1" aria-label="How far the view is from the skier"><output id="distanceOut">1.0×</output></label>
       <h2>Picture</h2>
       <div class="field" id="snows"><span class="label">Snow</span><div class="seg" role="group" aria-label="Snow"></div></div>
+      <div class="field" id="miniField"><span class="label">Minimap</span><div class="seg" id="miniSeg" role="group" aria-label="Minimap"></div></div>
       <div class="field"><span class="label">Resolution</span><div class="seg" id="resolutions" role="group" aria-label="Resolution"></div></div>
       <p class="note" id="safeNote" hidden><span></span> <button type="button">Try full detail</button></p>
       <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
-      <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt</p>
+      <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap</p>
       <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
       <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Enter</kbd> next run</p>
       <p class="keys more"><b>Tommy gun</b> hold to fire at the mark · <kbd>Shift</kbd> brakes</p>
