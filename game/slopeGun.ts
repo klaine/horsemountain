@@ -118,15 +118,16 @@ export class Gunfire {
       this.q.setFromUnitVectors(Z, r.dir);
       this.tracers.setMatrixAt(n++, this.m.compose(this.p, this.q, this.s.set(0.035, 0.035, len)));
     }
+    // (Sent to the graphics card only while a round is in flight, or the last has just struck.)
+    if (n || this.tracers.count) this.tracers.instanceMatrix.needsUpdate = true;
     this.tracers.count = n;
-    this.tracers.instanceMatrix.needsUpdate = true;
     this.flashLeft -= dt;
     this.flash.visible = this.flashLeft > 0;
     if (this.flash.visible) this.flash.quaternion.copy(eye);
   }
 
   /** Every round in flight let go of, and the flash. */
-  clear(): void { this.rounds.length = 0; this.tracers.count = 0; this.flash.visible = false; }
+  clear(): void { this.rounds.length = 0; this.tracers.count = 0; this.flash.visible = false; this.flashLeft = 0; }
 }
 const Z = new Vector3(0, 0, 1);
 

@@ -1,5 +1,5 @@
 import {
-  CanvasTexture, DoubleSide, InstancedBufferAttribute, InstancedMesh,
+  CanvasTexture, DoubleSide, InstancedBufferAttribute, InstancedInterleavedBuffer, InstancedMesh, InterleavedBufferAttribute,
   NoColorSpace, PlaneGeometry, BufferGeometry, Float32BufferAttribute, SRGBColorSpace, StaticDrawUsage, Texture, Vector2, Vector3,
   DataTexture, NearestFilter, RGBAFormat, UnsignedByteType,
 } from 'three';
@@ -868,10 +868,10 @@ export function makeCards(set: CardSet, texture: Texture, level?: TreeLevel): In
         for (let k = 0; k < m; k++) for (let c = 0; c < size; c++) to[k * size + c] = from[k * every * size + c];
         return to;
       };
-      geometry.setAttribute('aCentre', new InstancedBufferAttribute(pick(centres, 3), 3));
-      geometry.setAttribute('aAt', new InstancedBufferAttribute(pick(stands, 4), 4));
-      if (trees) geometry.setAttribute('aTree', new InstancedBufferAttribute(pick(trees, 4), 4));
-      if (thinned) geometry.setAttribute('aRank', new InstancedBufferAttribute(Float32Array.from({ length: n }, (_, k) => k / n), 1));
+      const own: [string, Float32Array, number][] = [['aCentre', pick(centres, 3), 3], ['aAt', pick(stands, 4), 4]];
+      if (trees) own.push(['aTree', pick(trees, 4), 4]);
+      if (thinned) own.push(['aRank', Float32Array.from({ length: n }, (_, k) => k / n), 1]);
+      packCards(geometry, own, m);
       const mesh = new InstancedMesh(geometry, material, m);
       mesh.instanceMatrix.setUsage(StaticDrawUsage);
       (mesh.instanceMatrix.array as Float32Array).set(pick(matrices, 16));
@@ -893,6 +893,24 @@ export function makeCards(set: CardSet, texture: Texture, level?: TreeLevel): In
 }
 
 /**
+ * What each card of a block has of its own (its crown's centre, where it stands, its tree, its rank), kept together in one buffer, a
+ * card at a time, rather than each in a buffer of its own. A graphics card takes eight buffers to a draw at the most (WebGPU's limit),
+ * and a card's shape has three or four, its matrices and colours two more; where the picture also keeps how each point moved since
+ * the last frame (for a blur of what moves), the matrices of the frame before are one more: with three or four of a card's own besides,
+ * nine and ten, the draw could not be made, its trees' leaves were not drawn, and every frame that tried was thrown away whole.
+ */
+function packCards(geometry: BufferGeometry, own: [string, Float32Array, number][], count: number): InstancedInterleavedBuffer {
+  const stride = own.reduce((a, [, , size]) => a + size, 0), packed = new Float32Array(count * stride), buffer = new InstancedInterleavedBuffer(packed, stride);
+  let offset = 0;
+  for (const [name, from, size] of own) {
+    for (let k = 0; k < count; k++) for (let c = 0; c < size; c++) packed[k * stride + offset + c] = from[k * size + c];
+    geometry.setAttribute(name, new InterleavedBufferAttribute(buffer, size, offset));
+    offset += size;
+  }
+  return buffer;
+}
+
+/**
  * The sprigs of a kind of leaf: one mesh holding those near the eye, and only those. A sprig is a hundred-odd triangles where a
  * painted spray is two, and sprigs are drawn only within `sprigRange`; beyond it each shrinks to a point. They were sorted into
  * blocks of ground as the sprays are, forty-eight metres square, and a block was drawn whole if any of it was within the range:
@@ -907,9 +925,8 @@ function nearSprigs(set: CardSet, base: BufferGeometry, material: MeshStandardNo
   const geometry = new BufferGeometry();
   geometry.setIndex(base.getIndex());
   for (const name of ['position', 'normal', 'uv', 'color']) if (base.getAttribute(name)) geometry.setAttribute(name, base.getAttribute(name));
-  const centres = new InstancedBufferAttribute(new Float32Array(count * 3), 3), stands = new InstancedBufferAttribute(new Float32Array(count * 4), 4);
-  geometry.setAttribute('aCentre', centres);
-  geometry.setAttribute('aAt', stands);
+  // (Each sprig's centre and where it stands, in one buffer: `packCards`.)
+  packCards(geometry, [['aCentre', new Float32Array(count * 3), 3], ['aAt', new Float32Array(count * 4), 4]], count);
   const mesh = new InstancedMesh(geometry, material, count);
   mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3), 3);
   mesh.count = 0;
@@ -940,8 +957,8 @@ function gatherSprigs(mesh: InstancedMesh, eye: { x: number; y: number; z: numbe
   near.x = eye.x; near.z = eye.z;
   const { set, cells } = near, reach = sprigRange + NEAR_MARGIN;
   const matrices = mesh.instanceMatrix.array as Float32Array, colours = mesh.instanceColor!.array as Float32Array;
-  const centres = mesh.geometry.getAttribute('aCentre') as InstancedBufferAttribute, stands = mesh.geometry.getAttribute('aAt') as InstancedBufferAttribute;
-  const cA = centres.array as Float32Array, sA = stands.array as Float32Array;
+  // (Each sprig's own, a sprig at a time: its centre, then where it stands and how large it is.)
+  const own = (mesh.geometry.getAttribute('aCentre') as InterleavedBufferAttribute).data, oA = own.array as Float32Array, OWN = own.stride;
   let n = 0;
   const c0 = Math.floor((eye.x - reach) / NEAR_CELL), c1 = Math.floor((eye.x + reach) / NEAR_CELL);
   const r0 = Math.floor((eye.z - reach) / NEAR_CELL), r1 = Math.floor((eye.z + reach) / NEAR_CELL);
@@ -953,16 +970,16 @@ function gatherSprigs(mesh: InstancedMesh, eye: { x: number; y: number; z: numbe
       // (Height counts as well: a crown overhead is as near as one beside the eye.)
       if ((x - eye.x) ** 2 + (y - eye.y) ** 2 + (z - eye.z) ** 2 > reach * reach) continue;
       for (let c = 0; c < 16; c++) matrices[n * 16 + c] = m[i * 16 + c];
-      sA[n * 4] = x; sA[n * 4 + 1] = y; sA[n * 4 + 2] = z;
-      sA[n * 4 + 3] = Math.hypot(m[i * 16], m[i * 16 + 1], m[i * 16 + 2]);
-      for (let c = 0; c < 3; c++) { colours[n * 3 + c] = set.colours[i * 3 + c]; cA[n * 3 + c] = set.centres[i * 3 + c]; }
+      oA[n * OWN + 3] = x; oA[n * OWN + 4] = y; oA[n * OWN + 5] = z;
+      oA[n * OWN + 6] = Math.hypot(m[i * 16], m[i * 16 + 1], m[i * 16 + 2]);
+      for (let c = 0; c < 3; c++) { colours[n * 3 + c] = set.colours[i * 3 + c]; oA[n * OWN + c] = set.centres[i * 3 + c]; }
       n++;
     }
   }
   mesh.count = n;
   // (Only what was gathered is sent to the graphics card.)
-  const send = (a: InstancedBufferAttribute, size: number) => { a.clearUpdateRanges(); a.addUpdateRange(0, Math.max(1, n) * size); a.needsUpdate = true; };
-  send(mesh.instanceMatrix, 16); send(mesh.instanceColor!, 3); send(centres, 3); send(stands, 4);
+  const send = (a: InstancedBufferAttribute | InstancedInterleavedBuffer, size: number) => { a.clearUpdateRanges(); a.addUpdateRange(0, Math.max(1, n) * size); a.needsUpdate = true; };
+  send(mesh.instanceMatrix, 16); send(mesh.instanceColor!, 3); send(own as InstancedInterleavedBuffer, OWN);
 }
 
 /**

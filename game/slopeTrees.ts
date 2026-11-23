@@ -169,7 +169,7 @@ function tagger(planting: Planting, wood: Map<string, MeshBuilder>) {
 function treeGrower(heightAt: (x: number, z: number) => number, light: boolean) {
   const detail = light ? 0.25 : 0.75;
   const planting = new Planting(), wood = new Map<string, MeshBuilder>();
-  const mesh = (name: string) => { let m = wood.get(name); if (!m) wood.set(name, (m = new MeshBuilder())); return m; };
+  const mesh = (name: string) => { let m = wood.get(name); if (!m) wood.set(name, (m = new MeshBuilder(4096))); return m; };
   const tag = tagger(planting, wood);
   return {
     grow(t: WorldTree) {
@@ -231,6 +231,10 @@ function cardsOf(k: NonNullable<typeof kit>, sets: CardSet[], level: TreeLevel):
     let t = k.painted.get(set.kind);
     if (!t) k.painted.set(set.kind, (t = paintCards(set.kind)));
     for (const m of makeCards(set, t, level)) {
+      // (Sprigs, the leaves made one by one near the eye, only for trees grown whole: a tree grown simply or painted is never so near
+      // as to show its own, but its sprigs were gathered and drawn all the same, larger, over the whole tree's, wherever a block grown
+      // both ways lay by the eye; and each kept a copy of all its sprigs to gather from.)
+      if (m.userData.layer === 'sprigs' && level !== 'whole') { m.geometry.dispose(); (m.material as Material).dispose(); continue; }
       const key = `${m.name}:${level}:${m.userData.layer}`, had = k.cards.get(key);
       if (had) { (m.material as Material).dispose(); m.material = had; } else k.cards.set(key, m.material as Material);
       out.push(m);
@@ -318,8 +322,11 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
   const drop = (meshes: Object3D[]) => {
     for (const m of meshes) {
       m.removeFromParent();
-      // (The wood's geometry is its own; the cards' blocks share their shape's buffers, which `dispose` leaves to the shape.)
+      // (The wood's geometry is its own; the cards' blocks share their shape's buffers, which are made again when next drawn.)
       (m as Mesh).geometry?.dispose();
+      // (And what the renderer keeps for the mesh itself, its matrices and colours on the graphics card among it, let go of now: left
+      // to be found unused, it was kept as long as the materials, which every block shares, and riding through a wood it only grew.)
+      m.dispose();
     }
   };
   const letGo = (bi: number, bj: number, level: 'whole' | 'simple') => { rising.delete(`${level}:${bi},${bj}`); k.grown.set(bi, bj, level, 0); };
@@ -356,25 +363,29 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
         }
         grow();
       }
+      const cards: InstancedMesh[] = [];
+      const show = (meshes: Object3D[], on: boolean) => { for (const m of meshes) { m.visible = on; if (on && (m as InstancedMesh).isInstancedMesh) cards.push(m as InstancedMesh); } };
       // Each level let go of well past where it is drawn, and, while kept, not drawn at all where every tree in the block is drawn the
       // other way (the shader would draw it into nothing, at the cost of its points).
       for (const [key, meshes] of nears) {
         const [i, j] = key.split(',').map(Number), d = blockNear(i, j);
         if (d > WHOLE + 40) { drop(meshes); nears.delete(key); letGo(i, j, 'whole'); continue; }
-        for (const m of meshes) m.visible = d < WHOLE - BEYOND;
+        show(meshes, d < WHOLE - BEYOND);
       }
       for (const [key, meshes] of mids) {
         const [i, j] = key.split(',').map(Number), d = blockNear(i, j), far = blockFar(i, j);
         if (d > MID + 50 || far < SIMPLE_FROM - 20) { drop(meshes); mids.delete(key); letGo(i, j, 'simple'); continue; }
-        for (const m of meshes) m.visible = far > SIMPLE_FROM + BEYOND && d < MID - BEYOND;
+        show(meshes, far > SIMPLE_FROM + BEYOND && d < MID - BEYOND);
       }
+      // (The cards of the blocks that are drawn, each then drawn or not by how near it is: `cullCards` after the blocks are settled,
+      // and only for those left on. Before them, over every block kept, it turned the spruces' cards back on in blocks just turned
+      // off, to be drawn into nothing at the cost of all their points.)
+      cullCards(cards, eye);
       // Blocks just grown come in, and the shader is told.
       const now = performance.now();
       for (const [key, b] of rising) { const t = (now - b.t0) / RISE; k.grown.set(b.bi, b.bj, b.level, t); if (t >= 1) rising.delete(key); }
       k.grown.flush();
       vegetationUniforms.uTime.value = seconds;
-      const cards = [...nears.values(), ...mids.values()].flat().filter((m): m is InstancedMesh => (m as InstancedMesh).isInstancedMesh);
-      cullCards(cards, eye);
     },
   };
 }

@@ -134,13 +134,14 @@ export class Saucer {
     }
     if (this.lights.instanceColor) this.lights.instanceColor.needsUpdate = true;
     // (Each spark from the snow up to the belly in a couple of seconds, about the axis, as far out as the cone is wide there.)
-    this.spark.forEach((p, i) => {
+    // (Only while the beam shines: coming and going, they are not seen.)
+    if (this.sparks.visible) this.spark.forEach((p, i) => {
       p.h = (p.h + p.w * dt) % 1; p.a += 1.5 * dt;
       const wide = (SAUCER.mouth + (7.5 - SAUCER.mouth) * (1 - p.h)) * p.r * 0.9, size = 0.35 + 0.25 * Math.sin(this.t * 7 + i);
       this.v.set(Math.cos(p.a) * wide, -(1 - p.h) * this.length, Math.sin(p.a) * wide).add(this.beam.position);
       this.sparks.setMatrixAt(i, this.m4.compose(this.v, eye.quaternion, this.s.setScalar(size)));
     });
-    this.sparks.instanceMatrix.needsUpdate = true;
+    if (this.sparks.visible) this.sparks.instanceMatrix.needsUpdate = true;
   }
 
   hide() { this.group.visible = false; this.shine(0, 1); }

@@ -94,20 +94,29 @@ export class Splatter {
         this.lay(p.slot, p.at, p.up, p.turn, p.size * Math.sqrt(p.t), 1);
         if (p.t >= 1) this.pools.splice(i--, 1);
       }
-      this.lying.instanceMatrix.needsUpdate = true;
-      (this.lying.geometry.getAttribute('aTint') as InstancedBufferAttribute).needsUpdate = true;
+      // (Sent to the graphics card only when a mark was laid or a drop is in the air: sent every frame the gun was carried, with no
+      // blood anywhere, they were some three hundred kilobytes a frame.)
+      if (this.laid) {
+        this.laid = false;
+        this.lying.instanceMatrix.needsUpdate = true;
+        (this.lying.geometry.getAttribute('aTint') as InstancedBufferAttribute).needsUpdate = true;
+      }
     }
+    if (!this.drops.length && !this.flying.count) return;
     this.flying.count = this.drops.length;
     this.drops.forEach((b, k) => this.flying.setMatrixAt(k, this.m.compose(b.p, this.q.identity(), this.s.setScalar(b.size))));
     this.flying.instanceMatrix.needsUpdate = true;
   }
 
+  /** Whether a mark has been laid, or made larger, since the marks were last sent to the graphics card. */
+  private laid = false;
   /** Every drop and splash cleared away (a new run). */
   clear(): void { this.drops.length = 0; this.pools.length = 0; this.next = 0; this.flying.count = 0; this.lying.count = 0; }
 
   /** The next splash's place, the oldest given up when there are as many as there may be, with its tint (a little darker or lighter). */
   private claim(base: [number, number, number]): number {
     const slot = this.next++ % this.most.marks, k = this.rng.range(0.75, 1.2);
+    this.laid = true;
     this.tint.set([base[0] * k, base[1] * k, base[2] * k], slot * 3);
     this.lying.count = Math.min(this.most.marks, Math.max(this.lying.count, slot + 1));
     return slot;
@@ -120,6 +129,7 @@ export class Splatter {
   }
   /** Lays a splash in its place: flat on the snow there (`up`), turned by `turn`, `size` across and `long` times as long. */
   private lay(slot: number, at: Vector3, up: Vector3, turn: number, size: number, long: number): void {
+    this.laid = true;
     this.q.setFromUnitVectors(UP, up).multiply(new Quaternion().setFromAxisAngle(UP, turn));
     this.lying.setMatrixAt(slot, this.m.compose(at.clone().addScaledVector(up, 0.012), this.q, this.s.set(size, 1, size * long)));
   }

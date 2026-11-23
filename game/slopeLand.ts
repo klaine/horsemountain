@@ -158,9 +158,15 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   const smoothSnow = (x: number, z: number): number => {
     const fx = x - snow.x0, fz = z - snow.z0, i = Math.floor(fx), j = Math.floor(fz);
     if (i < 1 || j < 1 || i > snow.nx - 3 || j > snow.nz - 3) return NaN;
-    const tx = fx - i, tz = fz - j, d = snow.data, w = snow.nx, rows: number[] = [];
-    for (let r = -1; r <= 2; r++) { const k = (j + r) * w + i; rows.push(catmull(d[k - 1], d[k], d[k + 1], d[k + 2], tx)); }
-    return catmull(rows[0], rows[1], rows[2], rows[3], tz);
+    // (Its four rows each in a number of its own, not a list made for every height asked: this is asked more than anything else in the
+    // game, by the ride, by every grain of snow in the air, by the views.)
+    const tx = fx - i, tz = fz - j, d = snow.data, w = snow.nx;
+    let k = (j - 1) * w + i;
+    const r0 = catmull(d[k - 1], d[k], d[k + 1], d[k + 2], tx); k += w;
+    const r1 = catmull(d[k - 1], d[k], d[k + 1], d[k + 2], tx); k += w;
+    const r2 = catmull(d[k - 1], d[k], d[k + 1], d[k + 2], tx); k += w;
+    const r3 = catmull(d[k - 1], d[k], d[k + 1], d[k + 2], tx);
+    return catmull(r0, r1, r2, r3, tz);
   };
   const height = (x: number, z: number): number => {
     let h = smoothSnow(x, z);
@@ -382,7 +388,7 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     // (Under the snow, where it does not lie, the mountain's stones, grey.)
     const tint = new Color(0.72, 0.71, 0.7);
     const gridBuilder = (g: Grid, lift: (x: number, z: number) => number, skirt: number, groomedHere: boolean, hole?: (x: number, z: number) => boolean) => {
-      const B = new MeshBuilder(), ids = new Int32Array(g.nx * g.nz).fill(-1);
+      const B = new MeshBuilder(g.nx * g.nz + 4 * (g.nx + g.nz)), ids = new Int32Array(g.nx * g.nz).fill(-1);
       const H = (i: number, j: number) => (i < 0 || j < 0 || i >= g.nx || j >= g.nz ? NaN : g.data[j * g.nx + i]);
       // (Off the skiable path, each point faces as the world's own land does there: where the slice's land was brought lower, as steep
       // as it was. The snow lies by how a point faces, and the light shades it so: lowered, the walls were gentle slopes, snow lay over
@@ -428,7 +434,7 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     };
     // The country: the game's far sheet. How high each point stands in its range (0 at its foot, 1 about where rock takes over, from the
     // world's own heights) and how much of a hollow it is; water where the sea is (a lake is frozen, and snow lies on it).
-    const farB = new MeshBuilder(), fH = (i: number, j: number) => far.data[Math.max(0, Math.min(far.nz - 1, j)) * far.nx + Math.max(0, Math.min(far.nx - 1, i))];
+    const farB = new MeshBuilder(far.nx * far.nz), fH = (i: number, j: number) => far.data[Math.max(0, Math.min(far.nz - 1, j)) * far.nx + Math.max(0, Math.min(far.nx - 1, i))];
     const fid = new Int32Array(far.nx * far.nz);
     for (let j = 0; j < far.nz; j++) for (let i = 0; i < far.nx; i++) {
       const x = far.x0 + i * far.cell, z = far.z0 + j * far.cell, y = fH(i, j);

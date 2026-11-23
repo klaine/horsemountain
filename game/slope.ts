@@ -41,10 +41,10 @@
 import {
   ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
   Group, HemisphereLight, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
-  PCFSoftShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, SRGBColorSpace, Vector2, Vector3,
+  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, SRGBColorSpace, Vector2, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
-import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
+import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, fract, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
 import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -72,6 +72,9 @@ import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowUnifo
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const query = new URLSearchParams(location.search);
+/** Words put on the page only when they change: the same words said again each frame were laid out again each frame. */
+const saidOn = new WeakMap<HTMLElement, string>();
+const say = (el: HTMLElement, text: string) => { if (saidOn.get(el) !== text) { saidOn.set(el, text); el.textContent = text; } };
 
 const G = 9.81, UP = new Vector3(0, 1, 0);
 /** Along the run (where it goes at `f`) and to its left, level. */
@@ -131,7 +134,7 @@ const loading = (() => {
   const STAGES: [Stage, number, string][] = [
     ['start', 0.04, 'Waking the graphics'], ['paint', 0.16, 'Painting the snow and the rock'], ['snow', 0.1, 'Laying the snow on the run'],
     ['moves', 0.09, 'Teaching the rider to ski'], ['dress', 0.11, 'Dressing the rider, saddling the horse'], ['demo', 0.15, 'Flying the demo run'],
-    ['shaders', 0.35, 'Making the shaders'],
+    ['shaders', 0.35, 'Lighting the mountain'],
   ];
   const FILES = 0.4, whole = STAGES.reduce((a, [, w]) => a + w, 0);
   const files = new Map<string, { got: number; of: number }>();
@@ -287,7 +290,8 @@ async function start() {
   renderer.toneMappingExposure = 0.92;
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = PCFSoftShadowMap;
+  // (The renderer's own soft shadows: `PCFSoftShadowMap` is gone from it, and asked for only brought a warning and these.)
+  renderer.shadowMap.type = PCFShadowMap;
   const scene = new Scene();
   const camera = new PerspectiveCamera(50, 1, 0.1, 1200);
   const controls = new OrbitControls(camera, canvas);
@@ -389,7 +393,11 @@ async function start() {
     farUniforms.uFarSnow.value = 1;
     const skyLight: [number, number, number] = [0.5, 0.65, 0.95];
     siteUniforms.uFallback.value.set(...skyLight);
-    gameLook = { snow: makeSnowMaterial(turf, scree), far: makeFarMaterial({ light: query.get('relief') !== '1' }), sky: skyLight };
+    const far = makeFarMaterial({ light: query.get('relief') !== '1' });
+    // (The far land whole: the game cuts it away in patches where its near ground lies over it and about a valley, neither of which
+    // is here, but each point of it still worked the patches out, four readings of noise, to be thrown away or kept, and it was kept.)
+    Object.assign(far, { opacityNode: null, alphaTestNode: null });
+    gameLook = { snow: makeSnowMaterial(turf, scree), far, sky: skyLight };
     return gameLook;
   };
   const sliceTexts = new Map<string, string | null>();
@@ -431,7 +439,7 @@ async function start() {
   // The kickers, watched and ridden: each where the land lets it stand (`Land.kickable`), its shape laid on the land
   // as it lies there; a few about the skier at a time. The snow's height anywhere is the land's, with a kicker's on it where there is one.
   let kickersOn = false;
-  interface Kicker { i: number; s: number; left: number; x: number; z: number; dx: number; dz: number; group?: Group }
+  interface Kicker { i: number; s: number; left: number; x: number; z: number; dx: number; dz: number; group?: Group; flags?: Mesh[] }
   const kickerAt = new Map<number, Kicker | null>();
   const kickerOf = (i: number): Kicker | null => {
     if (kickerAt.has(i)) return kickerAt.get(i)!;
@@ -510,27 +518,36 @@ async function start() {
     body.castShadow = body.receiveShadow = true;
     lip.receiveShadow = true;
     g.add(body, lip);
+    k.flags = [];
     for (const s of [-1, 1]) {
       const x = s * (half + side + 0.4), px = k.x + k.dx * L + k.dz * x, pz = k.z + k.dz * L - k.dx * x;
       const pole = new Mesh(kickerParts.pole, kickerParts.wood), flag = new Mesh(kickerParts.flag, kickerParts.cloth);
       pole.position.set(px, land.height(px, pz), pz); flag.position.copy(pole.position);
       // (The flag flies back up the run, as the old slope's did.)
-      flag.rotation.y = Math.atan2(k.dx, k.dz);
+      flag.rotation.y = flag.userData.turn = Math.atan2(k.dx, k.dz);
       pole.castShadow = flag.castShadow = true;
       g.add(pole, flag);
+      k.flags.push(flag);
     }
     scene.add(g);
     k.group = g;
+  };
+  /** A kicker taken down: its own shapes let go of (its poles' and its flags' are every kicker's). */
+  const takeDown = (k: Kicker) => {
+    if (!k.group) return;
+    k.group.removeFromParent();
+    k.group.traverse((o) => { const m = o as Mesh; if (m.isMesh && m.geometry !== kickerParts.pole && m.geometry !== kickerParts.flag) m.geometry.dispose(); });
+    k.group = undefined; k.flags = undefined;
+  };
+  /** The flags flying (asked: "add visual impression improvements where it doesn't hurt the performance"): each turned to and fro about its pole, as a pennant in the wind. */
+  const flutter = (time: number) => {
+    for (const k of kicks) k.flags?.forEach((f, j) => { f.rotation.y = f.userData.turn + 0.24 * Math.sin(time * 5.1 + k.i * 1.7 + j * 2.3) + 0.09 * Math.sin(time * 12.3 + k.i + j); });
   };
   /** The kickers about `s`: one behind, the next two ahead; built when first come near, and let go of once far behind. */
   const placeKickers = (s: number) => {
     const i0 = Math.floor((s - KICK.first) / KICK.every) - 1, near: Kicker[] = [];
     for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i); if (k && k.s < land.length) near.push(k); }
-    for (const k of kickerAt.values()) if (k?.group && !near.includes(k)) {
-      k.group.removeFromParent();
-      k.group.traverse((o) => { const m = o as Mesh; if (m.isMesh && m.geometry !== kickerParts.pole && m.geometry !== kickerParts.flag) m.geometry.dispose(); });
-      k.group = undefined;
-    }
+    for (const k of kickerAt.values()) if (k && !near.includes(k)) takeDown(k);
     if (kickersOn) for (const k of near) if (!k.group) buildKicker(k);
     kicks = kickersOn ? near : [];
   };
@@ -538,8 +555,9 @@ async function start() {
 
   // The skier: the adventurer, posed live (`Rider`), ridden or as the demo run was kept, with its downhill skis and poles.
   if (!win.__figureFiles) await loading.busy('Fetching the rider');
-  // (The clips that come with the file, and those made from them: the run, the sprint and the skiing.)
-  const library = await FigureLibrary.load(base, { fetch: async (url) => { const bytes = await fetchCounted(url); if (url.includes('clips.glb')) await loading.stage('moves'); return bytes; } });
+  // (The clips that come with the file; not those made from them, the run, the sprint and the skiing, which nothing here plays: the
+  // skier is posed live, and making them was near half a second of opening.)
+  const library = await FigureLibrary.load(base, { made: false, fetch: async (url) => { const bytes = await fetchCounted(url); if (url.includes('clips.glb')) await loading.stage('moves'); return bytes; } });
   await loading.stage('dress');
   const idle = library.clips.find((c) => c.name === 'Idle_Loop')!;
   // (The skier, and a horse's rider, an adventurer: a ranger's clothes on a base body, `src/figures/outfit.ts`; `?body=mannequin`
@@ -684,9 +702,13 @@ async function start() {
     const mesh = new Mesh(g, trackPaint);
     mesh.frustumCulled = false;
     mesh.renderOrder = 1;
+    // (Not drawn until something of it is laid: a strip of nothing was a draw of nothing each frame, eight of them, and a warning.)
+    mesh.visible = false;
     scene.add(mesh);
     return mesh;
   };
+  /** So much of a strip shown, from its start: none of it, and it is not drawn at all. */
+  const showStrip = (mesh: Mesh, count: number) => { mesh.geometry.setDrawRange(0, count); mesh.visible = count > 0; };
   /** Writes the `j`th step of a strip: the ski's middle, the way it went (against the run's way at `f`), and how broad it is (half). */
   const lay = (mesh: Mesh, j: number, at: Vector3, way: number, half: number, f: { dx: number; dz: number }) => {
     const across = along(way + Math.PI / 2, f).multiplyScalar(half);
@@ -714,9 +736,9 @@ async function start() {
     }
     at.forEach((p, k) => lay(rideTracks[k], rideLaid, p, now.way, halfOf(now.skid), here));
     rideLaid++;
-    rideTracks.forEach((m, k) => { m.geometry.getAttribute('position').needsUpdate = true; m.geometry.getAttribute('color').needsUpdate = true; m.geometry.setDrawRange(0, k < rideSkis ? Math.max(0, rideLaid - 1) * 6 : 0); });
+    rideTracks.forEach((m, k) => { m.geometry.getAttribute('position').needsUpdate = true; m.geometry.getAttribute('color').needsUpdate = true; showStrip(m, k < rideSkis ? Math.max(0, rideLaid - 1) * 6 : 0); });
   };
-  const clearRideTracks = () => { rideLaid = 0; for (const m of rideTracks) m.geometry.setDrawRange(0, 0); };
+  const clearRideTracks = () => { rideLaid = 0; for (const m of rideTracks) showStrip(m, 0); };
 
   // Snow thrown up from the skis' edges (asked: "maybe the flying snow from skidded turns and braking could be improved to something
   // nicer with a bit of snow sparkle?"; it had been white chips of a solid). A cloud of powder: puffs, each a picture of soft blots
@@ -750,8 +772,8 @@ async function start() {
   grainPaint.opacityNode = smoothstep(0.5, 0.06, length(uv().sub(0.5)));
   const puffs = new InstancedMesh(puffShape, puffPaint, PUFFS), grains = new InstancedMesh(grainShape, grainPaint, GRAINS);
   for (const m of [puffs, grains]) { m.frustumCulled = false; m.renderOrder = 2; scene.add(m); }
-  type Bit = { p: Vector3; v: Vector3; age: number; life: number; size: number; grow: number; down: boolean };
-  const bits = (n: number): Bit[] => Array.from({ length: n }, () => ({ p: new Vector3(), v: new Vector3(), age: 0, life: 0, size: 0, grow: 0, down: false }));
+  type Bit = { p: Vector3; v: Vector3; age: number; life: number; size: number; grow: number; down: boolean; shown: boolean };
+  const bits = (n: number): Bit[] => Array.from({ length: n }, () => ({ p: new Vector3(), v: new Vector3(), age: 0, life: 0, size: 0, grow: 0, down: false, shown: true }));
   const puffBits = bits(PUFFS), grainBits = bits(GRAINS);
   let nextPuff = 0, nextGrain = 0, sprayAir = false;
   const hidden = new Matrix4().makeScale(0, 0, 0), m4 = new Matrix4(), size = new Vector3();
@@ -797,16 +819,21 @@ async function start() {
     }
     if (dt > 0) sprayAir = inAir;
     // Each turned to the eye. Puffs slowed by the air and settling slowly, swelling and thinning; grains falling, lying where they land.
+    // (One spent is put away once, not every frame; and with none in the air and none just put away, nothing is sent to the graphics
+    // card and nothing drawn: most of a run, which had sent both sets whole every frame.)
     const drag = Math.exp(-2.6 * dt), grainDrag = Math.exp(-0.7 * dt);
+    let puffsUp = 0, grainsUp = 0, puffsChanged = false, grainsChanged = false;
     puffBits.forEach((b, i) => {
-      if (b.age >= b.life) { puffs.setMatrixAt(i, hidden); puffFade.setX(i, 0); return; }
+      if (b.age >= b.life) { if (b.shown) { b.shown = false; puffsChanged = true; puffs.setMatrixAt(i, hidden); puffFade.setX(i, 0); } return; }
+      b.shown = true; puffsUp++;
       b.age += dt; b.v.multiplyScalar(drag); b.v.y -= 0.35 * G * dt; b.p.addScaledVector(b.v, dt);
       const k = Math.min(1, b.age / b.life);
       puffs.setMatrixAt(i, m4.compose(b.p, camera.quaternion, size.setScalar(b.size + b.grow * Math.sqrt(k))));
       puffFade.setX(i, smooth(b.age / 0.08) * (1 - k) ** 1.4);
     });
     grainBits.forEach((b, i) => {
-      if (b.age >= b.life) { grains.setMatrixAt(i, hidden); grainLight.setX(i, 0); return; }
+      if (b.age >= b.life) { if (b.shown) { b.shown = false; grainsChanged = true; grains.setMatrixAt(i, hidden); grainLight.setX(i, 0); } return; }
+      b.shown = true; grainsUp++;
       b.age += dt;
       if (!b.down) {
         b.v.multiplyScalar(grainDrag); b.v.y -= 0.8 * G * dt; b.p.addScaledVector(b.v, dt);
@@ -816,8 +843,9 @@ async function start() {
       grains.setMatrixAt(i, m4.compose(b.p, camera.quaternion, size.setScalar(b.size)));
       grainLight.setX(i, 1 - (b.age / b.life) ** 3);
     });
-    puffs.instanceMatrix.needsUpdate = grains.instanceMatrix.needsUpdate = true;
-    puffFade.needsUpdate = grainLight.needsUpdate = true;
+    if (puffsUp || puffsChanged) puffs.instanceMatrix.needsUpdate = puffFade.needsUpdate = true;
+    if (grainsUp || grainsChanged) grains.instanceMatrix.needsUpdate = grainLight.needsUpdate = true;
+    puffs.visible = puffsUp > 0; grains.visible = grainsUp > 0;
   };
   const clearSpray = () => { for (const b of [...puffBits, ...grainBits]) b.age = b.life = 0; sprayAir = false; };
 
@@ -966,8 +994,14 @@ async function start() {
   // comes in the run of them (a double, a triple). A jump landed, by what was made of it: so much for each half turn of spin, more for
   // each flip, more for a cork, a grab held, taken off switch; all of it the more the longer it was in the air; and so much for each
   // metre it went. Begun again with each run.
-  const popsEl = $('pops'), scoreEl = $('score');
+  const popsEl = $('pops'), scoreEl = $('score'), bestEl = $('best');
   let score = 0, downedRun = 0, downedUntil = 0;
+  /**
+   * The most points won in one run on the slope now ridden (asked: "make potential identified improvements to the gameplay"): kept in
+   * this browser, slope by slope, and shown beside the run's own; and what it was as this run began, to say when the run beats it.
+   */
+  let best = 0, bestBefore = 0;
+  const showBest = () => say(bestEl, best <= 0 ? '' : score < best ? ` · best ${best.toLocaleString('en')}` : bestBefore > 0 ? ' · new best' : '');
   /** Where a point of the scene is over the picture, in pixels; none if it is behind the eye or well off the picture. */
   const overPictureAt = (p: Vector3): [number, number] | null => {
     const n = p.clone().project(camera);
@@ -993,10 +1027,12 @@ async function start() {
   const addScore = (n: number) => {
     if (mode !== 'ride') return;
     score += n;
+    if (score > best) { best = score; keep(`best.${landKind}`, String(best)); }
+    showBest();
     scoreEl.textContent = score.toLocaleString('en');
     scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
   };
-  const resetScore = () => { score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; };
+  const resetScore = () => { score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; best = bestBefore = Math.max(0, Number(kept(`best.${landKind}`)) || 0); showBest(); };
   /** An orc downed at `p`: shot (the cross where it was struck), or run down; and the run of them it comes in. */
   const orcDowned = (p: Vector3, how: 'shot' | 'run') => {
     const clock = mode === 'ride' ? ride.time : t;
@@ -1144,7 +1180,7 @@ async function start() {
     // (Out of the saddle: its own body now, in the world.)
     if (who === 'mounted') rider.add(jockey.model);
     for (const { body, doll } of crash.dolls) body.poseJoints(doll.joints());
-    tell(`Crashed: ${why}`, `A new run in a moment, or ${document.body.classList.contains('mouse') ? 'click' : 'Enter'}`, true, 1e9);
+    tell(`Crashed: ${why}`, `A new run in a moment, or ${document.body.classList.contains('mouse') ? 'click' : 'tap'}`, true, 1e9);
     reflect();
   };
 
@@ -1876,7 +1912,7 @@ async function start() {
     whirlwind: {
       begin: () => beginWhirl(), step: (c, dt, was) => { if (!c.fly) { comeOver(c); if (was < c.takes && c.t >= c.takes) snowBurst(c.whirl!.to, 2.2, 60, 5); } },
       took: (c) => takeUp(c), hold: (c, dt) => carry(c, dt), lets: (c) => c.t >= c.takes + c.whirl!.lift, shot: (c, dt) => whirlShot(c, dt), fov: 62, tumbling: true, launch: 0.15,
-      coming: 'The whirlwind coming', holding: 'In the whirlwind',
+      coming: 'A tornado coming', holding: 'In the tornado',
     },
     blast: {
       begin: () => beginBlast(), step: (c, dt, was) => blastStep(c, dt, was), took: (c) => { c.blast!.from.copy(c.at); }, hold: (c, dt) => blown(c, dt),
@@ -1932,7 +1968,7 @@ async function start() {
     kickable: () => false, keepAbout: () => {}, lod: undefined, trees: undefined,
   });
   /** The kickers taken down and forgotten: the land they stood on is not the land now. */
-  const dropKickers = () => { for (const k of kickerAt.values()) if (k?.group) { k.group.removeFromParent(); k.group = undefined; } kickerAt.clear(); kicks = []; };
+  const dropKickers = () => { for (const k of kickerAt.values()) if (k) takeDown(k); kickerAt.clear(); kicks = []; };
   /**
    * Driving the rocket cart back up the run, while it is: the land as it lies; and how hard its engine pushes now (0 to 1, for its flame
    * and its smoke).
@@ -2360,12 +2396,15 @@ async function start() {
     standAt(stand, normalAt(ride.x, ride.z, 0.5), ride.facing, here, g180?.pitch ?? 0);
     if (!quiet) keepJoints(dt);
     // At the foot of a world's run: brought to a stop there.
-    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points`, false, 1e9); }
+    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); }
     return { down: ride.down, left: ride.left, speed: ride.speed, way: ride.way, ski, skid: Math.max(Math.abs(Math.sin(ski - ride.way)), g180 ? g180.scrape * sideOn : 0), tuck: ride.tuck, brake: ride.brake };
   };
   /** What the ridden skier is doing, in words. */
   const doingNow = () => { const d = doing_(); return ride.switch && !air && !crash && !cat ? `${d}, switch` : d; };
   const doing_ = () => {
+    // (Held, and said so: Space pressed by chance while riding stopped everything with nothing to say why.)
+    if (!playing) return document.body.classList.contains('mouse') ? 'Paused · Space to go on' : 'Paused';
+    if (menuOpen) return 'Paused · menu open';
     if (asking) return 'Choosing the way back';
     if (cat?.fly) return cat.flown >= cat.fly.free - 0.45 ? 'Under the parachute' : 'Thrown back to the top';
     if (cat?.held) return WAYS[cat.by].holding;
@@ -2584,9 +2623,11 @@ async function start() {
         }
         if (ride.turn180) label = G180[ride.turn180.kind].name;
       }
+      // (No body posed while it is flown: a frame keeps what the pose is made from, not the pose, and a fall is flown again or ends it.
+      // Posed at each frame kept, the horse and its rider, it was a fifth of a millisecond each, some thousands of times.)
       const keep = step % 4 === 0, wasAir = air;
       since180 = ride.turn180 ? 0 : since180 + dt;
-      quiet = !keep;
+      quiet = true;
       const now = stepRide(dt);
       if (air && !wasAir && air.kind !== 'hop' && from?.k === k) off = `off at ${(ride.speed * 3.6).toFixed(0)} km/h, ${air.name}, ${air.T.toFixed(2)} s up; `;
       // (The whole flight named as it landed, or fell: it is named as it goes, and a grab is not one until it has been held.)
@@ -2624,8 +2665,13 @@ async function start() {
   const watchPose = (t: number): Now => {
     const fs = demo.frames, last = fs.length - 1, f = clamp(t / STEP, 0, last), i = Math.min(Math.max(0, last - 1), Math.floor(f)), k = f - i, a = fs[i], b = fs[Math.min(last, i + 1)];
     rider.position.lerpVectors(a.p, b.p, k);
-    rider.quaternion.slerpQuaternions(a.q, b.q, k);
-    const near = k < 0.5 ? a : b, c = a.air === b.air ? between(a.c, b.c, k) : near.c;
+    // (Where a half turn is handed from the pose to the way the body faces between two frames, a 180 landed or a 180 on the snow
+    // ended, neither is blended: the pose's turn goes at once and the facing was turned round over the frames between, so that the
+    // body stood up to a quarter turn off for a frame or two, or turned the wrong way round.)
+    // (Told by the facing going round by more than any spin or flip does in a thirtieth of a second, which is under half a radian.)
+    const near = k < 0.5 ? a : b, handed = a.q.angleTo(b.q) > 1.5;
+    if (handed) rider.quaternion.copy(near.q); else rider.quaternion.slerpQuaternions(a.q, b.q, k);
+    const c = handed || a.air !== b.air ? near.c : between(a.c, b.c, k);
     if (near.air) skier.air(c as AirControls); else skier.ride(c as RideControls);
     rider.updateMatrixWorld(true);
     return between(a.now, b.now, k);
@@ -2687,6 +2733,8 @@ async function start() {
     return T;
   };
   const wildInput = $<HTMLInputElement>('wild');
+  const trickRng = new Rng('ride tricks');
+  let trickPicks = 0;
   /** The trick to make off kicker `k`, its lip `tLip` seconds off: one that should come round, by how wild the slider says. */
   const pickTrick = (k: Kicker, tLip: number): DemoTrick => {
     const T = (probeAirtime() || airtimeOff(k, ride.speed)) * 0.95, w = Number(wildInput.value);
@@ -2695,9 +2743,11 @@ async function start() {
     const can = TRICK_POOL.filter((p) => p.need + (p.t.halves >= 4 ? 0.06 : 0) <= T && (!(p.t.kind === 'flight' || p.t.cork) || tLip > 1.25) && (p.t.kind !== 'flip' || tLip > 0.8));
     if (!can.length) return { kind: 'air', halves: 0 };
     const weights = can.map((p) => Math.exp(-(((p.wild - w) / 0.16) ** 2)) + 0.002);
-    let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+    // (By chance, from where and when it is chosen: another each time a kicker is come up on, as no two runs are ridden alike.)
+    const rng = trickRng.fork(`kicker ${k.i} ${ride.down.toFixed(1)} ${ride.time.toFixed(2)} ${trickPicks++}`);
+    let r = rng.next() * weights.reduce((a, b) => a + b, 0);
     const i = Math.max(0, weights.findIndex((x) => (r -= x) <= 0));
-    return { ...can[i].t, side: Math.random() < 0.5 ? 1 : -1 };
+    return { ...can[i].t, side: rng.chance(0.5) ? 1 : -1 };
   };
   /** The trick being made riding, if one is: off which kicker, what, and the time in the air it is made in once off the lip. */
   let rideTrick: { k: Kicker; trick: DemoTrick; air: Air | null } | null = null;
@@ -2735,7 +2785,7 @@ async function start() {
     if (ahead) rideTrick = { k: ahead.k, trick: pickTrick(ahead.k, ahead.toLip / Math.max(ride.speed, 1)), air: null };
   };
 
-  const showWatchTracks = (t: number | null) => watchTracks.forEach((m, k) => m.geometry.setDrawRange(0, t === null || k >= watchSkis ? 0 : Math.max(0, Math.floor(t / (2 * STEP))) * 6));
+  const showWatchTracks = (t: number | null) => watchTracks.forEach((m, k) => showStrip(m, t === null || k >= watchSkis ? 0 : Math.max(0, Math.floor(t / (2 * STEP))) * 6));
 
   // ---------------------------------------------------------------- what is shown, and how it is moved about in
   type Mode = 'watch' | 'ride';
@@ -2744,7 +2794,7 @@ async function start() {
   let t = 0, playing = true, rate = 1, view = 'cinema' as View, scrubbing = false;
   const rates: [string, number][] = [['¼×', 0.25], ['½×', 0.5], ['1×', 1]];
   const views: [string, View, string][] = [['Cinema', 'cinema', 'C'], ['Behind', 'behind', 'B'], ['Beside', 'beside', 'S'], ['Above', 'above', 'A'], ['Free', 'free', 'F']];
-  const modes: [string, Mode, string][] = [['Watch demo', 'watch', 'Watch the demo run, a trick off every kicker (R)'], ['Ride', 'ride', 'Ride it yourself: the stick or the pointer steers, and a trick is given you at each kicker (R)']];
+  const modes: [string, Mode, string][] = [['Watch demo', 'watch', 'Watch the demo run, a trick off every kicker (R)'], ['Ride', 'ride', 'Ride it yourself: you steer, and each kicker gives you a trick (R)']];
   /** A button in the menu, in the bar or the cards of `parent`; a card says what it is under its name (`detail`). */
   const button = (parent: string, label: string, onclick: () => void, title?: string, detail?: string) => {
     const b = document.createElement('button'), host = $(parent);
@@ -2767,7 +2817,7 @@ async function start() {
    * watched. (Kept in this browser for next time; `?orcs=1` or `?orcs=0` either way.)
    */
   let orcsOn = false;
-  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => setOrcs(k === 1), k ? 'Riding a human, carry a tommy gun and shoot the orcs coming up the run; and the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
+  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => setOrcs(k === 1), k ? 'The skier, or the horse\'s rider, carries a tommy gun, and orcs come up the run to be shot; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
   const setOrcs = (on: boolean) => {
     orcsOn = on;
     keep('orcs', on ? '1' : '0');
@@ -2812,7 +2862,7 @@ async function start() {
   // begun again from its top.
   const landKinds: [string, LandKind, string, string][] = [...runs.map((r): [string, LandKind, string, string] => [r.label, r.id, r.title, r.detail]), ['Groomed', 'groomed', 'A groomed slope at sixteen degrees, going on for ever', 'Sixteen degrees, going on for ever']];
   const landButtons = landKinds.map(([label, k, title, detail]) => button('lands', label, () => { void setLand(k); }, title, detail));
-  const snowLooks: [string, SnowLook, string][] = [['Game', 'game', "The game's own snow, rock and far country, in lighter winter forms"], ['Plain', 'plain', 'Plain snow and rock: lighter still']];
+  const snowLooks: [string, SnowLook, string][] = [['Detailed', 'game', 'Snow, rock and far country in full detail'], ['Plain', 'plain', 'Plain snow and rock: lighter to draw']];
   const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind !== 'groomed') void setLand(landKind, true); else reflect(); } }, title));
   const setLand = async (kind: LandKind, again = false) => {
     if (kind === landKind && !again) return;
@@ -2820,10 +2870,9 @@ async function start() {
     const next = await landOf(kind);
     loading.idle();
     unflip();
-    for (const k of kickerAt.values()) if (k?.group) { k.group.removeFromParent(); k.group = undefined; }
-    kickerAt.clear();
-    kicks = [];
+    dropKickers();
     landKind = kind;
+    resetScore();
     land = next;
     showLand();
     if (mode === 'ride') restart();
@@ -2840,7 +2889,7 @@ async function start() {
   const stanceButton = $('stance');
   stanceButton.onclick = () => { start180(); };
   let stanceShown = '';
-  const showStance = () => { const say = ride.switch ? 'To regular' : 'To switch'; if (say !== stanceShown) { stanceShown = say; stanceButton.textContent = say; } };
+  const showStance = () => { const to = ride.switch ? '180 to regular' : '180 to switch'; if (to !== stanceShown) { stanceShown = to; stanceButton.textContent = to; } };
   // How wild the tricks are, kept in this browser for next time.
   wildInput.addEventListener('input', () => keep('wild', wildInput.value));
   const line = $('line'), head = line.querySelector('.head') as HTMLElement;
@@ -2969,7 +3018,7 @@ async function start() {
   // turning, carved, and out past eight tenths of the way skidded; up tucked, down standing straight. Let go of, it springs back to its
   // middle, and the skier eases back to its plain stance, going straight. (By mouse too, dragged.)
   const stickEl = $('stick'), knob = stickEl.querySelector('.knob') as HTMLElement;
-  let stickHeld: number | null = null;
+  let stickHeld: number | null = null, knobAt = '';
   const holdStick = (e: PointerEvent) => {
     const r = stickEl.getBoundingClientRect(), half = r.width / 2;
     let x = (e.clientX - (r.left + half)) / (half * 0.82), y = ((r.top + half) - e.clientY) / (half * 0.82);
@@ -2984,7 +3033,8 @@ async function start() {
   stickEl.addEventListener('pointercancel', letGo);
   const showStick = () => {
     const half = stickEl.offsetWidth / 2 || 66, x = stickHeld !== null ? stick.x : ask.x, y = stickHeld !== null ? stick.y : tilting() ? ask.y : 0;
-    knob.style.transform = `translate(${(x * half * 0.82).toFixed(1)}px, ${(-y * half * 0.82).toFixed(1)}px)`;
+    const to = `translate(${(x * half * 0.82).toFixed(1)}px, ${(-y * half * 0.82).toFixed(1)}px)`;
+    if (to !== knobAt) { knobAt = to; knob.style.transform = to; }
   };
   // Steering by tilting (asked: "for mobile users enable steer by device tilting with the calibration for steering being centered at
   // the position the device is at the start of the run"): on a phone or a tablet, from however it was held as the run began, tipped
@@ -3036,10 +3086,10 @@ async function start() {
   // The way back to the top, in the menu: asked each time, by chance, or one way always.
   const BACK_CHOICES: [BackBy, string, string][] = [
     ['ask', 'Ask', 'Ask how to get back to the top each time a run ends'], ['random', 'Random', 'A way back to the top chosen by chance each run'],
-    ['arm', 'Arm', 'The robot arm throws you back to the top'], ['whirlwind', 'Tornado', 'A tornado gathers at the foot of the run and flings you back to the top'],
-    ['blast', 'Blast', 'The ground blows up and throws you back to the top'], ['saucer', 'Saucer', 'A flying saucer beams you up and flings you back to the top'],
+    ['arm', 'Robot arm', 'The robot arm throws you back to the top'], ['whirlwind', 'Tornado', 'A tornado gathers at the foot of the run and flings you back to the top'],
+    ['blast', 'Explosion', 'The ground blows up and throws you back to the top'], ['saucer', 'Flying saucer', 'A flying saucer beams you up and flings you back to the top'],
     ['snowman', 'Snowman', 'A snowman drives you back to the top'], ['invert', 'Inside out', 'The world turns inside out and you ride back down to the top'],
-    ['cart', 'Cart', 'A rocket cart is brought down to you, and you drive it back up to the top'],
+    ['cart', 'Rocket cart', 'A rocket cart is brought down to you, and you drive it back up to the top'],
   ];
   const backButtons = BACK_CHOICES.map(([w, label, title]) => button('waysSeg', label, () => setBackBy(w), title));
   showBackBy = () => backButtons.forEach((b, k) => b.classList.toggle('on', BACK_CHOICES[k][0] === backBy));
@@ -3054,6 +3104,9 @@ async function start() {
   const ARROWS: Record<string, keyof typeof want.keys> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && menuOpen) { setMenu(false); return; }
+    // (With Ctrl, Alt or the command key held, a key is the browser's own: Ctrl+R to load the page again had first switched to riding,
+    // Ctrl+F the view to the free one, Ctrl+C to the cinematic.)
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target instanceof HTMLButtonElement && e.key === ' ') return;
     if (mode === 'ride' && ARROWS[e.key]) { want.keys[ARROWS[e.key]] = true; e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Shift') { want.brakeKey = true; return; }
@@ -3083,7 +3136,7 @@ async function start() {
   const aimEl = $('aim'), aimDot = aimEl.querySelector('.dot') as HTMLElement;
   /** How far from the middle of the picture the pointer asks the most, in pixels: some three tenths of the picture's shorter side. */
   const aimReach = () => clamp(0.3 * Math.min(innerWidth, innerHeight), 120, 340);
-  let overPicture = false, shownReach = 0;
+  let overPicture = false, shownReach = 0, aimDotAt = '';
   function letAimGo() { aim.on = aim.brake = false; aim.x = aim.y = 0; canvas.style.cursor = ''; }
   const byMouse = (on: boolean) => { if (document.body.classList.contains('mouse') !== on) document.body.classList.toggle('mouse', on); if (!on) letAimGo(); };
   byMouse(matchMedia('(hover: hover) and (pointer: fine)').matches);
@@ -3103,6 +3156,9 @@ async function start() {
   canvas.addEventListener('pointermove', (e) => { overPicture = true; if (aiming(e)) aimAt(e); });
   canvas.addEventListener('pointerleave', () => { overPicture = false; letAimGo(); });
   canvas.addEventListener('pointerdown', (e) => {
+    // (By touch, a tap on the picture while the run's end is at its work begins the next run at once, as a click does and Enter: a
+    // phone has no Enter. Not in its first moment, where a finger may still be coming off the picture.)
+    if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && cat && cat.t > 0.4) { restart(); return; }
     if (!aiming(e) || e.button !== 0 || e.ctrlKey) return;
     if (cat) { restart(); return; }
     // (Held onto while the button is down, so that the brake, or the trigger, is not let go of where the pointer crosses a control.)
@@ -3127,7 +3183,8 @@ async function start() {
     const reach = aimReach();
     if (reach !== shownReach) { shownReach = reach; aimEl.style.setProperty('--reach', `${reach}px`); }
     const x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
-    aimDot.style.transform = `translate(${(x * reach).toFixed(1)}px, ${(-y * reach).toFixed(1)}px)`;
+    const to = `translate(${(x * reach).toFixed(1)}px, ${(-y * reach).toFixed(1)}px)`;
+    if (to !== aimDotAt) { aimDotAt = to; aimDot.style.transform = to; }
     // (Asking to be brought in, while the pointer is over the picture and has not taken the skier; put away while it lies fallen, and
     // while the arm has it.)
     aimEl.classList.toggle('lost', overPicture && !aim.on && !cat);
@@ -3263,7 +3320,7 @@ async function start() {
     const downedBefore = horde.downed;
     horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
     for (let i = horde.downed - downedBefore; i > 0; i--) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run');
-    $('orcs').textContent = String(horde.downed);
+    say($('orcs'), String(horde.downed));
   };
 
   // The view, following the skier. It keeps pace with the skier exactly down the slope, and eases only what the view does about it: how
@@ -3365,9 +3422,10 @@ async function start() {
     return shots;
   };
   /** Riding: the shot now, chosen as it goes. */
-  let rideShot: Shot | null = null, rideShotFor: Air | null = null;
+  let rideShot: Shot | null = null, rideShotFor: Air | null = null, rideShotsMade = 0;
+  const rideShotRng = new Rng('ride shots');
   const rideShots = (): Shot => {
-    const T = ride.time, rng = Math.random;
+    const T = ride.time, shotRng = rideShotRng.fork(`shot ${rideShotsMade++} ${T.toFixed(2)}`), rng = () => shotRng.next();
     // (A jump, from a camera set down beside its flight as it leaves the lip, where it will be halfway through it.)
     if (air && air.kind !== 'hop' && air.T > 0.6 && rideShotFor !== air) {
       rideShotFor = air;
@@ -3436,7 +3494,13 @@ async function start() {
     const p = land.at(now.down, across), follow = new Vector3(p.x, at.y, p.z), down = runDir(f), aside = runLeft(f);
     ahead.lerp(mode === 'ride' ? down.clone().lerp(along(now.way, f), 0.65).normalize() : down, placed ? ease(dt, 2) : 1).setY(0).normalize();
     travel.lerp(along(now.way, f).setY(0).normalize(), placed ? ease(dt, 1.5) : 1).setY(0).normalize();
-    if (view !== 'cinema' && camera.fov !== FOV) { camera.fov = fovNow = FOV; camera.updateProjectionMatrix(); }
+    // (Riding from behind, a little wider the faster it goes, up to eight degrees at a hundred kilometres an hour: the snow beside
+    // streams by further out, and speed is felt. Eased, so that it is not seen to change.)
+    if (view !== 'cinema') {
+      const wide = FOV + (mode === 'ride' && view === 'behind' ? 8 * smooth((now.speed - 14) / 16) : 0);
+      fovNow = placed ? fovNow + (wide - fovNow) * ease(dt, 1.8) : wide;
+      if (Math.abs(camera.fov - fovNow) > 0.01) { camera.fov = fovNow; camera.updateProjectionMatrix(); }
+    }
     if (view === 'cinema') placeCinema(at, dt);
     else if (view === 'free') {
       if (!placed) { camera.position.copy(at).addScaledVector(UP, 3 * distance).addScaledVector(aside, 6 * distance).addScaledVector(down, -6 * distance); controls.target.copy(at); }
@@ -3718,8 +3782,11 @@ async function start() {
   const smeared: N = Fn(() => {
     const sum = vec4(0).toVar();
     If(length(smear.mul(screenSize)).greaterThan(0.1), () => {
+      // (Each point's samples set off along the smear by its own share of a step, told from where it is in the picture: all at the same
+      // eight places, a glint on the snow came out as a row of eight dots, a dotted line; so it comes out as one streak, a little grainy.)
+      const off: N = fract(fract(dot(uv().mul(screenSize), vec2(0.06711056, 0.00583715))).mul(52.9829189)).toVar();
       Loop({ start: int(0), end: int(8), type: 'int' }, ({ i }: { i: N }) => {
-        sum.addAssign(picture.sample(uv().add(smear.mul(float(i).div(7).sub(0.5)))));
+        sum.addAssign(picture.sample(uv().add(smear.mul(float(i).add(off).div(8).sub(0.5)))));
       });
       sum.divAssign(8);
     }).Else(() => { sum.assign(picture.sample(uv())); });
@@ -3758,6 +3825,7 @@ async function start() {
   setBlur(query.has('blur') || keptBlur === null ? blurLevel : Number(keptBlur));
   setDistance(Number(kept('distance') ?? 1) || 1);
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
+  resetScore();
   setTilt(kept('tilt') !== '0');
   {
     const k = kept('backBy');
@@ -3835,9 +3903,12 @@ async function start() {
     if (shown > 3.8 && drawn > 26) { introFrames = -1; if (!intro.hidden) { intro.hidden = true; if (mode === 'watch') { choose.hidden = false; $('sendIt').focus(); } } }
   };
 
-  let then = performance.now(), benching = false, drawnFrames = 0;
+  let then = performance.now(), benching = false, drawnFrames = 0, warming = true;
   const fixedDt = Number(query.get('dt')) || 0;
   let afterFrame: (() => void) | null = null;
+  // (What the frame says on the page, and where the timeline's head stands: written only when it changes.)
+  const clockEl = $('clock'), speedEl = $('speed'), downEl = $('down');
+  let headAt = -1, headOf: Demo | null = null;
   const frame = async () => {
     if (benching) { requestAnimationFrame(frame); return; }
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
@@ -3858,9 +3929,8 @@ async function start() {
       stepSpray(playing && !scrubbing ? dt * rate : 0, playing && !scrubbing ? at : null, demo.frames[Math.min(demo.frames.length - 1, Math.round(t / STEP))]?.air ?? false);
       const parts = demo.parts, part = parts.find((p) => t >= p.from && t < p.to) ?? parts[parts.length - 1];
       if (part && part.label !== shownPart) { shownPart = part.label; $('part').textContent = part.label; bands.forEach((b, i) => b.classList.toggle('now', parts[i] === part)); }
-      $('clock').textContent = `${t.toFixed(1)} s of ${demo.length.toFixed(0)}`;
-      head.style.left = `${(t / demo.length) * 100}%`;
-      line.setAttribute('aria-valuenow', t.toFixed(1));
+      say(clockEl, `${t.toFixed(1)} s of ${demo.length.toFixed(0)}`);
+      if (t !== headAt || demo !== headOf) { headAt = t; headOf = demo; head.style.left = `${(t / demo.length) * 100}%`; line.setAttribute('aria-valuenow', t.toFixed(1)); }
     } else {
       // (Stepped in small steps, so that a slow frame does not throw the skier off its line.)
       // (Held while the menu is open.)
@@ -3882,7 +3952,7 @@ async function start() {
       stepSpray(playing && !menuOpen ? dt : 0, playing && onSnow ? at : null, !!air);
       const doing = doingNow();
       if (doing !== shownPart) { shownPart = doing; $('part').textContent = doing; }
-      $('clock').textContent = `${ride.time.toFixed(0)} s riding`;
+      say(clockEl, `${ride.time.toFixed(0)} s riding`);
       showStick();
       showAim();
       showStance();
@@ -3895,14 +3965,21 @@ async function start() {
     gloom(dt);
     land.lod?.(camera.position.x, camera.position.z);
     land.trees?.(camera.position, now / 1000);
-    if (kickersOn) placeKickers(at.down);
+    if (kickersOn) { placeKickers(at.down); flutter(now / 1000); }
     if (mode === 'ride' && cat) placeCatapultView(dt); else placeView(at, dt);
     shiftView(dt);
     reinsNow();
     showTold();
-    $('speed').textContent = (at.speed * 3.6).toFixed(0);
+    say(speedEl, (at.speed * 3.6).toFixed(0));
     // (How far down, as height come down from the top: vertical metres, as the world's heights have it.)
-    $('down').textContent = Math.max(0, land.drop(where.y)).toFixed(0);
+    say(downEl, Math.max(0, land.drop(where.y)).toFixed(0));
+    // (Before the first frame is drawn, its shaders made a few at a time with the page given a moment between them, rather than all at
+    // once as it is drawn: made so, the page stood frozen for the four seconds they took, the loading screen's bar with it, and they
+    // took a second and more longer. With WebGPU only: with WebGL 2, made this way they took twice as long, ten seconds for five.)
+    if (warming) {
+      warming = false;
+      if ((renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend) try { await (blurLevel > 0 ? scenePass : sharpPass).compileAsync(renderer); } catch (e) { console.warn(e); }
+    }
     if (blurLevel > 0) {
       uShutter.value = clamp(1 / 60 / Math.max(dt, 1e-3), 0.005, 3) * blurLevel;
       uBlur.value = blurLevel;

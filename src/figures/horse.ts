@@ -259,9 +259,11 @@ export class Horse {
         index.push(q, w, q + sides, w, w + sides, q + sides);
       }
     });
-    const g = this.reins.geometry;
-    g.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
-    g.setIndex(index);
+    // (Written into the points it has, once it has them: given new ones each frame, the graphics card was given new buffers for them
+    // each frame, twice over with the sun's shadows, the old ones left to be found unused.)
+    const g = this.reins.geometry, had = g.getAttribute('position') as BufferAttribute | undefined;
+    if (had && had.array.length === pos.length) { (had.array as Float32Array).set(pos); had.needsUpdate = true; }
+    else { g.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3)); g.setIndex(index); }
     g.computeVertexNormals();
   }
   /** Its skis changed: a long pair, or four short. */

@@ -6,7 +6,7 @@ A horse and its rider skiing down a mountain in winter: watched, or ridden. Play
 It opens on its title over the demo run, and asks: *Watch demo run*, or *Send it myself!* Until then, while it loads, a screen says
 how far it has got: a bar that fills as its files come in (all fetched at once, some 5.5 MB: the slice of the mountain, the figures'
 clips, the rider's body), and as the run is made, stage by stage (painting the snow and rock, laying the snow, teaching the rider to
-ski, dressing the rider and saddling the horse, flying the demo run, making the shaders), with what is being done and how much has
+ski, dressing the rider and saddling the horse, flying the demo run, lighting the mountain), with what is being done and how much has
 come under it.
 
 - **The demo run** goes down the mountain from beside its highest summit, carving between seven kickers built on the snow and taking a
@@ -26,7 +26,7 @@ come under it.
   when it leaves the picture. Held down, its button brakes; a right click (a tap with two fingers) turns you round; scrolled or
   pinched, the view comes nearer or goes further off. The arrow keys too, and Shift to brake. You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
-  speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *To switch* (or *To regular*, `X`) turns you
+  speed, milder or wilder as the *Mild*–*Wild* slider at the lower right says. Under it, *180 to switch* (or *180 to regular*, `X`) turns you
   round on the snow, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends after a fall or at
   the foot of the run, and you are asked how to get back to the top: one of seven ways, or *Random*. Tick *Remember my choice* and
   you are not asked again; *Back to the top* in the menu changes it (or sets it to be asked again). By chance, each way comes once
@@ -47,9 +47,9 @@ come under it.
   next run begins (fall off, and another comes down). (Neither of the last two on the groomed slope, which has no top to come back
   to.) The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
-  Enter, or a click, begins the next run at once. Riding wins points, counted at the top left and thrown up over the picture where
+  Enter, a click, or on a phone a tap, begins the next run at once. Riding wins points, counted at the top left and thrown up over the picture where
   they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the
-  longer in the air, and its length. On a computer, with *Orcs & tommy gun* on in the menu (off at first), the skier alone or the
+  longer in the air, and its length; the most won in one run on each slope is kept in the browser, and shown beside them. On a computer, with *Orcs & tommy gun* on in the menu (off at first), the skier alone or the
   horse's rider carries a tommy gun in place of its poles, aimed at the guide's mark: held down, the button fires it (and Shift
   brakes), and orcs come up the run in hordes to be shot down, red blood on the snow, how many counted at the top left; each shot
   down a hundred points and a white cross where the round struck, each run down a hundred and fifty, and a double, a triple, for
@@ -62,8 +62,8 @@ while the menu is open), *Slope* (two runs down the mountain, *Silent Warden* fr
 Crown*, longer, down a spur into the wooded foothills above a bay; or a groomed slope going on for ever), *Skier* (the horse with its
 rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
 *Camera* (*Cinema*, *Behind*, *Beside*, *Above*, or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and
-riding from behind, and each keeps the one it was last left in; and its distance) and *Picture* (the game's snow or plain, how finely
-the picture is drawn, the blur). Escape or `H` closes it. `R` switches between watching and riding; `Space` pauses the demo.
+riding from behind, and each keeps the one it was last left in; and its distance) and *Picture* (the snow detailed or plain, how finely
+the picture is drawn, the blur). Escape or `H` closes it. `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so).
 
 In the address: `?nointro` (no title, no question), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
 `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as

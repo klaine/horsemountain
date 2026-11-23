@@ -40,12 +40,18 @@ interface Orc {
   s: number; left: number; p: Vector3; pace: number; yaw: number;
   /** `come` while it comes up the slope; `down` once it has fallen (how long since, and how it was thrown); `gone`, waiting to come. */
   state: 'come' | 'down' | 'gone'; since: number; v: Vector3;
+  /** Its meshes, and whether they are drawn into the sun's shadows now: only near the skier, about which those are kept. */
+  meshes: Mesh[]; casts: boolean;
 }
+
+/** An orc as a round strikes it: two balls one over the other, its crouched body and its head; how high each is and how large, for an orc of size one. */
+const BALLS = [[0.6, 0.42], [1.1, 0.26]] as const;
 
 export class Horde {
   private readonly orcs: Orc[] = [];
   private readonly rng = new Rng('orcs');
   private making = false;
+  private readonly scratch = new Vector3();
   /** The orc's body as it is made once, dressed, and its moves (each orc a copy of it). */
   private kind: Promise<{ body: Object3D; moves: Map<string, { clip: AnimationClip }> }> | null = null;
   /** How many have been brought down this run. */
@@ -83,23 +89,26 @@ export class Horde {
   private async make(): Promise<void> {
     const { body, moves } = await this.kindOf(), model = cloneRigged(body), size = this.rng.range(...SIZE);
     model.scale.setScalar(size);
-    model.traverse((o) => { if ((o as Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; if ((o as SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; } });
+    const meshes: Mesh[] = [];
+    model.traverse((o) => { if ((o as Mesh).isMesh) { meshes.push(o as Mesh); o.castShadow = true; o.receiveShadow = true; if ((o as SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; } });
     this.dress(model);
     const mixer = new AnimationMixer(model), walk = mixer.clipAction(moves.get('Crouch_Fwd_Loop')!.clip), die = mixer.clipAction(moves.get('Death01')!.clip);
     die.setLoop(LoopOnce, 1);
     die.clampWhenFinished = true;
     model.visible = false;
     this.scene.add(model);
-    this.orcs.push({ model, mixer, walk, die, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, state: 'gone', since: 0, v: new Vector3() });
+    this.orcs.push({ model, mixer, walk, die, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, state: 'gone', since: 0, v: new Vector3(), meshes, casts: true });
   }
 
   /** A frame on, by `dt`: more come where there are too few ahead; each comes on, or lies where it fell. */
   update(dt: number, g: HordeGround, q: Quarry): void {
     if (this.orcs.length < MOST && !this.making) { this.making = true; void this.make().finally(() => { this.making = false; }); }
     // A horde comes, from well ahead, when there are too few coming.
+    // (Where from is drawn by chance only when a horde may come: drawn every frame, which hordes came where went by how many frames
+    // had been drawn, and the orc hunt was never twice the same.)
     const coming = this.orcs.filter((b) => b.state === 'come').length, free = this.orcs.filter((b) => b.state === 'gone');
-    const s0 = q.down + this.rng.range(...AHEAD);
-    if (coming < 10 && free.length >= 3 && s0 < g.length - 40) {
+    const s0 = coming < 10 && free.length >= 3 ? q.down + this.rng.range(...AHEAD) : Infinity;
+    if (s0 < g.length - 40) {
       const [lo, hi] = g.edges(s0), mid = this.rng.range(lo + 3, hi - 3), n = Math.min(free.length, this.rng.int(4, 9));
       for (let k = 0; k < n; k++) {
         const b = free[k], s = s0 + this.rng.range(-10, 10), left = mid + this.rng.range(-8, 8);
@@ -119,7 +128,8 @@ export class Horde {
         b.s -= b.pace * dt; b.left += across * dt;
         const at = g.at(b.s, b.left), mx = at.x - was.x, mz = at.z - was.z;
         if (Math.hypot(mx, mz) > 1e-5) b.yaw = Math.atan2(mx, mz);
-        b.p.set(at.x, g.ground(at.x, at.z), at.z);
+        // (Climbing up out of the snow over its first moments, as it sinks into it when it is done with: none stands there all at once.)
+        b.p.set(at.x, g.ground(at.x, at.z) - Math.max(0, 1 - b.since / 0.9) * 1.9 * b.size, at.z);
         // (Gone by: let go of. Run down: thrown on along the skier's way and up.)
         if (b.s < q.down - 30) { this.letGo(b); continue; }
         if (Math.hypot(b.p.x - q.at.x, b.p.z - q.at.z) < q.reach + 0.2 * b.size && Math.abs(b.p.y - q.at.y) < 2) {
@@ -135,6 +145,10 @@ export class Horde {
         if (b.since > 5.4) { this.letGo(b); continue; }
       }
       b.model.position.copy(b.p);
+      // (Drawn into the sun's shadows only within fifty metres of the skier, about whom they are kept fourteen metres out: its skinned
+      // body is never passed over as out of sight, and every orc on the run, a hundred metres off and more, was drawn into them each frame.)
+      const casts = b.p.distanceToSquared(q.at) < 50 * 50;
+      if (casts !== b.casts) { b.casts = casts; for (const m of b.meshes) m.castShadow = casts; }
       b.model.rotation.set(0, b.yaw, 0);
       b.mixer.update(dt);
     }
@@ -146,10 +160,10 @@ export class Horde {
    */
   hit(from: Vector3, dir: Vector3, reach: number): { t: number; orc: number } | null {
     let best: { t: number; orc: number } | null = null;
-    const c = new Vector3();
+    const c = this.scratch;
     this.orcs.forEach((b, i) => {
       if (b.state !== 'come') return;
-      for (const [up, r] of [[0.6, 0.42], [1.1, 0.26]] as const) {
+      for (const [up, r] of BALLS) {
         c.set(b.p.x, b.p.y + up * b.size, b.p.z).sub(from);
         const t = c.dot(dir), rr = r * b.size;
         if (t < 0 || t > reach || (best && t >= best.t)) continue;

@@ -98,15 +98,16 @@ export class FigureLibrary {
   /**
    * Loads the clips (with the male mannequin) from `base`, the folder that holds the figures' files. (A page that is one file, with no
    * folder beside it, carries them in itself, written out in `__figureFiles`: see `tools/buildingLabPage.mjs`.) Its files are fetched
-   * by `o.fetch` where it is given (see `figureBytes`).
+   * by `o.fetch` where it is given (see `figureBytes`). The clips made from them (the run, the sprint and the skiing) are left unmade
+   * with `o.made` false, for a page that plays none of them: making them takes some part of a second.
    */
-  static async load(base: string, o: { fetch?: FetchBytes } = {}): Promise<FigureLibrary> {
+  static async load(base: string, o: { fetch?: FetchBytes; made?: boolean } = {}): Promise<FigureLibrary> {
     const loader = new GLTFLoader();
     const gltf = await loadFile(loader, base, 'clips.glb', o.fetch);
     // (With the run and the sprint, and three clips of skiing, made on the mannequin from its idle's first frame: see `gait.ts` and
     // `skiing.ts`.)
     const idle = gltf.animations.find((c) => c.name === 'Idle_Loop');
-    const made = idle ? [...[RUN, SPRINT].map((s) => makeRun(gltf.scene, idle, s).clip), ...makeSkiClips(gltf.scene, idle)] : [];
+    const made = idle && o.made !== false ? [...[RUN, SPRINT].map((s) => makeRun(gltf.scene, idle, s).clip), ...makeSkiClips(gltf.scene, idle)] : [];
     return new FigureLibrary(base, loader, [...gltf.animations, ...made], hipsOf(gltf.scene), gltf, o.fetch);
   }
 

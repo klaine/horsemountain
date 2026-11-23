@@ -170,7 +170,8 @@ export class RobotArm {
       lumps.push(new DodecahedronGeometry(s, 0).scale(1, rng.range(0.45, 0.8), 1).rotateY(rng.range(0, 6)).translate(x, ground(base.x + x, base.z + z) - base.y - 0.08 * s, z));
     }
     this.heap.geometry.dispose();
-    this.heap.geometry = mergeGeometries(lumps.map((g) => g.toNonIndexed()));
+    // (Each lump is made of faces that share no points already: asked to be made so again, each said so in the console, twenty-two times.)
+    this.heap.geometry = mergeGeometries(lumps);
     this.heap.geometry.computeVertexNormals();
     this.pose({ rise: 0, yaw: 0, upper: Math.PI / 2, fore: Math.PI / 2, claw: Math.PI / 2, roll: 0, grip: 1, hold: 0 });
   }
@@ -189,7 +190,9 @@ export class RobotArm {
     const spread = 0.7 * (1 - p.grip) + (0.12 + 0.14 * p.hold) * p.grip, curl = 0.12 * (1 - p.grip) + (1.15 + 0.05 * p.hold) * p.grip;
     for (const f of this.fingers) { f.base.rotation.y = spread; f.tip.rotation.y = -curl; }
     // (The heap thrown up as the turret comes through the snow, and left lying.)
-    this.shown.rise = Math.max(this.shown.rise, p.rise);
+    // (Begun again from nothing when the arm is under the snow: measured standing risen before it comes up, as it is to find its
+    // reach, the heap was kept at its full size from then, and lay whole on smooth snow before anything had broken through it.)
+    this.shown.rise = p.rise <= 0.001 ? 0 : Math.max(this.shown.rise, p.rise);
     this.heap.scale.setScalar(Math.max(0.001, clamp((this.shown.rise - 0.45) / 0.35, 0, 1)));
     this.group.updateMatrixWorld(true);
   }

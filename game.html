@@ -105,6 +105,8 @@
     #menu output { color: var(--ink-dim); font-variant-numeric: tabular-nums; text-align: right; }
     #menu .wide { width: 100%; min-height: 44px; margin-top: 10px; font-weight: 650; }
     #menu .keys { margin: 20px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-dim); }
+    #menu .keys.more { margin-top: 6px; }
+    #menu .keys b { font-weight: 650; color: var(--ink); margin-right: 4px; }
     #menu .keys kbd { font: 600 10.5px/1 var(--sans); padding: 2px 5px; border: 1px solid var(--edge); border-radius: 4px; color: var(--ink); }
     @media (pointer: coarse) { #menu .keys { display: none; } }
     /* (A phone held upright: a sheet from the foot, over the lower part of the picture, the skier still seen above it.) */
@@ -150,6 +152,7 @@
     #stick .down { bottom: -16px; }
     #tricky { position: fixed; right: var(--gutter-r); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: grid; gap: 8px; justify-items: stretch;
       padding: 10px 12px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; width: min(230px, calc(100vw - 132px - 64px)); box-sizing: border-box; }
+    #tricky .cap { font: 600 10px/1 var(--serif); letter-spacing: .16em; text-transform: uppercase; color: var(--brass); text-align: center; margin-bottom: -3px; }
     #tricky .wild { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
     #tricky .wild span { font: 600 10px/1 var(--serif); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); }
     #tricky input { width: 100%; min-width: 0; accent-color: var(--brass); min-height: var(--hit); margin: 0; }
@@ -251,8 +254,8 @@
     #pops .mark::after { rotate: 90deg; }
     @keyframes mark { 0% { opacity: 1; scale: 1.5; } 100% { opacity: 0; scale: .9; } }
     @media (prefers-reduced-motion: reduce) { #pops .pop { animation: popFade 1s ease-out forwards; } @keyframes popFade { 70% { opacity: 1; } 100% { opacity: 0; } } }
-    /* (In the menu, the ways back in two rows.) */
-    #menu .seg.rows { grid-auto-flow: row; grid-template-columns: repeat(4, 1fr); }
+    /* (In the menu, the ways back three to a row, each by the name the question gives it.) */
+    #menu .seg.rows { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
     /* (The orc hunt, the second demo run, only where the tommy gun is: on a computer. Steering by tilting, only where there is no mouse.) */
     body:not(.mouse) #orcHunt, body:not(.mouse) #orcsField, body.mouse #tiltField { display: none; }
     #tally b { color: #9fd45a; }
@@ -300,15 +303,16 @@
   <div id="where" aria-live="polite">
     <div class="name" id="name">Downhill run</div>
     <div class="part" id="part">Long, wide turns</div>
-    <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span><span id="tally" hidden><b id="orcs">0</b> orcs down</span><span id="points"><b id="score">0</b> points</span></div>
+    <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span><span id="tally" hidden><b id="orcs">0</b> orcs down</span><span id="points"><b id="score">0</b> points<span id="best"></span></span></div>
   </div>
   <button id="menuButton" type="button" aria-expanded="false" aria-controls="menu" title="Menu (H)"><span class="bars" aria-hidden="true"></span>Menu</button>
   <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
   <div id="stick" hidden role="group" aria-label="Steer: to either side to turn, up to tuck, down to stand straight"><div class="base"></div><div class="knob"></div><span class="say up">Tuck</span><span class="say down">Straight</span></div>
   <div id="aim" aria-hidden="true"><i class="skid l"></i><i class="skid r"></i><i class="rail l"></i><i class="rail r"></i><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="say up">Tuck</span><span class="say down">Straight</span><span class="say skids l">Skid</span><span class="say skids r">Skid</span><span class="say here">Point in here to steer</span><i class="dot"></i></div>
   <div id="tricky" hidden>
+    <div class="cap">Tricks</div>
     <div class="wild"><span>Mild</span><input id="wild" type="range" min="0" max="1" step="0.01" value="0.5" aria-label="How wild the tricks off the kickers are, from mild to wild"><span>Wild</span></div>
-    <button id="stance" type="button" title="Turn round on the snow: a pop, a nose butter, a smooth 180 or a tail butter, in turn (X, or a right click on the picture)">To switch</button>
+    <button id="stance" type="button" title="Turn round on the snow, to riding backwards (switch) or back: a pop, a nose butter, a smooth 180 or a tail butter, in turn (X, or a right click on the picture)">180 to switch</button>
   </div>
   <div id="pops" aria-hidden="true"></div>
   <div id="backTo" hidden role="dialog" aria-labelledby="backToWhat">
@@ -347,7 +351,10 @@
       <div class="field" id="snows"><span class="label">Snow</span><div class="seg" role="group" aria-label="Snow"></div></div>
       <div class="field"><span class="label">Resolution</span><div class="seg" id="resolutions" role="group" aria-label="Resolution"></div></div>
       <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
-      <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>O</kbd> the orc hunt · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views. Riding: point to steer, hold the button to brake, right-click (a two-finger tap) to turn round, scroll or pinch to come nearer or go further off, click to start again; carrying the tommy gun (the skier alone, or the horse's rider), the button fires it at the mark and <kbd>Shift</kbd> brakes; or the arrows steer, <kbd>Shift</kbd> brakes, <kbd>X</kbd> turns round, <kbd>Enter</kbd> starts again.</p>
+      <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt</p>
+      <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
+      <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Enter</kbd> next run</p>
+      <p class="keys more"><b>Tommy gun</b> hold to fire at the mark · <kbd>Shift</kbd> brakes</p>
     </div>
   </div>
   <div id="status" class="waiting" role="progressbar" aria-label="Loading Grand Horse Mountain" aria-valuemin="0" aria-valuemax="100">

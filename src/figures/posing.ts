@@ -136,10 +136,16 @@ export class Poser {
     for (const b of this.bones) this.rot.set(b, []);
   }
 
+  /** (Each found once and kept: looked for by name through the whole figure each time, some twenty times a pose, it was a third of posing.) */
+  private readonly byName = new Map<string, Bone>();
   bone(n: string): Bone {
-    const b = this.model.getObjectByName(n);
-    if (!b) throw new Error(`a figure without ${n}`);
-    return b as Bone;
+    let b = this.byName.get(n);
+    if (!b) {
+      b = this.model.getObjectByName(n) as Bone | undefined;
+      if (!b) throw new Error(`a figure without ${n}`);
+      this.byName.set(n, b);
+    }
+    return b;
   }
   /** Where a bone's joint is now, in the figure's frame. */
   at(n: string): Vector3 { return this.bone(n).getWorldPosition(new Vector3()); }

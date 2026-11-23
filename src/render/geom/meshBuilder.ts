@@ -27,12 +27,20 @@ class GrowF32 {
 
 /** Accumulates indexed triangles with position, normal, uv, colour and a four-channel field. */
 export class MeshBuilder {
-  private pos = new GrowF32(3 << 14);
-  private nrm = new GrowF32(3 << 14);
-  private uv = new GrowF32(2 << 14);
-  private col = new GrowF32(3 << 14);
-  private fld = new GrowF32(4 << 14);
+  private pos: GrowF32;
+  private nrm: GrowF32;
+  private uv: GrowF32;
+  private col: GrowF32;
+  private fld: GrowF32;
   private idx: number[] = [];
+  /**
+   * Room made at first for `vertices` points (it grows as more are added): sixteen thousand unless said, a megabyte, which a mesh of a
+   * few hundred points, made a hundred at a time (a run's tiles of land, a block's trees), took and gave back each time.
+   */
+  constructor(vertices = 1 << 14) {
+    const n = Math.max(64, Math.ceil(vertices));
+    this.pos = new GrowF32(3 * n); this.nrm = new GrowF32(3 * n); this.uv = new GrowF32(2 * n); this.col = new GrowF32(3 * n); this.fld = new GrowF32(4 * n);
+  }
   /**
    * Which vertices carry baked light. Tracing light for every vertex is wasteful: a stone's bevel
    * and mortar edge can take their light from the stone's face. A vertex with a source copies that
