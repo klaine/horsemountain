@@ -51,9 +51,10 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   ski on the outside of a turn goes a little ahead. Each run begins with a push off the poles, and slowed below 10 km/h on the snow (not braking)
   you skate, a stride with each leg in turn (the horse a side at a time), until you are going 25 km/h again; uphill too, or in deep
   snow, pushing the harder, climbing at a walk, so that nowhere leaves you stuck. The kickers are of many sizes, from a lip a metre high to one of three and a half at the end
-  of a ramp of thirteen: each as big as the land after it gives room to come down on softly at some 72 km/h. Coming up on one
-  faster than it is safe to take (a big one at the foot of a steep stretch, as the Silent Warden's fifth), your skis are thrown across
-  to check your speed until you are no faster, *Speed check* said over the picture, before the trick off it is chosen. And taken fast over a
+  of a ramp of thirteen: each as big as the land after it gives room to come down on softly at some 72 km/h. Lined up on one
+  faster than it is safe to take (a big one at the foot of a steep stretch, as the Silent Warden's fifth), a little over you absorb
+  its lip and fly a little less far; well over, some 11 km/h and more, your skis are thrown across to check your speed just before it,
+  *Speed check* said over the picture, before the trick off it is chosen. And taken fast over a
   crest that rounds over sharply, you spring off it into the air as a skier does off a roller (not often: at 70 km/h and more, where
   the snow falls away nearly as fast as you would fall). You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your

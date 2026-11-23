@@ -1557,6 +1557,7 @@ async function start() {
    * it switch.
    */
   const takeOff = (v: Vector3, nose: number, pop: number, plain = false) => {
+    if (!plain) soak(v);
     const from = new Vector3(ride.x, ride.y, ride.z), T = timeToSnow(from, v), long = T > 0.5;
     // (Off a knoll, `plain`: not set off on purpose, so no spin and no flip, whatever the stick was asking as the snow fell away.)
     const spinning = !plain && long && Math.abs(ask.x) > 0.3, dir = spinning ? -Math.sign(ask.x) : 0;
@@ -3824,9 +3825,25 @@ async function start() {
    * no faster: over the run up to it, before its ramp, and before the trick off it is chosen, which is chosen for the speed it then
    * goes. (The kickers kept as they were: made smaller for it, the demo runs' pilot could not line up on two of them.)
    */
-  // (A fall is past 12.5 m/s into the snow; braked to come down no harder than 12. To `KICK_HARD`'s 11, which a kicker is sized by, a
-  // rider was checked before most of the Silent Warden's kickers at 67 to 70 km/h, slower than they are sized for.)
-  const SPEED_CHECK = { from: 110, until: 4, blow: 12 };
+  // (A fall is past 12.5 m/s into the snow; braked to come down no harder than 12.3. To `KICK_HARD`'s 11, which a kicker is sized by, a
+  // rider was checked before most of the Silent Warden's kickers at 67 to 70 km/h, slower than they are sized for.) And (asked: "The
+  // speedcheck comes too easily now"): only lined up on a kicker and going its way, not going by beside it; only `slack` metres a second
+  // over what it lands softly at, and then braked down to that; and only from as far before its foot as it takes to brake so much, at
+  // some `slows` metres a second each second, and `lead` metres more as the brake bites. It had braked any rider within four metres of a
+  // kicker's sides and going its way at all, from 110 metres out, at the least speed over.
+  // (A little over it, taken off its lip absorbed, as a skier soaks up a lip to fly less far: off it no faster than its limit, `soak`.)
+  const SPEED_CHECK = { until: 4, blow: 12.3, slack: 3, slows: 4.5, lead: 10 };
+  /** Off a kicker's lip faster than it lands softly at: the lip absorbed, the skier off it no faster than that. (Riding only.) */
+  const soak = (v: Vector3) => {
+    if (!speedChecks || flyingDemo || mode !== 'ride') return;
+    for (const k of kicks) {
+      const toLip = k.L - ((ride.x - k.x) * k.dx + (ride.z - k.z) * k.dz), off = (ride.x - k.x) * k.dz - (ride.z - k.z) * k.dx;
+      if (Math.abs(toLip) > 2.5 || Math.abs(off) > k.half + 1) continue;
+      const safe = safeOff(k), speed = v.length();
+      if (speed > safe) v.multiplyScalar(safe / speed);
+      return;
+    }
+  };
   let speedChecks = true;
   /**
    * The fastest a kicker is come to that a skier off it comes down no harder than `SPEED_CHECK.blow`; worked out once. (As fast as it comes to
@@ -3842,14 +3859,21 @@ async function start() {
     return k.safe;
   };
   /** Whether the skier is coming up on a kicker, going its way and lined up on it or near it, faster than it lands softly at. */
+  /** The kicker being braked for, once the check has begun: braked for down to its limit, not let go of at the slack over it. */
+  let checkingFor: Kicker | null = null, toldFor: Kicker | null = null;
   const tooFast = () => {
-    if (!speedChecks || air || crash || ride.ended || flyingDemo) return false;
+    if (!speedChecks || air || crash || ride.ended || flyingDemo) { checkingFor = null; return false; }
     const go = along(ride.way, here);
     for (const k of kicks) {
       const toFoot = -((ride.x - k.x) * k.dx + (ride.z - k.z) * k.dz), off = (ride.x - k.x) * k.dz - (ride.z - k.z) * k.dx;
-      const heading = Math.atan2(go.x * k.dz - go.z * k.dx, go.x * k.dx + go.z * k.dz);
-      if (toFoot > SPEED_CHECK.until && toFoot < SPEED_CHECK.from && Math.abs(off) < k.half + 4 && Math.abs(heading) < 0.7 && ride.speed > safeOff(k)) return true;
+      const heading = Math.atan2(go.x * k.dz - go.z * k.dx, go.x * k.dx + go.z * k.dz), safe = safeOff(k), over = ride.speed - safe;
+      if (toFoot <= SPEED_CHECK.until || Math.abs(off) > k.half + 1 || Math.abs(heading) > 0.35 || over <= 0) continue;
+      if (checkingFor !== k && over < SPEED_CHECK.slack) continue;
+      if (checkingFor !== k && toFoot > (ride.speed ** 2 - safe ** 2) / (2 * SPEED_CHECK.slows) + SPEED_CHECK.lead) continue;
+      checkingFor = k;
+      return true;
     }
+    checkingFor = null;
     return false;
   };
   /** Riding, a step: what the stick or the pointer asks, unless a trick is being made, which asks what it must. */
@@ -3858,7 +3882,8 @@ async function start() {
     want.auto = false; want.x = by.x; want.y = by.y; want.brake = aim.brake;
     // (Too fast for the kicker ahead: braked down to it, and no trick chosen off it until it is slow enough.)
     const checking = !quiet && tooFast();
-    if (checking) { want.brake = true; if (told.text !== 'Speed check') tell('Speed check', 'too fast for the kicker ahead', false, 1.2); }
+    if (checking && checkingFor && checkingFor !== toldFor) { toldFor = checkingFor; tell('Speed check', 'too fast for the kicker ahead', false, 1.2); }
+    if (checking) want.brake = true;
     if (crash) { rideTrick = null; return; }
     if (air) {
       if (rideTrick && !rideTrick.air) rideTrick.air = air;
@@ -5771,7 +5796,7 @@ async function start() {
     rideTo: (id: string) => rideOn(id),
     trip: () => trip && { kind: trip.kind, way: trip.way, made: !!trip.land, started: trip.started, swapped: trip.swapped },
     // (The speed check, on or off, for trying the kickers without it.)
-    speedCheck: (on: boolean) => { speedChecks = on; },
+    speedCheck: (on: boolean, blow?: number) => { speedChecks = on; if (blow) { SPEED_CHECK.blow = blow; for (const k of kickerAt.values()) if (k) k.safe = undefined; } },
     landings: (i: number, size: number, speeds: number[]) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return speeds.map((v) => { const o = kickFlight(k, kickDims(size), v); return { v, u: +o.u.toFixed(1), f: +o.f.toFixed(2), blow: +o.blow.toFixed(1) }; }); },
     flights: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return KICK_SIZES.map((size) => ({ size, slow: kickFlight(k, kickDims(size), KICK_SPEED - 3), fast: kickFlight(k, kickDims(size), KICK_SPEED + 3) })); },
 // (The orcs brought down riding, over the session, which say the arm carried: read, or set, as a script would to try each arm; and
@@ -5808,7 +5833,7 @@ async function start() {
       return null;
     },
     swingAt: (k: number, side: number) => { swing = { t: k * SLASH_T, side, struck: new Set() }; },
-    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
+    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, safe: +(safeOff(k) * 3.6).toFixed(0), height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
     put: (o: Partial<typeof ride>) => { Object.assign(ride, o); if (o.down !== undefined || o.left !== undefined) { putAt(ride.down, ride.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); } placed = false; },
     land: () => ({ name: land.name, length: land.length, half: land.half, about: land.about }),
     setSkier: (w: Who, skis?: HorseSkis) => setSkier(w, skis), who: () => who,
