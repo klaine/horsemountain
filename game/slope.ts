@@ -1098,17 +1098,28 @@ async function start() {
   const SKATE = { below: 10 / 3.6, until: 25 / 3.6, push: 3.6, rate: 0.75, steepest: 0.57, climb: 2 };
   /** How much of each stride's push is pushed, on the average over the stride: the share its swell and fall make of it. */
   const STRIDE_SHARE = 0.375;
+  /**
+   * Skating asked for (asked: "add a skate button on top of 180 that player can hold to to accelerate faster. That button would perform
+   * skating kicks to boost a little bit"): while *Skate* (or `Z`) is held, it skates at any speed, its strides quicker the faster it
+   * goes, and each pushing it on the less from `full` (some 29 km/h), until at `fades` (some 86 km/h) they push it on no more: a little
+   * more speed, not another engine. Not in the last moments up to a kicker's lip, where its stance makes the trick (`rideTrick`).
+   */
+  let skateHeld = false;
+  const SKATE_BOOST = { full: 8, fades: 24, quicker: 0.6 };
   const skateNow = (dt: number, against = 0) => {
     // (Not on up past the top of the run, where its snow ends.)
     const can = mode === 'ride' && !flyingDemo && !carting && !ride.ended && ride.brake < 0.3 && !ride.turn180 && !(ride.down < -2 && Math.cos(ride.way) < 0);
-    if (!can || ride.speed >= SKATE.until) ride.skating = false;
-    else if (ride.speed < SKATE.below) ride.skating = true;
+    const boost = can && skateHeld && !rideTrick;
+    if (!can || (!boost && ride.speed >= SKATE.until)) ride.skating = false;
+    else if (boost || ride.speed < SKATE.below) ride.skating = true;
     ride.skate += ((ride.skating ? 1 : 0) - ride.skate) * ease(dt, 4);
-    if (ride.skate > 0.005) ride.stride = (ride.stride + dt * SKATE.rate) % 1;
+    const quick = 1 + SKATE_BOOST.quicker * smooth((ride.speed - SKATE.below) / (SKATE_BOOST.full * 1.2));
+    if (ride.skate > 0.005) ride.stride = (ride.stride + dt * SKATE.rate * quick) % 1;
     // (Each leg's push over the first three quarters of its half of the stride, swelling and dying away; then drawn back in.)
     const q = (ride.stride % 0.5) / 0.5, swell = Math.sin(Math.PI * Math.min(1, q / 0.75)) ** 2;
     const uphill = Math.min(Math.max(0, against), G * SKATE.steepest) * (1 - smooth((ride.speed - SKATE.climb) / 1.5));
-    return ride.skating ? (SKATE.push + uphill / STRIDE_SHARE) * swell : 0;
+    const fading = 1 - smooth((ride.speed - SKATE_BOOST.full) / (SKATE_BOOST.fades - SKATE_BOOST.full));
+    return ride.skating ? (SKATE.push * fading + uphill / STRIDE_SHARE) * swell : 0;
   };
   /**
    * Over the mountain's stones (asked: "does hitting rock or dirt should interrupt the skiing from smooth gliding appropriately"):
@@ -1221,13 +1232,24 @@ async function start() {
   /** How fast a spin and a flip go round at the quickest, untucked: turns a second. */
   const SPIN_RATE = 1.9, FLIP_RATE = 1.3;
   /**
+   * How long before the snow a trick's turns are to come round (asked: "I think timings of tricks could be improved across the board so
+   * that the tricks that can complete during the jump dont end up finishing the movement/rotation so much before landing"): each step its
+   * spin and its flip paced to come round then, no slower than a fifth of the quickest. (They had been paced no slower than half, and a
+   * spin of many turns flung round at the quickest off the lip, half a turn at a time as it was held, before it was paced at all: in a
+   * long air every trick was round long before the snow, and hung there.)
+   */
+  // (Paced to come round 0.42 seconds before the snow, they come round some third of a second before it: each turn eases out over its
+  // last part, and the time left is a little less than it is reckoned, the snow rising to meet it. Paced to a third, they came round with
+  // a tenth of a second to spare, and some not quite round at all.)
+  const TRICK_END = 0.42, SLOWEST = 0.2;
+  /**
    * A barrel roll's going over (asked: "The barrel rolls look weeeird as f... make them more natural looking"): begun a moment off the
    * lip (`from`), and made over the time in the air but the last `left` seconds before the snow, no quicker than `least` and no slower
    * than `most`; eased in and out, quickest upside down; the body drawn up into a tuck (`tuck`) through the middle of it, as a skier
    * pulls its knees in to go round, and opened out again to land. (It had gone round as fast as a flip goes, the body held as it left the
    * lip: over in half a second, a log turned on a spit.)
    */
-  const ROLL = { from: 0.1, left: 0.5, least: 0.75, most: 1.3, tuck: 0.9 };
+  const ROLL = { from: 0.1, left: 0.4, least: 0.75, most: 2.4, tuck: 0.9 };
   /** How far through a barrel roll it is at `t` seconds into the air, eased (0 to 1). */
   const rolledAt = (a: Air, t: number) => smooth((t - ROLL.from) / a.rollFor);
   /** How hard a turn is held to keep a spin going round. */
@@ -1534,7 +1556,7 @@ async function start() {
     // Paced to the time in the air: the flip set off the lip to be made a little before the snow, no slower than about half the
     // quickest (a long air) and no quicker than the quickest (a short one wants a tighter tuck to come round). (A spin is paced once
     // let go of, in `stepAir`.)
-    const avail = Math.max(0.3, T - 0.5), pace = (n: number, rate: number) => clamp(n / (rate * avail), 0.5, 1);
+    const avail = Math.max(0.3, T - TRICK_END - 0.1), pace = (n: number, rate: number) => clamp(n / (rate * avail), SLOWEST, 1);
     air = {
       kind, spinTo: dir * Math.PI, flipTo: -flips * TURN, spin: 0, flip: 0, roll: 0, rollTo: rolls ? (plan?.side ?? 1) * TURN : 0,
       rollFor: clamp(T - ROLL.from - ROLL.left, ROLL.least, ROLL.most), t: 0, T, v, from, nose, name: '',
@@ -1542,6 +1564,9 @@ async function start() {
       style: { mute: 0, tail: 0, spread: 0, layout: 0 }, held: { mute: 0, tail: 0, spread: 0, layout: 0 }, done: spinning || flips || rolls ? null : 0,
       spinDir: dir, holding: spinning && Math.abs(ask.x) > HOLD, fromSwitch: ride.switch,
     };
+    // (A trick done for the rider, or by the demo run's pilot, is known: its spin set its whole length off the lip, to be paced over the
+    // air from the first, rather than held round half a turn at a time at the quickest.)
+    if (spinning && plan && plan.halves > 0 && kind !== 'roll') { air.spinTo = dir * plan.halves * Math.PI; air.holding = false; }
     air.name = trickName(air);
   };
 
@@ -1629,6 +1654,8 @@ async function start() {
     seat();
     told = { text: '', small: '', bad: false, until: 0 };
     next180 = 0;
+    // (No trick left over from the run before: one chosen for a kicker further down, kept, held back every trick before it.)
+    rideTrick = null; planned = null;
   };
   /** What the tommy gun leaves about to be cleared away for a new run: its orcs, their blood and its rounds in flight (set where it is made). */
   let clearGun: (() => void) | null = null;
@@ -2747,7 +2774,12 @@ async function start() {
       a.holding = ask.x * -a.spinDir > HOLD && (ask.y < 0.35 || a.t < 0.25);
       if (a.holding && Math.abs(a.spinTo - a.spin) < deg(200) && halvesOf(a) < 8) a.spinTo += a.spinDir * Math.PI;
     }
-    a.rate.spin = a.holding || !a.spinDir ? 1 : clamp(Math.abs(a.spinTo - a.spin) / (SPIN_RATE * TURN * Math.max(0.15, left - 0.42)), 0.5, 1);
+    // (Over its last moments, no slower than it was going: paced only by what is left and the time left, both coming to nothing, it went
+    // slower and slower, and crept through its last tenth of a turn for half a second.)
+    const until = Math.max(0.15, left - TRICK_END), last = until < 0.3;
+    const pace = (short: number, rate: number, was: number) => { const p = clamp(short / (rate * TURN * until), SLOWEST, 1); return last ? Math.max(p, was) : p; };
+    a.rate.spin = a.holding || !a.spinDir ? 1 : pace(Math.abs(a.spinTo - a.spin), SPIN_RATE, a.rate.spin);
+    if (a.flipTo) a.rate.flip = pace(Math.abs(a.flipTo - a.flip), FLIP_RATE, a.rate.flip);
     const quick = (1 + 0.45 * Math.max(0, ask.y) - 0.1 * Math.max(a.style.layout, a.style.spread)) * (1 - 0.5 * open);
     const turned = (now: number, to: number, rate: number) => {
       const short = to - now;
@@ -3644,6 +3676,12 @@ async function start() {
   // (Turned on the finger's touch, not its click (asked: "multi touch need to be enabled to be able to click 180 while steering on
   // mobile"): a phone makes no click of a tap while another finger is down, as the thumb on the stick is; so a touch turns it as it
   // lands, and the click that may follow it is let pass. A mouse, or the keyboard, by the click.)
+  // (Skating, held: by the finger on it, kept with it as it moves off it; by the mouse; or `Z`.)
+  const skateButton = $('skate');
+  const holdSkate = (on: boolean) => { skateHeld = on; skateButton.classList.toggle('on', on); };
+  skateButton.addEventListener('pointerdown', (e) => { e.preventDefault(); skateButton.setPointerCapture(e.pointerId); holdSkate(true); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) skateButton.addEventListener(ev, () => holdSkate(false));
+  skateButton.addEventListener('contextmenu', (e) => e.preventDefault());
   let stanceTouched = -Infinity;
   stanceButton.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse') return; e.preventDefault(); stanceTouched = performance.now(); start180(); });
   stanceButton.onclick = () => { if (performance.now() - stanceTouched > 800) start180(); };
@@ -3909,6 +3947,7 @@ async function start() {
     if (mode === 'ride' && ARROWS[e.key]) { want.keys[ARROWS[e.key]] = true; e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Shift') { want.brakeKey = true; return; }
     if (mode === 'ride' && e.key.toLowerCase() === 'x' && !(e.target instanceof HTMLInputElement)) { start180(); e.preventDefault(); return; }
+    if (mode === 'ride' && e.key.toLowerCase() === 'z' && !(e.target instanceof HTMLInputElement)) { if (!e.repeat) holdSkate(true); e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) { restart(); e.preventDefault(); return; }
     // (Asked the way back, by its number.)
     if (asking && /^[1-8]$/.test(e.key) && !wayButtons[+e.key - 1].hidden) { takeWay(WAY_NAMES[+e.key - 1][0]); e.preventDefault(); return; }
@@ -3917,8 +3956,8 @@ async function start() {
     if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
-  window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; });
-  window.addEventListener('blur', () => { for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
+  window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
+  window.addEventListener('blur', () => { holdSkate(false); for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
 
   // Riding by mouse or touchpad (asked: "make better controls for desktop/laptop users, current is for touch screens. Mouse / touchpad
   // control should be enough?"): the pointer steers from wherever it is over the picture, with no button held, so that a finger
@@ -5316,7 +5355,7 @@ async function start() {
       }
       stick.x = stick.y = 0;
       if (stop !== undefined) { playing = false; placed = false; reflect(); }
-      return { lip: +(lip * 3.6).toFixed(0), T: flew ? +flew.T.toFixed(2) : 0, did: flew?.name ?? '', fell: crash?.why ?? null, checked, safe: +(safeOff(k) * 3.6).toFixed(0) };
+      return { lip: +(lip * 3.6).toFixed(0), T: flew ? +flew.T.toFixed(2) : 0, flown: flew ? +flew.t.toFixed(2) : 0, done: flew?.done == null ? null : +flew.done.toFixed(2), did: flew?.name ?? '', fell: crash?.why ?? null, checked, safe: +(safeOff(k) * 3.6).toFixed(0) };
     },
     // (How hard a flight off the `i`th kicker comes down, built at `size`, taken at each of `speeds` (metres a second, on the run before it).)
     // (Where the middle of each of the skier's bodies is, in its own frame (x to its left, y up from its soles, z ahead), as posed now;

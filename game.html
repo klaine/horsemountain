@@ -170,6 +170,9 @@
     #tricky input { writing-mode: vertical-lr; direction: rtl; width: var(--hit); height: 120px; margin: 0; accent-color: var(--brass); }
     #stance { touch-action: none; width: 58px; min-height: 40px; padding: 0; border-radius: 20px; font-weight: 750; font-size: 14px; letter-spacing: .02em; background: var(--sheet); }
     #stance.switch { border-color: var(--brass); color: var(--brass); }
+    /* (Skating, held: over the 180, as round, lit while held.) */
+    #skate { touch-action: none; width: 58px; min-height: 40px; padding: 0; border-radius: 20px; font-weight: 700; font-size: 12.5px; letter-spacing: .02em; background: var(--sheet); -webkit-touch-callout: none; }
+    #skate.on { background: var(--brass); color: var(--on-brass); border-color: var(--brass); }
     /* Riding by mouse or touchpad (asked: "make better controls for desktop/laptop users"): no stick, the pointer steering from where it
        is over the picture; and about the skier, faint over the snow, a guide to it: its reach (the corners), where a turn skids (out at
        either side), what the pointer's height asks, and its mark. While the pointer has not yet taken the skier, it asks to be brought in. */
@@ -432,6 +435,7 @@
       #tricky .wild span { font-size: 8px; }
       #tricky input { height: 78px; }
       #stance { width: 50px; min-height: 32px; font-size: 12.5px; }
+      #skate { width: 50px; min-height: 32px; font-size: 11px; }
       #told { top: calc(58px + env(safe-area-inset-top, 0px)); padding: 4px 12px 5px; }
       #told .text { font-size: 15px; }
       #told .small { font-size: 11px; }
@@ -500,6 +504,7 @@
   <div id="stick" hidden role="group" aria-label="Steer: to either side to turn, up to tuck, down to stand straight"><div class="base"></div><div class="knob"></div><span class="say up">Tuck</span><span class="say down">Straight</span></div>
   <div id="aim" aria-hidden="true"><i class="skid l"></i><i class="skid r"></i><i class="rail l"></i><i class="rail r"></i><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="say up">Tuck</span><span class="say down">Straight</span><span class="say skids l">Skid</span><span class="say skids r">Skid</span><span class="say here">Point in here to steer</span><i class="dot"></i></div>
   <div id="tricky" hidden>
+    <button id="skate" type="button" aria-label="Skate: hold for skating strides, a little more speed" title="Hold to skate, a stride with each leg in turn, for a little more speed (hold Z)">Skate</button>
     <button id="stance" type="button" aria-label="180 to switch" title="Turn round on the snow, to riding backwards (switch) or back: a pop, a nose butter, a smooth 180 or a tail butter, in turn (X, or a right click on the picture)">180</button>
     <div class="wild"><span class="cap">Tricks</span><span>Wild</span><input id="wild" type="range" min="0" max="1" step="0.01" value="0.5" aria-orientation="vertical" aria-label="How wild the tricks off the kickers are, from mild to wild"><span>Mild</span></div>
   </div>
@@ -557,7 +562,7 @@
       <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
       <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
       <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
-      <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Enter</kbd> next run</p>
+      <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Z</kbd> (held) skate · <kbd>Enter</kbd> next run</p>
       <p class="keys more"><b>Tommy gun</b> hold to fire at the mark · <kbd>Shift</kbd> brakes</p>
     </div>
   </div>

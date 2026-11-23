@@ -58,8 +58,10 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   the snow falls away nearly as fast as you would fall). You make no tricks: line up on a kicker
   and one is done for you, chosen at random among those that should come round in the time that jump will keep you in the air at your
   speed (from a straight air or a grab, through 180s to 1080s, corks, backflips and barrel rolls, rolled over sideways, to double
-  backflips and double corks at the wildest), milder or wilder as the upright slider at the lower right says, *Wild* at its top and *Mild* at its foot. Over it, *180* (`X`; lit
-  while you ride switch) turns you round on the snow, to switch or back, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. A run ends after a fall (a body sliding on down steep snow dug in after a second and a half, and soon stopped) or at
+  backflips and double corks at the wildest), milder or wilder as the upright slider at the lower right says, *Wild* at its top and *Mild* at its foot. Each trick's turns are paced
+  to the time the jump gives it, to come round about a third of a second before the snow. Over the slider, *180* (`X`; lit
+  while you ride switch) turns you round on the snow, to switch or back, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. And over that, *Skate* (held, or `Z`) skates you on, a stride
+  with each leg in turn, at any speed: a little more speed, the less the faster you go, none past some 86 km/h. A run ends after a fall (a body sliding on down steep snow dug in after a second and a half, and soon stopped) or at
   the foot of the run, and you are asked how to get back to the top: one of seven ways, or *Random*. Tick *Remember my choice* and
   you are not asked again; *Back to the top* in the menu changes it (or sets it to be asked again). By chance, each way comes once
   in every round of them, in an order shuffled afresh. A huge robot arm rises out of
