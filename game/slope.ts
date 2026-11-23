@@ -275,15 +275,51 @@ async function start() {
   if (landKind !== 'groomed' && !win.__slopeFiles?.[`${landKind}.json`]) void fetchCounted(`${slices}${landKind}.json`).catch(() => {});
   const peakOf = (kind: LandKind) => runs.find((r) => r.id === kind)?.peak ?? kind;
   if (!win.__figureFiles) for (const file of new Set(['clips.glb', (BODIES.find((b) => b.id === bodyId) ?? BODIES[0]).file])) void figureBytes(base, file, fetchCounted).catch(() => {});
-  await loading.stage('start');
+  // Drawn more simply where the graphics cannot draw it all (asked: "my friend with oneplus 13 ... says that the ground doesn't draw
+  // properly for him, he can see the jumps but not the ground or something. can we blindly without the device try to fix this
+  // without altering the game for others?"). Where the graphics card says, as the page opens, that it could not draw something (a
+  // shader it could not make, a draw it threw away, the device lost), the page opens again drawing more simply, and keeps to it in this
+  // browser: first the plain snow and rock, whose shaders are a small part of the detailed ones'; then, if that fails too, by WebGL 2
+  // rather than WebGPU. Only on what has failed: where nothing fails, nothing changes. (Said in the menu under *Picture*, with a way to
+  // try the full picture again; `?safe=0` forgets it, `?safe=1` or `2` asks for it.)
+  const SAFE = { most: 2, key: 'slope.safe', within: 12000 };
+  const safe: { level: number; why: string } = (() => {
+    const asked = query.get('safe');
+    if (asked !== null) { try { localStorage.removeItem(SAFE.key); } catch { /* (not kept) */ } return { level: clamp(Number(asked) || 0, 0, SAFE.most), why: 'asked for in the address' }; }
+    try { const k = JSON.parse(localStorage.getItem(SAFE.key) ?? 'null'); if (k && typeof k.level === 'number') return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') }; } catch { /* (none kept) */ }
+    return { level: 0, why: '' };
+  })();
+  await loading.stage('start', safe.level ? 'Waking the graphics, drawn simply for this device' : undefined);
   const canvas = $<HTMLCanvasElement>('view');
   // (Its picture is drawn through a pipeline of its own, smoothed there: the canvas's own four times over is not wanted.)
   // (How far off each point is kept as the reverse of the usual, nearest the most and the furthest nothing, which a depth kept as a
   // floating-point number tells apart alike near and far (asked: "i see flickering materials along the edges of the near and far land
   // types"): kept the usual way, from a tenth of a metre out to five kilometres, two surfaces less than half a metre apart a kilometre
   // off could not be told apart, and the land at its three grains, where one lies over another, flickered through each other.)
-  const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl'), reversedDepthBuffer: true });
+  const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl') || safe.level >= 2, reversedDepthBuffer: true });
   await renderer.init();
+  /** When the page was opened, to the moment: what fails while it opens, or in the seconds after, is the device's; later, it is let be. */
+  let openedAt = Infinity, fallingBack = false;
+  const fallBack = (why: string) => {
+    if (fallingBack || performance.now() > openedAt + SAFE.within) return;
+    const webglAlready = query.has('webgl') || safe.level >= 2, next = safe.level + 1;
+    // (Already as simple as it is drawn: nothing more to fall back on.)
+    if (next > SAFE.most || (next === 2 && webglAlready && snowLook === 'plain')) { console.warn(`Grand Horse Mountain could not draw everything here: ${why}`); return; }
+    fallingBack = true;
+    console.warn(`Grand Horse Mountain will draw more simply here (${next}): ${why}`);
+    let kept = false;
+    try { localStorage.setItem(SAFE.key, JSON.stringify({ level: next, why })); kept = localStorage.getItem(SAFE.key) !== null; } catch { /* (not kept) */ }
+    loading.fail('This device could not draw everything: opening again, drawn more simply…');
+    // (Opened again: by its address, where this browser keeps nothing, so that it cannot come back to the same.)
+    setTimeout(() => {
+      if (kept) { location.reload(); return; }
+      const u = new URL(location.href); u.searchParams.set('safe', String(next)); location.replace(u.href);
+    }, 900);
+  };
+  const gpu = (renderer.backend as unknown as { device?: EventTarget }).device;
+  gpu?.addEventListener('uncapturederror', (e) => fallBack(String((e as Event & { error?: { message?: string } }).error?.message ?? 'a graphics error').split(/\r?\n/)[0].slice(0, 160)));
+  const lost = renderer.onDeviceLost.bind(renderer);
+  renderer.onDeviceLost = (info) => { lost(info); if (info.reason !== 'destroyed') fallBack(`the graphics were lost: ${info.message}`.slice(0, 160)); };
   // (How finely: see *Resolution*, below.)
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.toneMapping = ACESFilmicToneMapping;
@@ -378,7 +414,7 @@ async function start() {
   // The world's run drawn with the game's own materials for land, in their lighter winter forms (`GameLook`; *Snow*, `?snow=plain`
   // for the plain look the page had before). Their textures are painted when first wanted, at 512 (`?tex=` another size).
   type SnowLook = 'game' | 'plain';
-  let snowLook: SnowLook = query.get('snow') === 'plain' ? 'plain' : 'game', gameLook: GameLook | null = null;
+  let snowLook: SnowLook = query.get('snow') ? (query.get('snow') === 'plain' ? 'plain' : 'game') : safe.level >= 1 ? 'plain' : 'game', gameLook: GameLook | null = null;
   // (The game's own trees on the land about the run, with its own materials, on a computer (`slopeTrees.ts`); the snowy firs on a phone
   // or a tablet, where each point of the picture costs more. `?trees=game` or `?trees=plain`, either anywhere.)
   const treesAsked = query.get('trees'), gameTrees = treesAsked ? treesAsked !== 'plain' : matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -3899,6 +3935,18 @@ async function start() {
     showBackBy();
     chooseEnding();
   }
+  // (Drawn more simply here, said, and a way to try the full picture again.)
+  if (safe.level) {
+    const note = $('safeNote');
+    note.hidden = false;
+    note.querySelector('span')!.textContent = `Drawn more simply on this device (${safe.level >= 2 ? 'plain snow, by WebGL' : 'plain snow'})${safe.why ? `: ${safe.why}` : ''}.`;
+    note.querySelector('button')!.onclick = () => {
+      try { localStorage.removeItem(SAFE.key); } catch { /* (not kept) */ }
+      const u = new URL(location.href);
+      if (!u.searchParams.has('safe')) { location.reload(); return; }
+      u.searchParams.delete('safe'); location.replace(u.href);
+    };
+  }
   // (Closed unless asked for, `?menus=1`: asked, "make the cinematic camera and hide menus enabled as default".)
   setMenu(query.get('menus') === '1');
 
@@ -3984,7 +4032,7 @@ async function start() {
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
     const now = performance.now(), dt = fixedDt || Math.min(0.1, (now - then) / 1000);
     stepIntro(now);
-    if (drawnFrames >= 0 && ++drawnFrames > 2) { drawnFrames = -1; loading.done(); }
+    if (drawnFrames >= 0 && ++drawnFrames > 2) { drawnFrames = -1; loading.done(); openedAt = performance.now(); }
     adapt(now - then);
     then = now;
     let at: Now;
@@ -4156,6 +4204,8 @@ async function start() {
     heard: (fn: ((kind: Heard) => void) | null) => { gunSound.heard = fn; },
     soundOf: (events: { kind: Heard; at: number }[], seconds: number) => gunSound.render(events, seconds),
     everyFrame: (fn: (() => void) | null) => { afterFrame = fn; },
+    // (As if the graphics had failed as the page opened: to try the falling back to a simpler picture, `fallBack`.)
+    failGraphics: (why = 'tried') => fallBack(why),
     // (With the tommy gun: how many orcs are about, and how many have been brought down.)
     orcs: () => ({ about: horde.about, downed: horde.downed, coming: horde.where().map((p) => { const s = p.clone().setY(p.y + 0.4).project(camera); return { at: p.toArray().map((v) => +v.toFixed(1)), screen: [+s.x.toFixed(3), +s.y.toFixed(3)] }; }) }),
     // (The game's own trees on the land about the run, where it has them: where each stands, what it is, how tall.)
