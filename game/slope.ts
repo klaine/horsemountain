@@ -2024,7 +2024,7 @@ async function start() {
    * what it takes), the way its in-run goes, toward the top of the run, and which side the view stands; when it has risen, when what it
    * took drops into the in-run, and when it is off the table's lip.
    */
-  interface IceTake { foot: Vector3; toward: Vector3; side: number; risen: number; drops: number; off: number }
+  interface IceTake { foot: Vector3; toward: Vector3; side: number; risen: number; drops: number; off: number; slide: number[] }
   /**
    * The snowman's own: where it stands, facing what it drives, and where its hands are risen; the fir's length from its hands to its
    * head; the plane of its swing (from its hands down to what it drives, and on toward the top of the run); the middle of what it drives;
@@ -2201,7 +2201,25 @@ async function start() {
    */
   // (Twice as tall as it need be for its table to stand clear of the land, and a hundred and ten metres at the least (asked: "the ski
   // jump transition needs to be 2x higher"); rising the longer for it.)
-  const ICE_T = { rises: 4.0, waits: 0.7, pull: 7.5, least: 110, clear: 14, taller: 2 };
+  // (And how the in-run's last part gathers the more speed, over what gravity gives, to leave the lip as fast as the throw flies off it
+  // (asked: "make the speed that the player accelerates to in the ski jump slope by the end of the run in match the speed that the player
+  // gets then sent flying"): to the power of how far down it is, so that it comes most at the curve and the table. And how finely the
+  // slide is laid out in time.)
+  const ICE_T = { rises: 4.0, waits: 0.7, pull: 7.5, least: 110, clear: 14, taller: 2, boost: 3, step: 1 / 120 };
+  /**
+   * The in-run slid, `length` metres to the lip, leaving it at `last` metres a second: how far down the track it is at each step of time
+   * after it drops in. As a body slides down a slope (more gently, if even that would leave it faster than the throw flies: a short throw
+   * off the lip, a slower slide to it), and, for a long throw, gathering speed on over that, the more the further down it is, until it
+   * leaves the lip as fast as the throw flies off it.
+   */
+  const inrunOf = (length: number, last: number) => {
+    const pull = Math.min(ICE_T.pull, (last * last) / (2 * length)), gain = Math.max(0, last - Math.sqrt(2 * pull * length)), slide = [0];
+    for (let s = 0; s < length && slide.length < 30 / ICE_T.step; ) {
+      s += (Math.sqrt(2 * pull * Math.max(s, 0.02)) + gain * (s / length) ** ICE_T.boost) * ICE_T.step;
+      slide.push(Math.min(s, length));
+    }
+    return slide;
+  };
   /** The ice jump's tower risen under what it takes, its in-run toward the top of the run, so tall that the table stands clear of the land under it. */
   const beginIce = () => {
     const { on, begun, toTop, side } = takenFor();
@@ -2210,9 +2228,13 @@ async function start() {
     let rises = 0;
     for (let k = 0.2; k <= 1.001; k += 0.2) { const q = on.clone().addScaledVector(toTop, reach * k); rises = Math.max(rises, ground(q.x, q.z) - on.y); }
     iceJump.build(Math.max(ICE_T.least, ICE_T.taller * (rises + drop + ICE_T.clear)));
+    // (How fast the throw will fly off the lip, from where the lip will stand once it is risen, to where it comes down.)
+    iceJump.place(on, toTop, 1);
+    const lip = iceJump.track(iceJump.length).at.addScaledVector(UP, middleOf());
+    const leaves = new Throw(lip, begun.landing.clone().addScaledVector(UP, middleOf()), begun.downhill.clone().negate()).velocity(0).length();
     iceJump.place(on, toTop, 0);
-    const risen = ICE_T.rises, drops = risen + ICE_T.waits, off = drops + Math.sqrt((2 * iceJump.length) / ICE_T.pull);
-    cat = { ...begun, by: 'ice', ...NONE, ice: { foot: on.clone(), toward: toTop.clone(), side, risen, drops, off }, takes: 0.15, gather: [0.15, 0.7] };
+    const slide = inrunOf(iceJump.length, leaves), risen = ICE_T.rises, drops = risen + ICE_T.waits, off = drops + (slide.length - 1) * ICE_T.step;
+    cat = { ...begun, by: 'ice', ...NONE, ice: { foot: on.clone(), toward: toTop.clone(), side, risen, drops, off, slide }, takes: 0.15, gather: [0.15, 0.7] };
   };
   /** The ice jump a step on: rising out of the snow, snow and ice thrown up about its foot as it does; then standing. */
   const iceStep = (c: Catapult, dt: number) => {
@@ -2227,7 +2249,8 @@ async function start() {
    */
   const iceHold = (c: Catapult) => {
     const k = c.ice!, mid = middleOf();
-    const s = c.t < k.drops ? 0 : 0.5 * ICE_T.pull * (c.t - k.drops) ** 2, { at, dir } = iceJump.track(s);
+    const f = clamp((c.t - k.drops) / ICE_T.step, 0, k.slide.length - 1), i = Math.floor(f), j = Math.min(i + 1, k.slide.length - 1);
+    const s = k.slide[i] + (k.slide[j] - k.slide[i]) * (f - i), { at, dir } = iceJump.track(s);
     const left = UP.clone().cross(dir).normalize(), up = dir.clone().cross(left).normalize();
     rider.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(left, up, dir));
     rider.position.copy(at);
@@ -2813,7 +2836,9 @@ async function start() {
     },
     ice: {
       begin: () => beginIce(), step: (c, dt) => iceStep(c, dt), hold: (c) => iceHold(c),
-      lets: (c) => c.t >= c.ice!.off, shot: (c, dt) => iceShot(c, dt), fov: 60, tumbling: false, coming: 'The ground cracking', holding: 'Into the in-run', launch: 0.3, glides: true,
+      lets: (c) => c.t >= c.ice!.off, shot: (c, dt) => iceShot(c, dt), fov: 60, tumbling: false, coming: 'The ground cracking', holding: 'Into the in-run', launch: 1, glides: true,
+      // (Flown off the lip at the throw's own speed from the first: the in-run brought it up to that speed (`inrunOf`), which the view
+      // went along with.)
     },
     plane: {
       begin: () => beginPlane(), step: (c, dt) => planeStep(c, dt), hold: (c, dt) => planeHold(c, dt),
@@ -5940,7 +5965,7 @@ async function start() {
     carting: () => !!carting,
     inside: () => inside && { pivot: +inside.pivot.toFixed(1), reversed: inside.reversed, front: fold && (fold.front === Infinity ? 'all' : +fold.front.toFixed(0)) },
     whirl: () => ({ shown: whirl.group.visible, strength: +whirl.strength.toFixed(2), at: whirl.base.toArray().map((v) => +v.toFixed(1)), height: +whirl.height().toFixed(0) }),
-    arm: () => cat && { by: cat.by, t: +cat.t.toFixed(2), at: cat.at.toArray().map(Math.round), eye: camera.position.toArray().map(Math.round), rider: rider.position.toArray().map(Math.round), carry: cat.saucer && { flies: +cat.saucer.flies.toFixed(2), climb: +cat.saucer.climb.toFixed(0), far: +Math.hypot(cat.saucer.over.x - cat.saucer.hover.x, cat.saucer.over.z - cat.saucer.hover.z).toFixed(0) }, held: cat.held, flown: +cat.flown.toFixed(2), free: cat.fly && +cat.fly.free.toFixed(2), total: cat.fly && +cat.fly.total.toFixed(2), open: cat.fly && +cat.fly.open.toFixed(1) },
+    arm: () => cat && { by: cat.by, t: +cat.t.toFixed(2), at: cat.at.toArray().map(Math.round), eye: camera.position.toArray().map(Math.round), rider: rider.position.toArray().map(Math.round), carry: cat.saucer && { flies: +cat.saucer.flies.toFixed(2), climb: +cat.saucer.climb.toFixed(0), far: +Math.hypot(cat.saucer.over.x - cat.saucer.hover.x, cat.saucer.over.z - cat.saucer.hover.z).toFixed(0) }, held: cat.held, flown: +cat.flown.toFixed(2), free: cat.fly && +cat.fly.free.toFixed(2), leaves: cat.fly && +cat.fly.velocity(0).length().toFixed(1), rode: cat.at.toArray().map((v) => +v.toFixed(2)), total: cat.fly && +cat.fly.total.toFixed(2), open: cat.fly && +cat.fly.open.toFixed(1) },
     // (Which demo run is watched: the orc hunt, or the tricks'.)
     hunt: (on: boolean) => { setDemoKind(on ? 'orcs' : 'tricks'); },
     // (The showcase, watched; and where it has got to: its arm now, and whether its end is ridden out or it has gone back to its top.)
