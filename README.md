@@ -189,6 +189,15 @@ once the foes have given the last of theirs, the bazooka: until then it waits in
 of 1440 and 1800), the trick chosen off a kicker then sometimes theirs, when the air it gives is long enough and the slider wild
 enough (with *Orcs & weapons* on, only with the meter full, at *Wild 8/8*). Nothing worn alters the demo runs. `?pack=0` rides with nothing found, without forgetting what is kept.
 
+**On a phone or a tablet**, held either way, what is read sits in one slim strip across the top: the arm carried and how many more
+to the next over a thin bar, how wild the tricks are (eight pips, earned with *Orcs & weapons* on; else a *Mild*–*Wild* slider), and
+the menu as a square button of its own. What has just happened is said under the strip (a great one's bar and what is found under
+that); the run is a slim rail at the right, its top, its kickers in brass, the cave and its foot along it and an arrow for how far down
+you are, tapped for the minimap (tapped again, the rail). The bottom is left to the thumbs: the stick, its *Tuck* and *Straight*
+inside its ring, and *Skate* and *180* as two round buttons at the lower right. The run's end is a sheet at the foot (a card held
+sideways): what became of it, its points, how far down and how long, the tricks landed, what was brought down and found, and *Map of
+the runs* or *Next run*. On a computer, all as it was.
+
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
 the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, riding, *Restart run* first, at its
 top; then *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;

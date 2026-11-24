@@ -1711,7 +1711,13 @@ async function start() {
     scoreEl.textContent = score.toLocaleString('en');
     scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
   };
-  const resetScore = () => { score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; best = bestBefore = Math.max(0, Number(kept(`best.${landKind}`)) || 0); showBest(); };
+  /**
+   * The run's end as the sheet at the foot says it, on a phone or a tablet (`stepRunEnd`): what became of it, and how far down and how
+   * long it had gone when it did; and over the run, the tricks landed and what was found. Set as it ends, let go of as the next begins.
+   */
+  let runOver: { what: string; why: string; bad: boolean; drop: number; time: number } | null = null, tricksRun = 0;
+  const foundRun: string[] = [];
+  const resetScore = () => { tricksRun = 0; foundRun.length = 0; score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; best = bestBefore = Math.max(0, Number(kept(`best.${landKind}`)) || 0); showBest(); };
   /** An orc downed at `p`: shot (the cross where it was struck), or run down; and the run of them it comes in. */
   /**
    * How many orcs the rider has brought down riding, over every run since the page was opened, which says what it carries
@@ -1927,6 +1933,7 @@ async function start() {
       tell(a.name, `+${pts.toLocaleString('en')} · ${far.toFixed(0)} m, ${a.t.toFixed(1)} s in the air`, false, 2.6);
       if (at) popUp(at, `+${pts.toLocaleString('en')}`, 'trick', a.name);
       addScore(pts);
+      if (mode === 'ride' && !flyingDemo && !quiet) tricksRun++;
       earnWild(clamp(pts / WILD.trickPts, WILD.trick[0], WILD.trick[1]));
     }
   };
@@ -1951,6 +1958,7 @@ async function start() {
     for (const { body, doll } of crash.dolls) body.poseJoints(doll.joints());
     earnWild(-WILD.fall);
     tell(`Crashed: ${why}`, `A new run in a moment, or ${document.body.classList.contains('mouse') ? 'click' : 'tap'}`, true, 1e9);
+    if (mode === 'ride' && !flyingDemo && !quiet) runOver = { what: 'Crashed', why: why.charAt(0).toUpperCase() + why.slice(1), bad: true, drop: Number(downEl.textContent) || 0, time: ride.time };
     reflect();
   };
 
@@ -1970,6 +1978,7 @@ async function start() {
   };
   /** The skier back at the top, going a little. */
   const resetRide = () => {
+    runOver = null;
     leaveFoot();
     offPisteFor = 0; backOnto = null;
     Object.assign(ride, { shove: 0, way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null, stones: 0, overStones: 0, bare: 0, deep: 0 });
@@ -3733,7 +3742,7 @@ async function start() {
     // Taken onto the stones too fast, thrown (`STONES`).
     if (ride.overStones > STONES.catch && ride.speed > STONES.fast + g.stones / 3.6 && !ride.ended) { ride.overStones = 0; fall('caught an edge on the stones'); }
     // At the foot of a world's run: brought to a stop there.
-    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); }
+    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else { if (!flyingDemo && !quiet) runOver = { what: 'The foot of the run', why: '', bad: false, drop: land.fall, time: ride.time }; tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); } }
     return { down: ride.down, left: ride.left, speed: ride.speed, way: ride.way, ski, skid: Math.max(Math.abs(Math.sin(ski - ride.way)), g180 ? g180.scrape * sideOn : 0), tuck: ride.tuck, brake: ride.brake, deep: ride.deep };
   };
   /** On foot, what it is doing, in words: in the camp, in the tunnel, or in which of the dungeon's rooms. */
@@ -4425,6 +4434,26 @@ async function start() {
   // The minimap (`slopeMini.ts`), shown or not: kept in this browser; `?minimap=0` or `1`; `N`.
   const miniEl = $<HTMLCanvasElement>('mini'), mini = new MiniMap(miniEl);
   let miniOn = true, miniTall = 0;
+  /**
+   * On a phone or a tablet, the run as a slim rail at the right in place of the minimap (`#rail`, `body.touchhud` in the page): its top,
+   * its kickers, the cave and its foot along it, and how far down the skier is; tapped, the minimap itself, tapped again, the rail.
+   * (Asked: "the vertical view is cluttered with the bars.. propose me a better gui".) On foot in the dungeon, the minimap's plan of it
+   * as before.
+   */
+  const touchHud = !matchMedia('(hover: hover) and (pointer: fine)').matches;
+  document.body.classList.toggle('touchhud', touchHud);
+  const railEl = $<HTMLButtonElement>('rail'), railTicks = railEl.querySelector('.ticks') as HTMLElement;
+  let railOf: Land | null = null, railAt = '', miniOpen = false;
+  const openMini = (on: boolean) => { miniOpen = on; document.body.classList.toggle('miniOpen', on); };
+  railEl.addEventListener('click', () => openMini(true));
+  miniEl.addEventListener('click', () => { if (miniOpen) openMini(false); });
+  /** The rail's marks laid for the land now: its top, its kickers, the cave, its foot, each by how far down the run it is. */
+  const layRail = (kicks: { s: number }[]) => {
+    railOf = land;
+    const at = (s: number, kind = '') => { const i = document.createElement('i'); i.style.top = `${clamp(s / land.length, 0, 1) * 100}%`; if (kind) i.className = kind; return i; };
+    const cave = caveNow();
+    railTicks.replaceChildren(at(0, 'top'), ...kicks.map((k) => at(k.s)), ...(cave ? [at(cave.site.s, 'cave')] : []), at(land.length, 'foot'));
+  };
   const miniButtons = (['Shown', 'Hidden'] as const).map((label, k) => button('miniSeg', label, () => setMini(k === 0), k ? 'No minimap' : 'The whole run small at the right, the skier on it, the way down pointing up (N)'));
   const setMini = (on: boolean) => {
     miniOn = on;
@@ -4442,6 +4471,7 @@ async function start() {
     const cave = caveNow(), o = land.group.position, onPlan = show && foot && cave && mode === 'ride' ? cave.onPlan(foot.x - o.x, foot.z - o.z) : null;
     if (onPlan && cave && foot && mini.has) {
       if (miniEl.hidden) miniEl.hidden = false;
+      if (!railEl.hidden) railEl.hidden = true;
       const p = cave.plan();
       mini.plan(p, onPlan, foot.heading, isoYaw(), p.seen.reduce((n, v) => n + v, 0));
       return;
@@ -4453,11 +4483,21 @@ async function start() {
         const kicks: { s: number; left: number }[] = [];
         for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) kicks.push(k); }
         mini.draw(land, kicks, tall, innerWidth < 420 ? 84 : 108);
+        if (touchHud) layRail(kicks);
       }
     }
     const shown = show && mini.has && !cat;
-    if (miniEl.hidden === shown) miniEl.hidden = !shown;
-    if (!shown) return;
+    // (On a phone or a tablet, the rail unless the minimap was asked for by a tap; riding only.)
+    const rail = touchHud && shown && !miniOpen && mode === 'ride';
+    if (railEl.hidden === rail) railEl.hidden = !rail;
+    if (rail) {
+      if (railOf !== land) { const kicks: { s: number }[] = []; for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) kicks.push(k); } layRail(kicks); }
+      const k = clamp(at.down / land.length, 0, 1).toFixed(3);
+      if (k !== railAt) { railAt = k; railEl.style.setProperty('--at', k); }
+    }
+    const minied = shown && !rail;
+    if (miniEl.hidden === minied) miniEl.hidden = !minied;
+    if (!minied) return;
     const f = land.at(at.down, at.left), way = along(at.way, f);
     mini.show(where.x, where.z, way.x, way.z, offPisteFor > 0);
   };
@@ -5621,6 +5661,8 @@ async function start() {
   const ARM_WON = 1.6, ARM_BLOCK = 5;
   const armBar = $('armBar'), armBarBlocks = armBar.querySelector<HTMLElement>('.blocks')!;
   const armBarNext = armBar.querySelector<HTMLElement>('.next')!, armBarLeft = armBar.querySelector<HTMLElement>('.left')!;
+  // (In the phone's strip, the arm carried and how many more to the next, in one line over the bar.)
+  const armBarNow = armBar.querySelector<HTMLElement>('.now')!, armBarTo = armBar.querySelector<HTMLElement>('.to')!;
   let armBarArm = -1, armWonAt = -Infinity, armBarTold = '';
   const armBarUp = (shown: boolean) => {
     const by = armAfter(slain), rung = LADDER.indexOf(by.arm), now = performance.now() / 1000;
@@ -5638,6 +5680,8 @@ async function start() {
     [...armBarBlocks.children].forEach((b, i) => (b as HTMLElement).style.setProperty('--f', clamp(got / ARM_BLOCK - i, 0, 1).toFixed(3)));
     say(armBarNext, won ? by.arm.name : by.next!.name);
     say(armBarLeft, won ? 'Taken up' : `${by.left} more`);
+    say(armBarNow, armNow().name);
+    say(armBarTo, won ? 'taken up' : `${by.left} to ${by.next!.name.toLowerCase()}`);
     const told = won ? `${by.arm.name} taken up` : `${got} of ${need} orcs toward the ${by.next!.name.toLowerCase()}`;
     if (told !== armBarTold) {
       armBarTold = told;
@@ -5721,6 +5765,7 @@ async function start() {
   const takeLoot = (item: Item) => {
     if (!pack) return;
     const on = pack.add(item);
+    foundRun.push(item.name);
     lootCard.show(item, on, item.slot === 'weapon' && !weaponsFree() ? `in your pack · ${HELD_BACK.toLowerCase()}` : undefined);
     gunSound.hear('ring');
   };
@@ -6786,6 +6831,37 @@ async function start() {
   // What has just happened, over the picture.
   const toldBox = $('told'), toldText = toldBox.querySelector('.text') as HTMLElement, toldSmall = toldBox.querySelector('.small') as HTMLElement;
   let toldShown = '';
+  /**
+   * The run's end on a phone or a tablet (asked, of the run's end: a sheet at the foot): over its lower part, as the way back to the
+   * top plays above it, what became of the run, its points, how far down and how long; the tricks landed, what was brought down and what
+   * was found; and on to the map of the runs, or the next run at once. What has just happened is not said over the picture as well.
+   */
+  const runEndEl = $('runEnd');
+  let runEndKey = '';
+  $('runEndMap').addEventListener('click', () => showMap());
+  $('runEndNext').addEventListener('click', () => restart());
+  const stepRunEnd = () => {
+    const over = runOver, on = touchHud && mode === 'ride' && !!over && !foot && !trip;
+    if (document.body.classList.contains('ended') !== on) document.body.classList.toggle('ended', on);
+    if (runEndEl.hidden === on) runEndEl.hidden = !on;
+    if (!on || !over) { runEndKey = ''; return; }
+    const downed = orcsOn ? horde.downed : 0, key = `${over.what}|${over.why}|${score}|${tricksRun}|${downed}|${foundRun.length}`;
+    if (key === runEndKey) return;
+    runEndKey = key;
+    say($('runEndRun'), runs.find((r) => r.id === landKind)?.label ?? 'The groomed slope');
+    const what = $('runEndWhat');
+    say(what, over.what);
+    what.classList.toggle('bad', over.bad);
+    say($('runEndWhy'), over.why);
+    say($('runEndPoints'), score.toLocaleString('en'));
+    say($('runEndBest'), bestBefore > 0 && score > bestBefore ? 'points · new best' : best > 0 && score < best ? `points · best ${best.toLocaleString('en')}` : 'points');
+    say($('runEndDrop'), `${Math.round(over.drop)} m`);
+    say($('runEndTime'), `${Math.round(over.time)} s`);
+    const said = [`${tricksRun} ${tricksRun === 1 ? 'trick' : 'tricks'} landed`];
+    if (orcsOn) said.push(`${downed} brought down`);
+    if (foundRun.length) said.push(`found: ${foundRun.join(', ')}`);
+    say($('runEndLine'), said.join(' · '));
+  };
   const showTold = () => {
     const on = mode === 'ride' && !!told.text && ride.time < told.until, key = on ? `${told.text}|${told.small}|${told.bad}` : '';
     if (key === toldShown) return;
@@ -7158,6 +7234,7 @@ async function start() {
     // (The tommy gun in the hands of whoever carries it, after the pose it was put in, and fired; or put away.)
     armUp(dt, at);
     stepLoot(mode === 'ride' && playing && !menuOpen ? dt : 0);
+    stepRunEnd();
     // (Where the skier is: on its skis, lain in the snow, or in the arm's hands or thrown.)
     const where = cat ? cat.at.clone() : focus();
     land.keepAbout(where.x, where.z);
