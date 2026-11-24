@@ -202,7 +202,7 @@
     #aim .say.skids.l { left: 1%; }
     #aim .say.skids.r { left: auto; right: 1%; }
     /* (On foot at the cave, nothing skids, skates or turns round on the snow.) */
-    body.onfoot #aim .skid, body.onfoot #aim .say.skids, body.onfoot #skate, body.onfoot #stance { display: none; }
+    body.onfoot #aim, body.onfoot #skate, body.onfoot #stance { display: none !important; }
     #aim .here { display: none; bottom: 18%; padding: 6px 12px 7px; border-radius: 6px; background: var(--sheet); border: 1px solid var(--brass);
       font: 600 12px/1.2 var(--sans); letter-spacing: .02em; text-transform: none; color: var(--ink); text-shadow: none; }
     #aim.lost { --line: rgba(18, 22, 30, .55); }

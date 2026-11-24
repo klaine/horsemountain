@@ -26,7 +26,7 @@ import {
   Texture, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
-import { attribute, lights, mix, sin, texture, time, uniform, uv, vec3 } from 'three/tsl';
+import { attribute, float, lights, mix, positionWorld, select, sin, texture, time, uniform, uv, vec3 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng, valueNoise2 } from '../src/core/rng';
 import { type PropKind, Props, type Stuff } from './slopeProps';
@@ -663,9 +663,12 @@ const STUFF_LOOK: Record<Stuff, { color?: number; roughness: number; metalness?:
 /** A shape put together a triangle at a time: where each point is, which way it faces, where it is on its picture, its light. */
 class Shape {
   readonly pos: number[] = []; readonly nor: number[] = []; readonly uv: number[] = []; readonly light: number[] = []; readonly snow: number[] = []; readonly index: number[] = [];
+  /** The floor each point stands over (`floor`, as it is laid): what the view from above cuts away a height over (`CUT`). */
+  readonly ground: number[] = [];
+  floor = 0;
   get count() { return this.pos.length / 3; }
   point(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, snow = 0): number {
-    this.pos.push(x, y, z); this.nor.push(nx, ny, nz); this.uv.push(u, v); this.light.push(0, 0, 0); this.snow.push(snow);
+    this.pos.push(x, y, z); this.nor.push(nx, ny, nz); this.uv.push(u, v); this.light.push(0, 0, 0); this.snow.push(snow); this.ground.push(this.floor);
     return this.count - 1;
   }
   tri(a: number, b: number, c: number) { this.index.push(a, b, c); }
@@ -690,7 +693,7 @@ class Shape {
     g.setAttribute('position', new BufferAttribute(new Float32Array(this.pos), 3));
     g.setAttribute('normal', new BufferAttribute(new Float32Array(this.nor), 3));
     g.setAttribute('uv', new BufferAttribute(new Float32Array(this.uv), 2));
-    if (withLight) g.setAttribute('aLight', new BufferAttribute(new Float32Array(this.light), 3));
+    if (withLight) { g.setAttribute('aLight', new BufferAttribute(new Float32Array(this.light), 3)); g.setAttribute('aFloor', new BufferAttribute(new Float32Array(this.ground), 1)); }
     if (withSnow) g.setAttribute('aSnow', new BufferAttribute(new Float32Array(this.snow), 1));
     g.setIndex(this.index);
     g.computeBoundingSphere();
@@ -726,6 +729,11 @@ const archSteps = (k: number): number[] => {
 /** The light the torches give, the day's at the mouth, and what is about everywhere in the dark. */
 const TORCH_LIGHT = new Color(1.0, 0.66, 0.38), DAYLIGHT = new Color(0.78, 0.84, 0.95), DARK = new Color(0.022, 0.024, 0.03);
 const TORCH_REACH = 15;
+/**
+ * Seen from above on foot (`Cave.overhead`), how high over its own floor the stone is cut away (its roofs and its walls' tops), as a
+ * dungeon is drawn seen from above; and how far the dark caps laid over the cut walls reach into the rock.
+ */
+const CUT = 3, CAP = 0.7;
 const addScaled = (into: Color, c: Color, k: number) => { into.r += c.r * k; into.g += c.g * k; into.b += c.b * k; };
 type N = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -747,6 +755,13 @@ export class Cave {
   private readonly torches: Torch[] = [];
   private readonly posts: Post[] = [];
   private readonly flicker = uniform(1);
+  /** Seen from above (`overhead`): how high over each stone's own floor it is cut away, and the height over which what stands about is (none, far off). */
+  private readonly cutOver = uniform(1e5);
+  private readonly cutAt = uniform(1e5);
+  /** The dark caps over the cut stone, and the mound and rock face over it all: shown or hidden as it is seen from above. */
+  private readonly caps = new Shape();
+  private capMesh!: Mesh;
+  private readonly outside: Mesh[] = [];
   private readonly plug: Mesh;
   private readonly flames: InstancedMesh;
   private readonly fire: InstancedMesh;
@@ -790,6 +805,9 @@ export class Cave {
       const m = new MeshStandardNodeMaterial({ map: paint.map, normalMap: paint.normal, roughness, metalness: 0 });
       m.emissiveNode = (texture(paint.map, uv()).rgb as N).mul(attribute('aLight', 'vec3')).mul(this.flicker);
       m.lightsNode = lights([this.lantern, this.fireLight]);
+      // (Seen from above, gone over the height it is cut at: its roof and the tops of its walls.)
+      m.opacityNode = select(positionWorld.y.greaterThan((attribute('aFloor', 'float') as N).add(this.cutOver)), float(0), float(1));
+      m.alphaTestNode = float(0.5);
       return m;
     };
     for (const s of [walls, floors, rock, earth]) this.bake(s);
@@ -798,6 +816,12 @@ export class Cave {
       mesh.receiveShadow = true;
       this.inner.add(mesh);
     }
+    // (The caps: the rock's cut face, dark, seen only from above.)
+    const capPaint = new MeshBasicNodeMaterial();
+    capPaint.colorNode = (texture(P.rock.map, uv()).rgb as N).mul(0.07);
+    this.capMesh = new Mesh(this.caps.geometry(false), capPaint);
+    this.capMesh.visible = false;
+    this.inner.add(this.capMesh);
 
     // ---- Outside: the mound over the hole and the face of rock with the mouth in it, under snow where they face up; lit as the land is.
     const outside = new MeshStandardNodeMaterial({ map: P.rock.map, normalMap: P.rock.normal, roughness: 0.93 });
@@ -808,6 +832,7 @@ export class Cave {
       const mesh = new Mesh(s.geometry(false, true), outside);
       mesh.castShadow = mesh.receiveShadow = true;
       this.frame.add(mesh);
+      this.outside.push(mesh);
     }
     // (From far off, where the run's snow is drawn at four metres and the hole in it is cut wider, the snow under it all, plain: shown
     // only then.)
@@ -889,6 +914,9 @@ export class Cave {
     const L = this.site.length, K = 28, phis = archSteps(K), rows = Math.ceil(L / 0.5), ring = K + 3;
     for (let i = 0; i <= rows; i++) {
       const t = (L * i) / rows, y = floorAt(this.site, t);
+      rock.floor = y;
+      // (Its sides capped where the view from above cuts them, from the cut outward into the rock.)
+      if (i < rows) for (const sgn of [-1, 1]) { this.caps.floor = y; const t1 = (L * (i + 1)) / rows; this.caps.panel(new Vector3(sgn * 1.7, Math.max(y, floorAt(this.site, t1)) + CUT + 0.01, t), new Vector3(sgn * (CAVE.hw + CAVE.rough + 1.2 - 1.7), 0, 0), new Vector3(0, 0, t1 - t), UP, 1, 1, 2); }
       for (let j = -1; j <= K + 1; j++) {
         const k = clamp(j, 0, K), [lat, h] = arch(phis[k]), out = new Vector3(lat, h - 0.38 * CAVE.tall, 0).normalize(), r = this.rough(t, k);
         if (k === 0 || k === K) out.set(Math.sign(lat), 0, 0);
@@ -901,12 +929,15 @@ export class Cave {
     const across = 8, wide = CAVE.hw + 0.9;
     for (let i = -1; i <= rows; i++) {
       const t = i < 0 ? -0.45 : (L * i) / rows, y = floorAt(this.site, Math.max(0, t));
+      earth.floor = y;
       for (let k = 0; k <= across; k++) { const lat = -wide + (2 * wide * k) / across; earth.point(lat, y + 0.02 + 0.03 * valueNoise2(lat * 2, t * 2, 3), t, 0, 1, 0, lat / 2.5, t / 2.5); }
     }
     for (let i = 0; i <= rows; i++) for (let k = 0; k < across; k++) { const a = i * (across + 1) + k, b = a + 1, c = a + across + 1, d = c + 1; earth.tri(a, c, b); earth.tri(b, c, d); }
     earth.smoothNormals();
     // The gate: a wall of dressed stone across the tunnel's end, a doorway in it as broad and high as the corridor behind.
     const deep = this.site.deep, W = CAVE.hw + CAVE.rough + 1, top = CAVE.tall + CAVE.rough + 1, half = CAVE.cell / 2, n = new Vector3(0, 0, -1);
+    walls.floor = this.caps.floor = deep;
+    for (const sgn of [-1, 1]) this.caps.panel(new Vector3(sgn * half, deep + CUT + 0.01, L - 0.3), new Vector3(sgn * (W - half), 0, 0), new Vector3(0, 0, CAP + 0.3), UP, 1, 1, 2);
     walls.panel(new Vector3(half, deep - 0.4, L), new Vector3(W - half, 0, 0), new Vector3(0, top + 0.4, 0), n, 3, 6, 2, half, -0.4);
     walls.panel(new Vector3(-W, deep - 0.4, L), new Vector3(W - half, 0, 0), new Vector3(0, top + 0.4, 0), n, 3, 6, 2, -W, -0.4);
     walls.panel(new Vector3(-half, deep + CAVE.corridor, L), new Vector3(2 * half, 0, 0), new Vector3(0, top - CAVE.corridor, 0), n, 3, 2, 2, -half, CAVE.corridor);
@@ -927,6 +958,7 @@ export class Cave {
       const k = r * this.layout.cols + c;
       if (!cells[k]) continue;
       const x = this.latOf(c), t = this.tOf(r);
+      walls.floor = floors.floor = this.caps.floor = deep + floor[k];
       if (down[k] < 0) floors.panel(new Vector3(x - half, deep + floor[k], t - half), new Vector3(CAVE.cell, 0, 0), new Vector3(0, 0, CAVE.cell), UP, 3, 3, 3, x - half, t - half);
       else {
         // (A stair: six steps down its way, each a tread and the riser before it, facing down the stair, as it is seen from below.)
@@ -942,7 +974,7 @@ export class Cave {
       for (const [dc, dr] of WAYS) {
         if (c === this.layout.entry && r === 0 && dr === -1) continue;
         const mine = this.edgeFloor(c, r, dc, dr);
-        if (!this.open(c + dc, r + dr)) { wall(c, r, dc, dr, Math.min(floor[k], low[k]), top[k]); continue; }
+        if (!this.open(c + dc, r + dr)) { wall(c, r, dc, dr, Math.min(floor[k], low[k]), top[k]); this.capWall(c, r, dc, dr); continue; }
         const n = (r + dr) * this.layout.cols + c + dc, theirs = this.edgeFloor(c + dc, r + dr, -dc, -dr);
         if (theirs > mine + 0.01) wall(c, r, dc, dr, mine, theirs);
         if (top[n] < top[k] - 0.01) wall(c, r, dc, dr, Math.max(top[n], mine), top[k]);
@@ -974,6 +1006,7 @@ export class Cave {
     for (const d of this.layout.doors) {
       const k = d.r * this.layout.cols + d.c, x = this.latOf(d.c), t = this.tOf(d.r), go = new Vector3(d.dc, 0, d.dr), side = new Vector3(-d.dr, 0, d.dc);
       const f = this.edgeFloor(d.c, d.r, d.dc, d.dr), roof = top[k], edge = new Vector3(x, 0, t).addScaledVector(go, half - 0.22);
+      walls.floor = this.caps.floor = deep + f;
       for (const s of [-1, 1]) {
         const at = edge.clone().addScaledVector(side, s * (half - 0.24));
         this.block(walls, at.setY(deep + f + (roof - f) / 2), side, 0.48, roof - f, 0.44);
@@ -986,6 +1019,7 @@ export class Cave {
     for (const room of rooms) {
       if (room.kind !== 'hall') continue;
       const f = room.level * DROP;
+      walls.floor = this.caps.floor = deep + f;
       for (const i of [1, room.w - 1]) for (const j of [1, room.h - 1]) {
         const x = this.latOf(room.c0) - half + i * CAVE.cell, t = this.tOf(room.r0) - half + j * CAVE.cell, X = new Vector3(1, 0, 0);
         this.block(walls, new Vector3(x, deep + f + 0.22, t), X, 1.24, 0.44, 1.24);
@@ -1002,6 +1036,15 @@ export class Cave {
       s.panel(foot.clone().addScaledVector(n, out / 2).addScaledVector(along, -across / 2), along.clone().multiplyScalar(across), up, n, 1, Math.max(1, Math.ceil(h / 1.2)), 2, 0, 0);
     }
     for (const [y, n] of [[h / 2, UP], [-h / 2, new Vector3(0, -1, 0)]] as [number, Vector3][]) s.panel(mid.clone().addScaledVector(UP, y).addScaledVector(side, -w / 2).addScaledVector(go, -d / 2), side.clone().multiplyScalar(w), go.clone().multiplyScalar(d), n, 1, 1, 2);
+    // (Cut across where the view from above cuts it, its cut face dark.)
+    const cut = s.floor + CUT;
+    if (mid.y - h / 2 < cut && mid.y + h / 2 > cut) this.caps.panel(mid.clone().setY(cut + 0.01).addScaledVector(side, -w / 2).addScaledVector(go, -d / 2), side.clone().multiplyScalar(w), go.clone().multiplyScalar(d), UP, 1, 1, 2);
+  }
+  /** The dark cap over a wall of square (c, r) toward (dc, dr) where the view from above cuts it: from the wall back into the rock. */
+  private capWall(c: number, r: number, dc: number, dr: number) {
+    const half = CAVE.cell / 2, x = this.latOf(c), t = this.tOf(r), along = new Vector3(-dr, 0, dc), out = new Vector3(dc, 0, dr);
+    const o = new Vector3(x + dc * half - along.x * (half + CAP), this.caps.floor + CUT + 0.01, t + dr * half - along.z * (half + CAP));
+    this.caps.panel(o, along.clone().multiplyScalar(CAVE.cell + 2 * CAP), out.clone().multiplyScalar(CAP), UP, 1, 1, 2);
   }
   /** How high the floor of square (c, r) is at its edge toward (dc, dr), over the gate's: a stair's high end, or its low end. */
   private edgeFloor(c: number, r: number, dc: number, dr: number): number {
@@ -1070,6 +1113,7 @@ export class Cave {
     const plain = paint ? (texture(paint, uv()).rgb as N).mul(m.color) : vec3(m.color.r, m.color.g, m.color.b), albedo = tinted ? (plain as N).mul(attribute('color', 'vec3')) : plain;
     m.emissiveNode = (albedo as N).mul(attribute('aThing', 'vec3')).mul(this.flicker).add(m.userData.glow ?? vec3(0, 0, 0));
     m.lightsNode = lights([this.lantern]);
+    this.cutAway(m);
     return m;
   }
 
@@ -1402,6 +1446,7 @@ export class Cave {
     const albedo = paint ? (texture(paint, uv()).rgb as N).mul(m.color) : vec3(m.color.r, m.color.g, m.color.b);
     m.emissiveNode = (albedo as N).mul(vec3(c.r, c.g, c.b)).mul(0.8).mul(this.flicker);
     m.lightsNode = lights([this.lantern]);
+    this.cutAway(m);
     return m;
   }
 
@@ -1457,6 +1502,13 @@ export class Cave {
     const [t0, l0] = siteLocal(this.site, x, z), [t1, l1] = siteLocal(this.site, tx, tz);
     const to = (t: number, lat: number): [number, number] => { const p = sitePoint(this.site, t, lat); return [p.x, p.z]; };
     if (this.roomFor(l1, t1, r)) return to(t1, l1);
+    // (Something in the way: turned along it, a little and then more, either way, as far as the step goes that way; then along the
+    // lattice's two ways, as along a wall.)
+    const dt = t1 - t0, dl = l1 - l0;
+    for (const a of [0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4]) {
+      const c = Math.cos(a), sn = Math.sin(a), nt = t0 + (dt * c - dl * sn) * c, nl = l0 + (dl * c + dt * sn) * c;
+      if (this.roomFor(nl, nt, r)) return to(nt, nl);
+    }
     if (this.roomFor(l1, t0, r)) return to(t0, l1);
     if (this.roomFor(l0, t1, r)) return to(t1, l0);
     // (Stuck where it stands, as a stack of crates fallen against it: let out toward where it was going.)
@@ -1616,6 +1668,26 @@ export class Cave {
     if (best < 0) return toLand(tt - pt, tl - pl);
     return toLand(this.tOf((best / cols) | 0) - pt, this.latOf(best % cols) - pl);
   }
+  /** What stands about cut away, seen from above, over the height of the floor the one on foot is on (`overhead`). */
+  private cutAway(m: MeshStandardNodeMaterial) {
+    m.opacityNode = select(positionWorld.y.greaterThan(this.cutAt), float(0), float(1));
+    m.alphaTestNode = float(0.5);
+  }
+  /**
+   * Seen from above on foot (asked: "Lets have the view top down / isometric like minecraft dungeons or diablo 4 etc. ... adapting the
+   * view / camera / drawing to properly work for this way"), and inside (`under`): the cave's stone cut away over a height above its own
+   * floor, its roofs and the tops of its walls, the cut faces capped dark; what stands about cut over that height above `floor`, the floor
+   * the one on foot stands on; the mound and the rock face over it all not drawn. Else drawn whole.
+   */
+  overhead(on: boolean, under: boolean, floor: number): void {
+    const cut = on && under;
+    this.cutOver.value = cut ? CUT : 1e5;
+    this.cutAt.value = cut ? floor + CUT + 0.6 : 1e5;
+    this.capMesh.visible = cut;
+    for (const m of this.outside) m.visible = !cut;
+    this.seenFromAbove = cut;
+  }
+  private seenFromAbove = false;
   /** The skis (and poles) left on the rack while their owner is on foot: of a person, a horse's long pair or its four short; or none. */
   rackSkis(kind: 'person' | 'pair' | 'four' | null, poles: number): void {
     for (const c of [...this.rack.children]) { this.rack.remove(c); (c as Mesh).geometry?.dispose(); }
@@ -1652,7 +1724,7 @@ export class Cave {
     const flick = (k: number) => 0.9 + 0.06 * Math.sin(seconds * 7.3 + k * 1.7) + 0.04 * Math.sin(seconds * 17.9 + k * 3.1);
     this.flicker.value = flick(0);
     const [lat, , t] = this.localOf(eye), far = Math.hypot(lat, t);
-    this.inner.visible = far < 90 || this.inside(eye.x, eye.z);
+    this.inner.visible = far < 90 || this.inside(eye.x, eye.z) || this.seenFromAbove;
     this.plug.visible = far > 118;
     // (Each flame turned about the upright to face the eye, tall and narrow, flickering.)
     const local = new Vector3(lat, eye.y, t), q = new Quaternion(), s = new Vector3(), p = new Vector3();

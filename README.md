@@ -114,9 +114,12 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
 beside it where there is one (Silent Warden, Warden's Spur, Balestead), elsewhere in a knoll raised for it near the edge of the run's
 snow, the piste drawn in beside it so that the knoll and its camp stand off the run. Two torches at its mouth and a camp before it: a fire in a ring of stones smoking, logs to sit on, a rack, wood
 stacked. Ride into the camp and the skier brakes to a stop and takes its skis off, leaving them (and the poles) on the rack; the horse's
-rider gets down and leaves the horse standing by the rack. On foot (W or the up arrow to go, A and D or the arrows to turn, S back,
-Shift only walking; the pointer above the middle, or the stick), into the mouth and down a tunnel of rough rock to a gate of dressed
-stone, the day's light fading behind and the picture taking to the dark. Behind the gate, a dungeon made afresh each time the page is
+rider gets down and leaves the horse standing by the rack. On foot the view is from above, as a dungeon game's is (Diablo, Minecraft
+Dungeons), and the controls are its own: W A S D (or the arrows) go up, down, left and right across the picture, running (Shift,
+walking); the mouse aims, and a click attacks (with nothing carried, walks to where it is; the right button always walks there, held, after
+the pointer); by touch, the stick goes, and a tap attacks there (or walks there); the wheel, or *Distance*, brings the view nearer or
+further. Into the mouth and down a tunnel of rough rock to a gate of dressed stone, the snow over it all no longer drawn, the dark about,
+and the cave cut away over a height above its floors, its roofs and the tops of its walls, the cut stone capped dark. Behind the gate, a dungeon made afresh each time the page is
 opened (the same while it stays open; its seed is in `__slope.cave()`, and `?dungeon=` a given one brings it back), grown as watabou's
 One Page Dungeon grows one, by tags dealt with it (`?tags=` names any): its size (*small*, most often, *medium* or *large*: five to
 thirteen rooms), its layout (*ordered*, regular rooms straight on from each other; *winding*, long corridors, a chain; *chaotic*, any size,
@@ -128,8 +131,7 @@ its kind is from the props made for it: barrels, crates, sacks, tables, a desk, 
 candlesticks and candelabra, altars, statues, coffins, a dais, urns, braziers burning, banners, skulls, bones and skeletons, shackles,
 bedrolls, buckets, a rack of spears, heaps of gold, cobwebs. Furthest from the gate, behind a portcullis, the last room and its chest
 (5,000 points, once a run). It is lit by its torches, candles and braziers and the light carried in; the place is named as you come in
-at the gate, and each room said as you come into it. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer,
-W A S D to move), and orcs come at you in the dungeon: out of rooms some way off and out of sight, two to four at a time, finding their
+at the gate, and each room said as you come into it. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer), and orcs come at you in the dungeon: out of rooms some way off and out of sight, two to four at a time, finding their
 way to you round the walls, through the doorways and up and down the stairs, striking at you as they come up to you (200 points lost,
 and you are thrown back a step); shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there.

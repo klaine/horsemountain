@@ -444,6 +444,8 @@ async function start() {
   const uSun = uniform(sunFrom), uFogNear = uniform(90), uFogFar = uniform(520);
   /** How dark the sky is under the whirlwind's cloud (`gloom`): 0 clear, 1 under it at its strongest. */
   const uGloom = uniform(0);
+  /** How far the picture is drawn as from under the snow, seen from above on foot in the cave: the sky behind all of it gone dark. */
+  const uUnder = uniform(0);
   type SkyN = any; // eslint-disable-line @typescript-eslint/no-explicit-any
   const skyAt = (dir: SkyN, disc: boolean): SkyN => {
     // (As one sum, with no assignments: the haze reads it outside any function of the shader's.)
@@ -469,7 +471,7 @@ async function start() {
     const wisp = texture(cloudMap, over.mul(vec2(0.11, 0.3))).r;
     const cloud = smoothstep(0.4, 0.72, wisp).mul(smoothstep(0.02, 0.16, dir.y)).mul(0.45);
     col.assign(mix(col, vec3(1, 0.97, 0.93).mul(max(dot(dir, uSun), 0).mul(0.25).add(0.95)), cloud));
-    return vec4(col.mul(float(1).sub(uGloom.mul(0.45))), 1);
+    return vec4(col.mul(float(1).sub(uGloom.mul(0.45))).mul(float(1).sub(uUnder)), 1);
   })();
   // (The haze's colour worked out at the corners of what is drawn and blended between them, not at every point: it changes slowly
   // across the picture, and worked out at every point of every surface it cost a sixth of a frame of the groomed slope drawn in software.)
@@ -1172,7 +1174,7 @@ async function start() {
    * a horse's stride, which of the dungeon's rooms it was last in, and whether it has been told where it is. Riding into the cave's
    * camp, the skier brakes to a stop (`stopping`), and the skis come off.
    */
-  let foot: { x: number; y: number; z: number; heading: number; speed: number; turn: number; phase: number; room: number; told: boolean } | null = null;
+  let foot: { x: number; y: number; z: number; heading: number; speed: number; dx: number; dz: number; turn: number; phase: number; room: number; told: boolean } | null = null;
   let stopping = false;
   let flyingDemo = false;
   const shoveNow = () => (carting || ride.ended || ride.brake > 0.3 ? 0 : SHOVE.most * smooth(ride.shove / SHOVE.long));
@@ -4599,12 +4601,25 @@ async function start() {
   canvas.addEventListener('pointerup', fingerOff);
   canvas.addEventListener('pointercancel', fingerOff);
   canvas.addEventListener('lostpointercapture', fingerOff);
-  canvas.addEventListener('pointermove', (e) => { overPicture = true; if (aiming(e)) aimAt(e); });
+  canvas.addEventListener('pointermove', (e) => { overPicture = true; if (footMouse(e)) return; if (aiming(e)) aimAt(e); });
   canvas.addEventListener('pointerleave', () => { overPicture = false; letAimGo(); });
   canvas.addEventListener('pointerdown', (e) => {
     // (By touch, a tap on the picture while the run's end is at its work begins the next run at once, as a click does and Enter: a
     // phone has no Enter. Not in its first moment, where a finger may still be coming off the picture.)
     if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && cat && cat.t > 0.4) { restart(); return; }
+    // (On foot, the mouse its own: the left button attacking (or, with nothing carried, walking after the pointer), the right walking
+    // after it; a tap with nothing carried walks to where it is.)
+    if (footMouse(e)) {
+      if (e.button === 2 || (e.button === 0 && !armed())) footPad.walk = true;
+      else if (e.button === 0) { firing = true; shotClock = SHOT; pull(); gunSound.wake(); footPad.facing = performance.now() + 700; }
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (foot && mode === 'ride' && !menuOpen && e.pointerType !== 'mouse' && !armed()) {
+      const r = canvas.getBoundingClientRect();
+      footPad.to = footGround(new Vector2(((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2));
+      return;
+    }
     // (By touch, carrying the gun: a finger held on the picture fires it there, `finger`.)
     if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && !cat && armed()) {
       finger.id = e.pointerId; fingerAt(e);
@@ -4620,15 +4635,15 @@ async function start() {
     canvas.setPointerCapture(e.pointerId);
     aimAt(e);
   });
-  canvas.addEventListener('pointerup', () => { aim.brake = false; firing = false; });
-  canvas.addEventListener('lostpointercapture', () => { aim.brake = false; firing = false; });
+  canvas.addEventListener('pointerup', () => { aim.brake = false; firing = false; footPad.walk = false; });
+  canvas.addEventListener('lostpointercapture', () => { aim.brake = false; firing = false; footPad.walk = false; });
   // (A right click turns the skier round; a finger held long, which an iPad may also call one, does not: it is firing.)
   let lastPointer = '';
   addEventListener('pointerdown', (e) => { lastPointer = e.pointerType; }, true);
   canvas.addEventListener('contextmenu', (e) => { if (mode !== 'ride') return; e.preventDefault(); if (!menuOpen && lastPointer === 'mouse') start180(); });
   // (Not in the free view, whose own turning about the skier takes the wheel; nor the cinematic, which keeps its own distances.)
   canvas.addEventListener('wheel', (e) => {
-    if (view === 'free' || view === 'cinema') return;
+    if ((view === 'free' || view === 'cinema') && !foot) return;
     e.preventDefault();
     const px = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1);
     // (A pinch comes as the wheel with Ctrl held, in much smaller steps.)
@@ -5032,7 +5047,9 @@ async function start() {
       // line from the eye through it.
       const reach = aimReach(), x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
       ndc.set((x * reach) / (innerWidth / 2), (y * reach) / (innerHeight / 2));
-      if (fingerAims()) {
+      // (On foot, seen from above: the pointer, or the finger, where it is over the picture.)
+      if (foot) ndc.copy(fingerAims() ? new Vector2(finger.x, finger.y) : footPad.ndc);
+      else if (fingerAims()) {
         // (A finger low on the picture, below where the snow some way ahead of the skier is in it, taken as that high: it was over snow
         // beside or behind the skier, which the gun cannot be turned down or round to, and fired ahead whatever side it was on. So it
         // aims across the picture, its side kept, at the run ahead.)
@@ -5050,10 +5067,13 @@ async function start() {
       }
       ray.setFromCamera(ndc, camera);
       const eye = ray.ray.origin, look = ray.ray.direction;
-      let far = Math.min(600, snowAlong(eye, look, 600));
+      // (On foot, seen from above, the eye is out over the snow: what it points at is on the floor it stands on, through all that is cut away.)
+      let far = foot ? (look.y < -1e-3 ? (foot.y + 0.05 - eye.y) / look.y : 60) : Math.min(600, snowAlong(eye, look, 600));
       const met = horde.hit(eye, look, far);
       if (met) far = met.t;
       target = eye.clone().addScaledVector(look, far);
+      // (On foot, at the floor pointed to and no orc: at chest height over it, so that what is fired goes level across the room.)
+      if (foot && !met) target.y = Math.max(target.y, foot.y + 1.1);
       if (target.distanceTo(muzzle) < 3) target = muzzle.clone().addScaledVector(look, 30);
       // (By touch, a finger held low on the picture is over snow between the eye and the skier, or under it, which the gun cannot be
       // turned to, and it fired somewhere else altogether: then it fires at the snow some way ahead the way the finger points, as near
@@ -5172,7 +5192,8 @@ async function start() {
   const skisOff = () => {
     const cave = caveNow()!, go = along(ride.way, here);
     stopping = false;
-    foot = { x: ride.x, y: ride.y, z: ride.z, heading: Math.atan2(go.x, go.z), speed: 0, turn: 0, phase: 0, room: -1, told: false };
+    foot = { x: ride.x, y: ride.y, z: ride.z, heading: Math.atan2(go.x, go.z), speed: 0, dx: go.x, dz: go.z, turn: 0, phase: 0, room: -1, told: false };
+    footPad.walk = false; footPad.to = null;
     Object.assign(ride, { speed: 0, brake: 0, tuck: 0, tall: 0, skating: false, skate: 0, turn180: null, switch: false, back: 0 });
     // (Its rider off the horse, the horse left standing by the rack, and the rider on foot.)
     if (who === 'mounted') parkHorse(cave);
@@ -5183,7 +5204,7 @@ async function start() {
     horde.clear();
     cave.rackSkis(who === 'person' ? 'person' : horse.skis, who === 'person' ? 1.18 : who === 'mounted' ? 2.3 : 0);
     const mouse = document.body.classList.contains('mouse');
-    tell(who === 'mounted' ? 'Down off the horse' : 'Skis off', mouse ? 'on foot: W or the up arrow to go, A and D to turn, S back; Shift to walk' : 'on foot: push the stick up to go, to either side to turn', false, 3.5);
+    tell(who === 'mounted' ? 'Down off the horse' : 'Skis off', mouse ? 'W A S D to go, the mouse to aim, click to attack; right click to walk to a spot; Shift to walk' : 'the stick to go; tap to attack there, or to walk there', false, 3.5);
     placed = false;
   };
   /**
@@ -5203,6 +5224,8 @@ async function start() {
   /** On foot no more, quietly: the skier back as it was on its skis (the rider back in the saddle), the rack bare. */
   const leaveFoot = () => {
     if (!foot) return;
+    const c = caveNow();
+    if (c) underground(c, false, 0);
     foot = null; stopping = false;
     if (who === 'person') for (const s of personSkis) s.visible = true;
     horde.clear();
@@ -5225,35 +5248,72 @@ async function start() {
     pushOff();
     tell('Skis on', 'and away', false, 1.8);
   };
-  /** Which way to go on foot, from the pointer, the stick or the tilt, and the keys, as riding asks it (`easeAsk`). */
-  const askFoot = () => {
-    const by = aim.on ? aim : stickHeld === null && tilting() ? tilt : stick;
-    want.auto = false; want.x = by.x; want.y = by.y; want.brake = aim.brake;
-  };
   /**
-   * On foot a moment on: up to walk (further up, or held, to run; Shift or the button held, only walking), down to step back, to
-   * either side to turn; kept off the walls and what stands about (`Cave.walk`), on the floor where it is (the tunnel's, the stairs').
-   * Out of the camp, the skis back on; into a room, what it is said; at the chest, opened.
+   * On foot, what the mouse asks, apart from how riding is steered (asked: "we need to have totally separate from the with skis on
+   * control scheme for the on foot movement"): where it is over the picture; whether a button is held to walk to where it points; a
+   * spot to walk to (clicked, or tapped); and until when what was attacked is faced.
+   */
+  const footPad = { ndc: new Vector2(), walk: false, to: null as Vector3 | null, facing: 0 };
+  /** Where on the floor one on foot stands on a point of the picture (`ndc`) is over. */
+  const footGround = (at: Vector2): Vector3 | null => {
+    if (!foot) return null;
+    const rc = new Raycaster();
+    rc.setFromCamera(at, camera);
+    const o = rc.ray.origin, d = rc.ray.direction;
+    if (d.y > -1e-3) return null;
+    return o.clone().addScaledVector(d, (foot.y + 0.05 - o.y) / d.y);
+  };
+  /** Where what is carried is aimed on foot: the floor (or an orc) under the finger on the picture, or the pointer. */
+  const footAim = () => footGround(fingerAims() ? new Vector2(finger.x, finger.y) : footPad.ndc);
+  /** The pointer over the picture, on foot: where it is kept, a cross over the picture. Gives back whether it was taken so. */
+  const footMouse = (e: PointerEvent) => {
+    if (!foot || mode !== 'ride' || menuOpen || e.pointerType !== 'mouse') return false;
+    const r = canvas.getBoundingClientRect();
+    footPad.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2);
+    canvas.style.cursor = 'crosshair';
+    return true;
+  };
+  /** The way the view from above looks across the land, level: across the cave's lattice at forty-five degrees, as such views are. */
+  const isoYaw = () => { const cave = caveNow(); return cave ? Math.atan2(cave.site.ax, cave.site.az) + Math.PI / 4 : 0; };
+  /**
+   * On foot a moment on (asked, of the view from above: "with similar controls"): W A S D (or the arrows, the stick, the tilt) go up,
+   * down, left and right across the picture, running (Shift, walking); or a click (with nothing carried, or the right button whatever is
+   * carried) walks to the floor clicked on, held, after the pointer; a tap the same, by touch. It faces where it goes, and while it
+   * attacks, what it attacks; it goes backwards or sideways as it must, the walk turned to suit. Kept off the walls and what stands about
+   * (`Cave.walk`), on the floor where it is (the tunnel's, the stairs'). Out of the camp, the skis back on; into a room, what it is said;
+   * at the chest, opened.
    */
   const stepFoot = (dt: number): Now => {
-    const f = foot!, cave = caveNow()!, person = walks();
-    askFoot();
-    easeAsk(dt);
-    const walk = person ? FOOT.walk : FOOT.horseWalk, run = want.brakeKey || want.brake ? walk : person ? FOOT.run : FOOT.horseRun, y = ask.y;
-    const goal = y > 0.08 ? (y < 0.75 ? walk * (0.3 + 0.7 * smooth((y - 0.08) / 0.67)) : walk + (run - walk) * smooth((y - 0.75) / 0.2)) : y < -0.25 ? -FOOT.back * smooth((-y - 0.25) / 0.5) : 0;
-    f.speed += (goal - f.speed) * ease(dt, goal > f.speed ? 7 : 10);
-    f.turn += (-ask.x - f.turn) * ease(dt, 14);
-    f.heading = wrapAngle(f.heading + f.turn * FOOT.turn * dt * (1 - 0.25 * smooth(Math.abs(f.speed) / run)));
-    const o = land.group.position, r = person ? FOOT.person : FOOT.horse;
-    const [nx, nz] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + Math.sin(f.heading) * f.speed * dt, f.z - o.z + Math.cos(f.heading) * f.speed * dt, r);
+    const f = foot!, cave = caveNow()!, person = walks(), o = land.group.position, k = want.keys;
+    let sx = (k.right ? 1 : 0) - (k.left ? 1 : 0), sy = (k.up ? 1 : 0) - (k.down ? 1 : 0);
+    if (!sx && !sy) { const by = stickHeld !== null ? stick : tilting() ? tilt : null; if (by) { sx = Math.abs(by.x) > 0.12 ? by.x : 0; sy = Math.abs(by.y) > 0.12 ? by.y : 0; } }
+    const yaw = isoYaw(), up = new Vector3(Math.sin(yaw), 0, Math.cos(yaw)), right = new Vector3(-Math.cos(yaw), 0, Math.sin(yaw));
+    const move = up.multiplyScalar(sy).addScaledVector(right, sx);
+    if (footPad.walk) { const g = footGround(footPad.ndc); if (g) footPad.to = g; }
+    if (move.lengthSq() > 0.01) footPad.to = null;
+    else if (footPad.to) { const d = new Vector3(footPad.to.x - f.x, 0, footPad.to.z - f.z), l = d.length(); if (l < 0.3) footPad.to = null; else move.copy(d.divideScalar(l)); }
+    const amount = Math.min(1, move.length());
+    if (amount > 1e-3) { move.normalize(); f.dx = move.x; f.dz = move.z; }
+    const top = want.brakeKey ? (person ? FOOT.walk : FOOT.horseWalk) : person ? FOOT.run : FOOT.horseRun, goal = amount * top;
+    f.speed += (goal - f.speed) * ease(dt, goal > f.speed ? 10 : 14);
+    // (Facing what it attacks while it attacks; else the way it goes.)
+    const attacking = firing || performance.now() < footPad.facing || fingerAims();
+    let face = f.heading;
+    if (attacking) { const g = footAim(); if (g && Math.hypot(g.x - f.x, g.z - f.z) > 0.3) face = Math.atan2(g.x - f.x, g.z - f.z); } else if (amount > 0.05) face = Math.atan2(move.x, move.z);
+    const was = f.heading;
+    f.heading = wrapAngle(f.heading + clamp(wrapAngle(face - f.heading), -14 * dt, 14 * dt));
+    f.turn += ((dt > 0 ? wrapAngle(f.heading - was) / dt / 3 : 0) - f.turn) * ease(dt, 8);
+    const r = person ? FOOT.person : FOOT.horse;
+    const [nx, nz] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + f.dx * f.speed * dt, f.z - o.z + f.dz * f.speed * dt, r);
     f.x = nx + o.x; f.z = nz + o.z;
     const floor = cave.floorUnder(nx, nz) ?? land.height(f.x, f.z);
     f.y = Math.abs(floor - f.y) > 1 ? floor : f.y + (floor - f.y) * ease(dt, 18);
-    // (Its body: the person by the clips, the horse by its gait, its rider sat easy in the saddle, the poles put away.)
-    if (person) walkerNow()?.update(dt, f.speed);
+    // (Its body: the person by the clips, the horse by its gait, going forward or back as the way it goes lies to the way it faces.)
+    const ahead = f.speed * (f.dx * Math.sin(f.heading) + f.dz * Math.cos(f.heading));
+    if (person) walkerNow()?.update(dt, Math.abs(ahead) < 0.3 * f.speed ? f.speed : ahead);
     else {
-      f.phase = (f.phase + horseCadence(f.speed) * dt) % 1;
-      horse.pose(horseWalk(f.phase, f.speed, f.turn, ride.time));
+      f.phase = (f.phase + horseCadence(ahead) * dt) % 1;
+      horse.pose(horseWalk(f.phase, ahead, f.turn, ride.time));
     }
     // (The horse left by the rack standing easy, its tail swishing.)
     if (who === 'mounted') horse.pose(horseWalk(0, 0, 0, ride.time));
@@ -5282,26 +5342,28 @@ async function start() {
     const dir = new Vector3(Math.sin(f.heading), 0, Math.cos(f.heading)), way = Math.atan2(dir.dot(runLeft(here)), dir.dot(runDir(here)));
     return { down: here.s, left: here.left, speed: Math.abs(f.speed), way, ski: way, skid: 0, tuck: 0, brake: 0 };
   };
-  /** How far down the view is drawn in, and which way it looks round, on foot. */
-  const footView = { reach: 4, heading: 0 };
   /**
-   * The view on foot, whatever view is chosen: behind and a little above the head, turned round after the way it faces; drawn in along
-   * the line to the head wherever a wall, the roof, the rock or the snow would come between (`Cave.clear`), and let out again slowly.
+   * The view on foot, from above (asked: "Lets have the view top down / isometric like minecraft dungeons or diablo 4 etc."): high
+   * over the one on foot and back from it, looking down at it at fifty-six degrees across the cave's lattice at forty-five, drawn narrow
+   * so that it is nearly as a plan is; following it a little behind; as far off as *Distance* says (or the wheel). Swung there from the
+   * view riding was in over the first moments; inside, the cave cut away over a height above its floors (`Cave.overhead`).
    */
-  const placeFootView = (dt: number) => {
-    const f = foot!, cave = caveNow(), o = land.group.position, person = walks();
-    const target = new Vector3(f.x, f.y + (person ? 1.5 : 1.9), f.z);
-    footView.heading = placed ? footView.heading + wrapAngle(f.heading - footView.heading) * ease(dt, 6) : f.heading;
-    const back = new Vector3(-Math.sin(footView.heading), 0, -Math.cos(footView.heading));
-    const most = (person ? 3.6 : 5.4) * distance, want = target.clone().addScaledVector(back, most).addScaledVector(UP, person ? 0.6 : 0.9);
-    // (Under the snow, inside, only the cave knows what is clear.)
-    const clear = (q: Vector3) => (cave ? cave.clear(new Vector3(q.x - o.x, q.y, q.z - o.z)) : q.y > land.height(q.x, q.z) + 0.3);
-    let reach = 0;
-    for (let i = 1; i <= 40; i++) { if (!clear(target.clone().lerp(want, i / 40))) break; reach = i / 40; }
-    footView.reach = placed ? Math.min(reach, footView.reach + dt * 0.8) : reach;
-    camera.position.copy(target).lerp(want, Math.max(0.05, footView.reach - 0.04));
-    camera.lookAt(target.clone().addScaledVector(back, -2).addScaledVector(UP, -0.35));
-    if (Math.abs(camera.fov - FOV) > 0.01) { camera.fov = fovNow = FOV; camera.updateProjectionMatrix(); }
+  const ISO = { pitch: deg(56), far: 18, fov: 38, swing: 0.9 };
+  const iso = { at: new Vector3(), from: new Vector3(), turn: new Quaternion(), since: Infinity };
+  const placeIsoView = (dt: number) => {
+    const f = foot!, yaw = isoYaw(), d = ISO.far * distance, target = new Vector3(f.x, f.y + 1, f.z);
+    if (!placed) { iso.at.copy(target); iso.from.copy(camera.position); iso.turn.copy(camera.quaternion); iso.since = 0; }
+    iso.at.lerp(target, ease(dt, 9));
+    iso.since += dt;
+    const eye = iso.at.clone().addScaledVector(new Vector3(Math.sin(yaw), 0, Math.cos(yaw)), -d * Math.cos(ISO.pitch)).addScaledVector(UP, d * Math.sin(ISO.pitch));
+    camera.up.set(0, 1, 0);
+    camera.position.copy(eye);
+    camera.lookAt(iso.at);
+    // (Swung from the view it rode in, as it takes its skis off.)
+    const k = smooth(iso.since / ISO.swing);
+    if (k < 1) { camera.position.lerpVectors(iso.from, eye, k); camera.quaternion.slerpQuaternions(iso.turn, camera.quaternion.clone(), k); }
+    const fov = FOV + (ISO.fov - FOV) * k;
+    if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fovNow = fov; camera.updateProjectionMatrix(); }
     lastRider.copy(target);
     placed = true;
     sun.position.copy(target).addScaledVector(sunFrom, 50);
@@ -5317,13 +5379,30 @@ async function start() {
     for (const el of document.querySelectorAll<HTMLElement>('#aim .say.up, #stick .say.up')) el.textContent = on ? 'Walk' : 'Tuck';
     for (const el of document.querySelectorAll<HTMLElement>('#aim .say.down, #stick .say.down')) el.textContent = on ? 'Back' : 'Straight';
   };
+  /**
+   * Under the snow on foot, seen from above: the cave cut away over its floors (`Cave.overhead`); the snow over it and all that lies on
+   * the snow (the land, the woods, the poles, the kickers, the tracks) not drawn, and the sky behind it all gone dark, as a dungeon is
+   * drawn from above in the dark. Back out, all as it was.
+   */
+  let under = false;
+  const underground = (cave: Cave, on: boolean, floor: number) => {
+    cave.overhead(!!foot && mode === 'ride', on, floor);
+    uUnder.value = on ? 1 : 0;
+    if (on === under) return;
+    under = on;
+    for (const c of cave.group.parent?.children ?? []) if (c !== cave.group) c.visible = !on;
+    for (const k of kicks) if (k.group) k.group.visible = !on;
+    for (const m of [...rideTracks, ...watchTracks]) m.visible = !on && ((m.geometry.drawRange.count ?? 0) > 0);
+  };
   /** How far into the cave's dark the eye is (0 to 1): the sun and the sky dimmed by as much, and the picture drawn brighter. */
   let caveDark = 0;
   const stepCave = (dt: number, seconds: number) => {
     const cave = caveNow();
-    if (!cave) { caveDark = 0; return; }
+    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; return; }
     const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
-    caveDark = cave.darkness(eye);
+    // (On foot the view is from above, out in the air over the snow: how dark it is, is how dark it is where the one on foot is.)
+    caveDark = cave.darkness(at && mode === 'ride' ? at : eye);
+    underground(cave, !!at && mode === 'ride' && cave.inside(at.x, at.z), at ? at.y : 0);
     const ahead = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : undefined;
     cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0, ahead);
   };
@@ -6096,7 +6175,7 @@ async function start() {
     land.lod?.(camera.position.x, camera.position.z);
     land.trees?.(camera.position, now / 1000);
     if (kickersOn) { placeKickers(at.down); flutter(now / 1000); }
-    if (mode === 'ride' && cat) placeCatapultView(dt); else if (mode === 'ride' && foot) placeFootView(dt); else placeView(at, dt);
+    if (mode === 'ride' && cat) placeCatapultView(dt); else if (mode === 'ride' && foot) placeIsoView(dt); else placeView(at, dt);
     shiftView(dt);
     reinsNow();
     showFoot();
