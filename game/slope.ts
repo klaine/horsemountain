@@ -7412,6 +7412,7 @@ async function start() {
     // once as it is drawn: made so, the page stood frozen for the four seconds they took, the loading screen's bar with it, and they
     // took a second and more longer. With WebGPU only: with WebGL 2, made this way they took twice as long, ten seconds for five.)
     // (And everything else there is with it: `warmSoon`. Opening, drawn this frame behind the loading screen; later, only made ready.)
+    keepSane();
     let unwarm: (() => void) | null = null;
     // (Not while shaders given up on are still being made: asked for again once they are.)
     if (warmWanted && !warming) {
@@ -7437,7 +7438,9 @@ async function start() {
       uShutter.value = clamp(1 / 60 / Math.max(realDt, 1e-3), 0.005, 3) * blurLevel;
       uBlur.value = blurLevel;
       // (The land turning over in focus as it does, rather than the skier, small in the middle of it.)
-      uFocus.value = Math.max(3, camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position));
+      // (A number gone bad here blackens the whole picture, every point of it blurred by it: kept to a sane one.)
+      const focusAt = camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position);
+      uFocus.value = Number.isFinite(focusAt) ? Math.max(3, focusAt) : 10;
       pipeline.render();
     } else sharp.render();
     unwarm?.();
@@ -7451,6 +7454,29 @@ async function start() {
    * on this page (so that a browser that gives back nothing of its picture is never taken for a black one), black or empty three times
    * over, outdoors, where nothing is ever black, and the graphics are taken to have failed: the page opened again, drawn more simply.
    */
+  /** What was so as the picture came out black, for what is kept of it (`noteLost`): the eye and the rider sane or not, and the run's state. */
+  const pictureState = () => {
+    const ok = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    return [`eye ${ok(camera.position) ? 'ok' : 'bad'}`, `rider ${ok(rider.position) ? 'ok' : 'bad'}`, `view ${view}`, ride.ended ? 'ended' : '', asking ? 'asking' : '', crash ? 'fallen' : '', cat ? `way ${cat.by}` : '', inside ? 'inside out' : '', foot ? 'on foot' : '', `blur ${blurLevel}`].filter(Boolean).join(', ');
+  };
+  /**
+   * The eye and the rider kept sane each frame: a place gone to no number (as from a length of nothing made one), drawn, blackens the
+   * picture for good. Seen so, the run begun again from its top (the ride's own numbers gone bad), or the eye put back behind the rider;
+   * and said, the first time.
+   */
+  let insaneSaid = false;
+  const keepSane = () => {
+    const ok = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    const rideOk = [ride.x, ride.y, ride.z, ride.speed, ride.way, ride.down, ride.left].every(Number.isFinite);
+    if (rideOk && ok(rider.position) && ok(camera.position)) return;
+    const what = `${rideOk ? '' : 'the ride '}${ok(rider.position) ? '' : 'the rider '}${ok(camera.position) ? '' : 'the eye'}`.trim();
+    console.warn(`Grand Horse Mountain: ${what} went to no number (${pictureState()})`);
+    if (!insaneSaid) { insaneSaid = true; tell('Something went wrong', `${what} went to no number: set right`, true, 6); }
+    if (!rideOk || !ok(rider.position)) { restart(); return; }
+    camera.position.copy(rider.position).add(new Vector3(0, 4, -8));
+    camera.lookAt(rider.position);
+    placed = false;
+  };
   const probe = document.createElement('canvas');
   probe.width = probe.height = 8;
   const probeCtx = probe.getContext('2d', { willReadFrequently: true });
@@ -7471,7 +7497,7 @@ async function start() {
       if (!probeSeen) return;
       blackFor++;
       console.warn(`Grand Horse Mountain: the picture came out black (${blackFor})`);
-      if (blackFor >= 3) fallBack('the picture went black', true);
+      if (blackFor >= 3) fallBack(`the picture went black (${pictureState()})`, true);
     }).catch(() => { /* (not to be told) */ }).finally(() => { probing = false; });
   };
   const __look = (off: Vector3) => { heldLook = null; view = 'free'; controls.enabled = true; const at = focus(); camera.position.copy(at).add(off); controls.target.copy(at).addScaledVector(UP, 0.9); controls.update(); lastRider.copy(at); placed = true; };
