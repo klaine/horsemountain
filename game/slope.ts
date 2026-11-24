@@ -1863,6 +1863,9 @@ async function start() {
 
   /** The rider's wishes eased in: across and up, the tuck and standing tall, braking. */
   const easeAsk = (dt: number) => {
+    // (Whatever asked it, never no number: from the stick, the pointer or the tilt.)
+    if (!Number.isFinite(want.x)) want.x = 0;
+    if (!Number.isFinite(want.y)) want.y = 0;
     // (Not while a trick is being made: it asks what it must, whatever the keys say.)
     const keys = want.keys, keyed = !want.auto && !isoRiding() && (keys.up || keys.down || keys.left || keys.right);
     // (An arrow key carves at first; held on, it pushes the turn out to the end of the range, into a skid, as the pointer does at
@@ -4933,10 +4936,14 @@ async function start() {
   let stickHeld: number | null = null, knobAt = '';
   const holdStick = (e: PointerEvent) => {
     const r = stickEl.getBoundingClientRect(), half = r.width / 2;
+    // (Not drawn, its size nothing: let go. The stick is put away as the run ends, at the question of the way back, under the menu; a
+    // thumb still on it as it went, moved, was taken as so far over as no number (a length over nothing), and every number of the ride
+    // went so, and the eye with it: the picture black, on an iPad at every run's end ridden by the stick.)
+    if (!(half > 1)) { letGo(); return; }
     let x = (e.clientX - (r.left + half)) / (half * 0.82), y = ((r.top + half) - e.clientY) / (half * 0.82);
     const d = Math.hypot(x, y);
     if (d > 1) { x /= d; y /= d; }
-    stick.x = x; stick.y = y;
+    stick.x = Number.isFinite(x) ? x : 0; stick.y = Number.isFinite(y) ? y : 0;
   };
   const letGo = () => { stick.x = 0; stick.y = 0; stickHeld = null; homeStick(); };
   /**
@@ -4975,6 +4982,8 @@ async function start() {
   stickEl.addEventListener('pointerup', letGo);
   stickEl.addEventListener('pointercancel', letGo);
   const showStick = () => {
+    // (Put away under a thumb, as the run ends or the way back is asked: let go of.)
+    if (stickHeld !== null && !(stickEl.offsetWidth > 1)) letGo();
     const half = stickEl.offsetWidth / 2 || 66, x = stickHeld !== null ? stick.x : ask.x, y = stickHeld !== null ? stick.y : tilting() ? ask.y : 0;
     const to = `translate(${(x * half * 0.82).toFixed(1)}px, ${(-y * half * 0.82).toFixed(1)}px)`;
     if (to !== knobAt) { knobAt = to; knob.style.transform = to; }
