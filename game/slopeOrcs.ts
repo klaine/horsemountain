@@ -46,8 +46,8 @@ export interface Den {
  * how far ahead of the skier they come from.
  */
 const MOST = 26, AHEAD: [number, number] = [120, 230];
-/** How hard the skier strikes what it runs down. */
-const RUN_DOWN = 2;
+/** How hard the skier strikes what it runs down: enough to bring down any but the great ones and the dead. */
+const RUN_DOWN = 3;
 
 interface Foe {
   kind: FoeKind; gait: Gait; size: number;
@@ -448,6 +448,21 @@ export class Horde {
       .filter(({ b }) => b.kind.titles && b.met && (b.state === 'come' || b.state === 'taken' || (b.state === 'down' && b.since < FELLED)))
       .sort((x, y) => x.far - y.far).slice(0, 2)
       .map(({ b, i }) => ({ id: `${i}.${b.comes}`, title: b.title, kind: b.kind.name, hp: Math.max(0, b.hp), most: b.kind.hp, down: b.state === 'down', kneeling: b.kneeling || b.state === 'taken' }));
+  }
+  /** Whether one is still coming (to be struck, or locked on). */
+  coming(i: number): boolean { return this.foes[i]?.state === 'come'; }
+  /** How strong one is still, and was, in blows; whether it is on its knees, beaten. */
+  health(i: number): { hp: number; most: number; kneeling: boolean } | null {
+    const b = this.foes[i];
+    return b ? { hp: Math.max(0, b.hp), most: b.kind.hp, kneeling: b.kneeling } : null;
+  }
+  /** One's name: a great one's own, else its kind's. */
+  titleOf(i: number): string { const b = this.foes[i]; return !b ? '' : b.kind.titles && b.title ? b.title : b.kind.name; }
+  /** Each still coming and drawn (in a den, only those in sight): which, where its middle is, and how tall it stands. */
+  marks(): { orc: number; at: Vector3; tall: number }[] {
+    const out: { orc: number; at: Vector3; tall: number }[] = [];
+    this.foes.forEach((b, i) => { if (b.state === 'come' && b.gait.model.visible) out.push({ orc: i, at: this.middleOf(b), tall: (b.kind.mid * 2 + 0.2) * b.size }); });
+    return out;
   }
   /** Where each still coming is to be aimed at: its middle. */
   aims(): Vector3[] { return this.foes.filter((b) => b.state === 'come').map((b) => this.middleOf(b)); }

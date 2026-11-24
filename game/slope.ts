@@ -63,6 +63,7 @@ import { Drops, type Item, LootCard, type Mods, NO_MODS, Pack, packView, RARITY,
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type Den, type FoeKind, Horde } from './slopeOrcs';
+import { ARM_DICE, attack as rollAttack, BURN_EVERY, CHARGED, damage as rollDamage, HP, LEAP, type Roll, rollSaid } from './slopeDice';
 import { Boosters, PIPE, Pipe } from './slopeArena';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
@@ -4495,6 +4496,8 @@ async function start() {
    * watched. (Kept in this browser for next time; `?orcs=1` or `?orcs=0` either way.)
    */
   let orcsOn = false;
+  /** Whether the arms aim themselves, riding (`setAiming`). */
+  let autoAim = true;
   // (The gun's sound woken by the click that turns them on, as a browser lets a page make sound only after one: woken by the first shot,
   // it was made as the first shot was fired.)
   // Off the piste allowed, or kept between the poles as the runs were (asked: "in menu there could be an option to toggle between out of
@@ -4594,6 +4597,19 @@ async function start() {
     if (on) void horde.prepare().then(() => warmSoon(gun), () => {});
     if (!on && demoKind === 'orcs') setDemoKind('tricks');
     reflect();
+  };
+  /**
+   * How the arms are aimed, riding (asked: "Can we find a nice way to leave out human aiming? Like auto targeting and just attack button
+   * and maybe cycle target buttons next to attack"): *Auto*, at first, the arms locked on a foe by themselves (the nearest they can
+   * reach, kept until it falls or is lost, another chosen with the buttons beside *Attack* or by touching it), each attack rolled to
+   * strike or miss (`slopeDice.ts`); or *Free*, aimed by hand at the guide's mark or a finger, as they were. Kept in this browser;
+   * `?aim=free` or `auto`.
+   */
+  const aimButtons = (['Auto', 'Free'] as const).map((label, k) => button('aimSeg', label, () => setAiming(k === 0), k ? 'Aimed by hand: at the mark the pointer steers by, or where a finger is on the picture' : 'Locked on the nearest foe by themselves; Attack strikes at it, rolled to hit or miss; ◀ ▶ (Q, E) or touching a foe chooses another'));
+  const setAiming = (on: boolean) => {
+    autoAim = on;
+    keep('aiming', on ? 'auto' : 'free');
+    aimButtons.forEach((b, k) => b.classList.toggle('on', (k === 0) === on));
   };
   /** Which demo run is watched; the orc hunt's with the horse and its rider. */
   const setDemoKind = (k: 'tricks' | 'orcs' | 'show') => {
@@ -5029,6 +5045,12 @@ async function start() {
     if (mode === 'ride' && e.key.toLowerCase() === 'x' && !(e.target instanceof HTMLInputElement)) { start180(); e.preventDefault(); return; }
     if (mode === 'ride' && e.key.toLowerCase() === 'z' && !(e.target instanceof HTMLInputElement)) { if (!e.repeat) holdSkate(true); e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) { restart(); e.preventDefault(); return; }
+    // (Carrying arms, Space attacks, held as the button is, in place of pausing; the arms aiming themselves, Q and E, or Tab, lock on
+    // the foe to the left or the right.)
+    if (mode === 'ride' && armed() && !menuOpen && !(e.target instanceof HTMLInputElement)) {
+      if (e.key === ' ') { if (!e.repeat) attackDown(); e.preventDefault(); return; }
+      if (rolling() && (e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'e' || e.key === 'Tab')) { cycleLock(e.key.toLowerCase() === 'q' ? -1 : 1); e.preventDefault(); return; }
+    }
     // (Asked the way back, by its number.)
     // (Asked the way back, by its number: 1 to 9, and 0 for the tenth.)
     const nth = e.key === '0' ? 9 : /^[1-9]$/.test(e.key) ? +e.key - 1 : -1;
@@ -5040,7 +5062,7 @@ async function start() {
     if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v && !e.repeat) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
-  window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (WASD[e.code]) want.keys[WASD[e.code]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
+  window.addEventListener('keyup', (e) => { if (e.key === ' ') attackUp(); if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (WASD[e.code]) want.keys[WASD[e.code]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
   window.addEventListener('blur', () => { holdSkate(false); for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
 
   // Riding by mouse or touchpad (asked: "make better controls for desktop/laptop users, current is for touch screens. Mouse / touchpad
@@ -5115,7 +5137,7 @@ async function start() {
     // after it; a tap with nothing carried walks to where it is.)
     if (footMouse(e)) {
       if (e.button === 2 || (e.button === 0 && !armed())) footPad.walk = true;
-      else if (e.button === 0) { firing = true; shotClock = SHOT; pull(); gunSound.wake(); footPad.facing = performance.now() + 700; }
+      else if (e.button === 0) { if (rolling()) lockNear(e.clientX, e.clientY); firing = true; shotClock = SHOT; pull(); gunSound.wake(); footPad.facing = performance.now() + 700; }
       canvas.setPointerCapture(e.pointerId);
       return;
     }
@@ -5126,6 +5148,8 @@ async function start() {
     }
     // (By touch, carrying the gun: a finger held on the picture fires it there, `finger`.)
     if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && !cat && armed()) {
+      // (The arms aiming themselves: a foe touched is locked on, and attacked.)
+      if (rolling()) lockNear(e.clientX, e.clientY);
       finger.id = e.pointerId; fingerAt(e);
       firing = true; shotClock = SHOT; pull(); gunSound.wake();
       canvas.setPointerCapture(e.pointerId);
@@ -5135,7 +5159,8 @@ async function start() {
     if (cat) { restart(); return; }
     // (Held onto while the button is down, so that the brake, or the trigger, is not let go of where the pointer crosses a control.)
     // (With the tommy gun, the button is its trigger, and Shift brakes.)
-    if (armed()) { firing = true; shotClock = SHOT; pull(); gunSound.wake(); } else aim.brake = true;
+    // (The arms aiming themselves: a foe clicked on is locked on, and attacked.)
+    if (armed()) { if (rolling()) lockNear(e.clientX, e.clientY); firing = true; shotClock = SHOT; pull(); gunSound.wake(); } else aim.brake = true;
     canvas.setPointerCapture(e.pointerId);
     aimAt(e);
   });
@@ -5233,6 +5258,19 @@ async function start() {
   const heat = new Map<number, number>();
   // (The sword's swing so long that a click made in the last half of one is kept for the next.)
   const pull = () => { if (ready < (armNow().firing === 'swing' ? 0.75 : 0.25)) pulls = 1; };
+  /**
+   * *Attack*, beside ◀ ▶ at the lower right (and Space): pressed, as the button on the picture is, the trigger pulled, a cut begun;
+   * held, firing on (or the cut held drawn up); let go, let go of. ◀ ▶ lock on the foe to the left or the right (`cycleLock`).
+   */
+  const attackDown = () => { if (!armed() || mode !== 'ride' || cat) return; firing = true; shotClock = SHOT; pull(); gunSound.wake(); };
+  const attackUp = () => { firing = false; };
+  {
+    const attack = $('attack');
+    attack.addEventListener('pointerdown', (e) => { e.preventDefault(); attack.setPointerCapture(e.pointerId); attack.classList.add('down'); attackDown(); });
+    for (const kind of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) attack.addEventListener(kind, () => { attack.classList.remove('down'); attackUp(); });
+    attack.addEventListener('contextmenu', (e) => e.preventDefault());
+    for (const [id, by] of [['prevFoe', -1], ['nextFoe', 1]] as const) $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); cycleLock(by); });
+  }
   /** Each human's poles, put away while it carries the gun. */
   const poleSets: [Who, Object3D[]][] = [['person', gear.filter((p) => p.parent?.name.startsWith('hand_'))], ['mounted', jockeyGear]];
   /** Whether the gun is carried: riding, on a computer, by a human (the skier alone, or the horse's rider). */
@@ -5272,41 +5310,207 @@ async function start() {
     model.updateMatrixWorld(true);
     return { from: model.localToWorld(arm.muzzle.clone()), dir: new Vector3(0, 0, 1).transformDirection(model.matrixWorld) };
   };
+  // ---------------------------------------------------------------- the foe locked on, and the dice
+  /**
+   * The foe the arms are locked on (`setAiming`, *Auto*; and watching, the one the demo's rider fires at): which (-1, none); whether it
+   * was chosen (by ◀ ▶ or a touch: kept until it falls or is lost, not given up for a nearer one); how long it has been out of reach or
+   * sight (a moment's grace before another is taken); those that could be locked on, looked for every so often (`LOCK_SCAN`); the way
+   * the body that holds the arms faces, for the buttons to look by between frames.
+   */
+  type Mark = { orc: number; at: Vector3; tall: number; far: number; sx: number; sy: number };
+  const lock = { orc: -1, chosen: false, lost: 0, scan: 0, list: [] as Mark[], ahead: new Vector3(0, 0, 1) };
+  const LOCK_SCAN = 0.15, LOCK_GRACE = 0.5;
+  const diceRng = gunRng.fork('dice');
+  /** Whether the arms aim themselves at the foe locked on, and each attack at it is rolled: riding with *Auto*, and watching. */
+  const rolling = () => mode === 'watch' || autoAim;
+  /** The foe locked on, if it is still coming and within `reach` of `from`; else -1. */
+  const lockedIn = (from: Vector3, reach: number) => (lock.orc >= 0 && horde.coming(lock.orc) && horde.middle(lock.orc).distanceTo(from) <= reach ? lock.orc : -1);
+  const guardOf = (orc: number) => horde.kindOf(orc)?.guard ?? 10;
+  /** Rolled in the air, a little harder to strike true. */
+  const rollBonus = () => (mode === 'ride' && air ? -2 : 0);
+  /**
+   * Each foe the arm carried could be locked on: drawn, within its reach (`ARM_DICE.lock`; on foot, in the dungeon's close quarters, less),
+   * on the picture, and riding, where the arms can turn to it from the body (ahead of it, or for the sword, not behind it) and not behind
+   * the snow; with where it is on the picture, for ◀ ▶ to go across it by.
+   */
+  const lockable = (arm: Arm): Mark[] => {
+    const reach = foot ? Math.min(ARM_DICE[arm.kind].lock, arm.firing === 'swing' ? 12 : 40) : ARM_DICE[arm.kind].lock;
+    const from = rider.position, eye = from.clone().addScaledVector(UP, 1.4), ahead = lock.ahead, out: Mark[] = [];
+    for (const m of horde.marks()) {
+      const dx = m.at.x - from.x, dz = m.at.z - from.z, far = Math.hypot(dx, dz), on = dx * ahead.x + dz * ahead.z;
+      if (far > reach) continue;
+      if (!foot && (arm.firing === 'swing' ? on < -2 : on < far * 0.3)) continue;
+      const s = m.at.clone().project(camera);
+      if (s.z > 1 || Math.abs(s.x) > 1.05 || Math.abs(s.y) > 1.05) continue;
+      if (!foot && far > 4) { const d = m.at.clone().sub(eye), len = d.length(); if (snowAlong(eye, d.divideScalar(len), len) < len - 1) continue; }
+      out.push({ ...m, far, sx: s.x, sy: s.y });
+    }
+    return out;
+  };
+  const nearestOf = (list: Mark[]) => list.reduce<Mark | null>((a, m) => (!a || m.far < a.far ? m : a), null);
+  /**
+   * The lock a moment on (`dt`), riding with the arms aiming themselves: kept on the foe it has while it can be had (a moment's grace
+   * when it cannot), else on the nearest; not chosen, given up for one much nearer that has come up.
+   */
+  const relock = (arm: Arm, dt: number) => {
+    lock.scan -= dt;
+    const has = lock.orc >= 0 && horde.coming(lock.orc);
+    if (lock.scan > 0 && has) return;
+    lock.scan = LOCK_SCAN;
+    lock.list = lockable(arm);
+    const here = lock.list.find((m) => m.orc === lock.orc), nearest = nearestOf(lock.list);
+    if (here) lock.lost = 0; else lock.lost += LOCK_SCAN;
+    if (!has || (!here && lock.lost > LOCK_GRACE)) { lock.orc = nearest?.orc ?? -1; lock.chosen = false; lock.lost = 0; }
+    else if (here && !lock.chosen && nearest && nearest.orc !== here.orc && nearest.far < here.far * 0.6) lock.orc = nearest.orc;
+  };
+  /** Locked on the next foe across the picture, to the right (`by` 1) or the left (-1), round again past the last. */
+  const cycleLock = (by: number) => {
+    if (!armed() || mode !== 'ride' || !rolling()) return;
+    lock.list = lockable(armNow()); lock.scan = LOCK_SCAN;
+    const across = [...lock.list].sort((a, b) => a.sx - b.sx), i = across.findIndex((m) => m.orc === lock.orc);
+    if (!across.length) { lock.orc = -1; return; }
+    const to = i < 0 ? nearestOf(across)! : across[(i + (by > 0 ? 1 : -1) + across.length) % across.length];
+    lock.orc = to.orc; lock.chosen = true; lock.lost = 0;
+  };
+  /** Locked on the foe nearest a point on the picture (in pixels), if one is within a fingertip of it: a touch or a click on it. */
+  const lockNear = (px: number, py: number) => {
+    if (!armed() || mode !== 'ride' || !rolling()) return;
+    const list = lockable(armNow()), r = canvas.getBoundingClientRect();
+    let best: Mark | null = null, near = 56 * 56;
+    for (const m of list) {
+      const dx = ((m.sx + 1) / 2) * r.width + r.left - px, dy = ((1 - m.sy) / 2) * r.height + r.top - py, d = dx * dx + dy * dy;
+      if (d < near) { near = d; best = m; }
+    }
+    if (best) { lock.orc = best.orc; lock.chosen = true; lock.lost = 0; lock.list = list; lock.scan = LOCK_SCAN; }
+  };
+  /**
+   * The fight's numbers over the picture: the damage each blow does thrown up over the foe it struck (gold and larger, a critical), and
+   * *miss* where one missed (not more than one every so often for each, as the tommy gun misses many a time a second); kept to so many
+   * at once.
+   */
+  let dmgLive = 0;
+  const missedAt = new Map<number, number>();
+  const dmgPop = (p: Vector3, text: string, kind: string) => {
+    if (dmgLive > 36) return;
+    const at = overPictureAt(p);
+    if (!at) return;
+    const el = document.createElement('div');
+    el.className = `pop dmg ${kind}`; el.textContent = text;
+    el.style.left = `${(at[0] + gunRng.range(-14, 14)).toFixed(0)}px`; el.style.top = `${(at[1] - 18).toFixed(0)}px`;
+    dmgLive++;
+    el.addEventListener('animationend', () => { el.remove(); dmgLive--; });
+    popsEl.appendChild(el);
+  };
+  /** Damage done (hit points, as hard as a weapon found makes it) said over where it struck. */
+  const dmgSaid = (p: Vector3, dmg: number, crit: boolean, burn = false) => dmgPop(p, crit ? `${Math.round(dmg * horde.might)}!` : String(Math.round(dmg * horde.might)), crit ? 'crit' : burn ? 'burn' : '');
+  const missSaid = (orc: number, p: Vector3) => {
+    const now = performance.now();
+    if ((missedAt.get(orc) ?? 0) > now) return;
+    missedAt.set(orc, now + 350);
+    dmgPop(p, 'miss', 'miss');
+  };
+  /** The last rolls, newest last, for the fight's line and for a script (`__slope.rolls`). */
+  const rolls: { foe: string; arm: ArmKind; say: string; roll: Roll }[] = [];
+  let rollsMade = 0;
+  const noteRoll = (orc: number, arm: ArmKind, r: Roll, say = rollSaid(r)) => {
+    rollsMade++;
+    rolls.push({ foe: horde.titleOf(orc), arm, say, roll: r });
+    if (rolls.length > 16) rolls.shift();
+  };
   /**
    * A round fired from `from` along `dir`, a little astray (`spread`), as far as `reach`: a tracer to where it strikes, and there an
    * orc falls or the snow flies.
    */
   /** The last round fired, from where and which way: for a script to tell where it went (`__slope.lastShot`). */
   let lastShot: { from: Vector3; dir: Vector3 } | null = null;
-  const fireRound = (from: Vector3, way: Vector3, spread: number, reach = 400) => {
+  /**
+   * A round's blow on one it struck, `orc`, going `dir`: its damage rolled (or, rolled to strike, `r`'s), said over it; down, counted;
+   * struck and not brought down, the cross where it was struck all the same.
+   */
+  const roundStrikes = (orc: number, dir: Vector3, arm: ArmKind, r: Roll | null) => {
+    const at = horde.middle(orc), dmg = r ? r.dmg : rollDamage(diceRng, ARM_DICE[arm].dmg), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6), dmg / HP);
+    if (struck) dmgSaid(at, dmg, !!r?.crit);
+    if (struck?.down) { gunSound.grunt(); orcDowned(at, 'shot', struck.kind); }
+    else if (struck) { const on = overPictureAt(at); if (on) hitMark(on); }
+    burst(at, 3, 10);
+  };
+  /** A round flown from `from` along `dir` as far as `reach`, striking nothing: to the snow, which flies, or on out of sight. */
+  const roundAstray = (from: Vector3, dir: Vector3, reach: number) => {
+    const snowAt = snowAlong(from, dir, reach);
+    gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : reach, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
+  };
+  /** Where a round, or a rocket, that missed the foe whose middle is `mid` goes: a little wide of it, to one side and high or low. */
+  const wideOf = (from: Vector3, mid: Vector3, wide = 1) => {
+    const dir = mid.clone().sub(from).normalize(), side = new Vector3().crossVectors(dir, UP).normalize();
+    return mid.clone().addScaledVector(side, (gunRng.chance(0.5) ? 1 : -1) * gunRng.range(0.9, 1.8) * wide).addScaledVector(UP, gunRng.range(-0.3, 0.9)).sub(from).normalize();
+  };
+  const fireRound = (from: Vector3, way: Vector3, spread: number, arm: ArmKind, reach = 400) => {
+    // (The arms aiming themselves: the round at the foe locked on, rolled to strike it or to go wide of it.)
+    const foe = rolling() ? lockedIn(from, reach) : -1;
+    if (foe >= 0) {
+      const mid = horde.middle(foe), r = rollAttack(diceRng, arm, guardOf(foe), mid.distanceTo(from), rollBonus());
+      noteRoll(foe, arm, r);
+      if (r.hit) { const dir = mid.clone().sub(from).normalize(); lastShot = { from: from.clone(), dir: dir.clone() }; gunfire.fire(from, dir, mid.distanceTo(from), () => roundStrikes(foe, dir, arm, r)); return; }
+      missSaid(foe, mid);
+      const dir = wideOf(from, mid);
+      lastShot = { from: from.clone(), dir: dir.clone() };
+      roundAstray(from, dir, reach);
+      return;
+    }
     const dir = way.clone().add(new Vector3(gunRng.range(-spread, spread), gunRng.range(-spread, spread), gunRng.range(-spread, spread))).normalize();
     lastShot = { from: from.clone(), dir: dir.clone() };
     const snowAt = snowAlong(from, dir, reach), met = horde.hit(from, dir, Math.min(snowAt, reach));
-    if (met) {
-      const orc = met.orc;
-      gunfire.fire(from, dir, met.t, () => {
-        const at = horde.middle(orc), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6));
-        if (struck?.down) { gunSound.grunt(); orcDowned(at, 'shot', struck.kind); }
-        // (Struck and not brought down, the cross where it was struck all the same.)
-        else if (struck) { const on = overPictureAt(at); if (on) hitMark(on); }
-        burst(at, 3, 10);
-      });
-    } else gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : reach, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
+    if (met) gunfire.fire(from, dir, met.t, () => roundStrikes(met.orc, dir, arm, null));
+    else roundAstray(from, dir, reach);
   };
   /** A round from the tommy gun as it points: the tommy gun's own sound, and its kick. */
-  const shoot = () => { const { from, dir } = muzzleOf(armNow()); fireRound(from, dir, 0.012); gunSound.shot(); kick = 1; };
+  const shoot = () => { const arm = armNow(), { from, dir } = muzzleOf(arm); fireRound(from, dir, 0.012, arm.kind); gunSound.shot(); kick = 1; };
+  /**
+   * The shotgun's nine pellets at the foe locked on, each rolled: those that strike flown to it and their damage done together, as the
+   * first of them comes to it, one number said for them all; the rest wide of it.
+   */
+  const blastAt = (from: Vector3, foe: number) => {
+    const mid = horde.middle(foe), far = mid.distanceTo(from), each: Roll[] = [];
+    for (let i = 0; i < 9; i++) each.push(rollAttack(diceRng, 'shotgun', guardOf(foe), far, rollBonus()));
+    const hits = each.filter((r) => r.hit), crit = hits.some((r) => r.crit), dmg = hits.reduce((n, r) => n + r.dmg, 0);
+    const all: Roll = { die: Math.max(...each.map((r) => r.die)), bonus: each[0].bonus, guard: each[0].guard, hit: hits.length > 0, crit, dmg };
+    noteRoll(foe, 'shotgun', all, `9 pellets, ${hits.length} strike · ${dmg}`);
+    if (!hits.length) missSaid(foe, mid);
+    let first = true;
+    for (const r of each) {
+      if (!r.hit) { roundAstray(from, wideOf(from, mid, 1.4), 45); continue; }
+      const dir = mid.clone().add(new Vector3(gunRng.range(-0.25, 0.25), gunRng.range(-0.3, 0.3), gunRng.range(-0.25, 0.25))).sub(from).normalize();
+      const strikes = first;
+      first = false;
+      gunfire.fire(from, dir, far, strikes ? () => roundStrikes(foe, dir, 'shotgun', all) : null);
+    }
+  };
   /** The pistol's round, or the shotgun's blast: nine pellets spread wide, going no further than forty-five metres. */
   const fireOnce = (arm: Arm) => {
     const { from, dir } = muzzleOf(arm);
-    if (arm.kind === 'shotgun') { for (let i = 0; i < 9; i++) fireRound(from, dir, 0.06, 45); gunSound.hear('shotgun'); }
-    else if (arm.kind === 'bazooka') { rockets.launch(from, dir); burst(from.clone().addScaledVector(dir, -1.2), 4, 0); gunSound.hear('rocket'); }
-    else { fireRound(from, dir, 0.004); gunSound.hear('pistol'); }
+    if (arm.kind === 'shotgun') {
+      const foe = rolling() ? lockedIn(from, 45) : -1;
+      if (foe >= 0) blastAt(from, foe); else for (let i = 0; i < 9; i++) fireRound(from, dir, 0.06, 'shotgun', 45);
+      gunSound.hear('shotgun');
+    } else if (arm.kind === 'bazooka') {
+      // (At the foe locked on: rolled, a rocket that strikes flown at it; one that misses, at the snow a few metres wide of it, its blast
+      // catching it or not.)
+      const foe = rolling() ? lockedIn(from, ARM_DICE.bazooka.lock) : -1;
+      let way = dir;
+      if (foe >= 0) {
+        const mid = horde.middle(foe), r = rollAttack(diceRng, 'bazooka', guardOf(foe), mid.distanceTo(from), rollBonus());
+        noteRoll(foe, 'bazooka', { ...r, dmg: 0 }, rollSaid(r).replace(/ · .*$/, r.hit ? ' · straight at it' : ' · wide'));
+        way = r.hit ? mid.clone().sub(from).normalize() : wideOf(from, mid, 2.6);
+        if (!r.hit) missSaid(foe, mid);
+      }
+      rockets.launch(from, way); burst(from.clone().addScaledVector(way, -1.2), 4, 0); gunSound.hear('rocket');
+    } else { fireRound(from, dir, 0.004, arm.kind); gunSound.hear('pistol'); }
     kick = 1;
   };
   /**
    * The flamethrower a moment on (`dt`): fire poured hard from its mouth along its way, the gun shuddering with it (`Flames`); and
-   * every orc within some twenty-two metres of it, not much off its way and not behind the snow, in the fire; an orc a fifth of a
-   * second in it falls, burning.
+   * every orc within some twenty-two metres of it, not much off its way and not behind the snow, in the fire, burnt for so much rolled
+   * every `BURN_EVERY` seconds it is kept there (the first burn soon after it is caught): an orc falls burning in half a second or so.
    */
   const pourFire = (arm: Arm, dt: number) => {
     const { from, dir } = muzzleOf(arm);
@@ -5318,10 +5522,10 @@ async function start() {
       const d = o.at.clone().sub(from), far = d.length();
       if (far > 22 || d.divideScalar(far).dot(dir) < Math.cos(0.32) || snowAlong(from, d, far) < far - 0.5) continue;
       inFire.add(o.orc);
-      const h = (heat.get(o.orc) ?? 0) + dt;
-      heat.set(o.orc, h);
-      // (The harder one is to bring down, the longer the fire must be kept on it: a yeti, a second and a half and more.)
-      if (h > 0.2 * horde.tough(o.orc)) burnDown(o.orc, o.at, dir);
+      let h = (heat.get(o.orc) ?? BURN_EVERY * 0.6) + dt;
+      // (The harder one is to bring down, the longer the fire must be kept on it: a yeti, near two seconds.)
+      if (h >= BURN_EVERY) { h -= BURN_EVERY; const dmg = rollDamage(diceRng, ARM_DICE.flamer.dmg); dmgSaid(o.at, dmg, false, true); burnDown(o.orc, o.at, dir, dmg / HP); }
+      if (horde.coming(o.orc)) heat.set(o.orc, h);
     }
     // (Out of the fire, it cools: the fire must be kept on it.)
     for (const k of heat.keys()) if (!inFire.has(k)) heat.delete(k);
@@ -5347,8 +5551,10 @@ async function start() {
       const d = o.at.clone().sub(at), far = d.length();
       if (far > BOOM.reach) continue;
       const near = 1 - far / BOOM.reach, out = far > 0.01 ? d.setY(0).normalize() : new Vector3(1, 0, 0);
-      // (Every orc in reach brought down; a yeti, only near where it went off.)
-      const struck = horde.strike(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near), 3 + 8 * near);
+      // (Its damage rolled, the more the nearer: nearly all in reach brought down; a yeti, only near where it went off, and not always.)
+      const dmg = rollDamage(diceRng, ARM_DICE.bazooka.dmg, false, 0.4 + 0.6 * near);
+      const struck = horde.strike(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near), dmg / HP);
+      if (struck) dmgSaid(o.at, dmg, false);
       if (struck?.down) { gunSound.grunt(); orcDowned(o.at, 'blown', struck.kind); }
     }
   };
@@ -5384,8 +5590,21 @@ async function start() {
   const zap = (arm: Arm) => {
     const { from, dir } = muzzleOf(arm), snowAt = snowAlong(from, dir, 120), reach = Math.min(snowAt, 120);
     const through = [from.clone()], struck = new Set<number>();
-    let met = horde.hit(from, dir, reach)?.orc ?? -1;
-    if (met < 0) {
+    // (The arms aiming themselves: at the foe locked on, rolled; missing, the bolt goes into the snow beside it, and leaps no further.)
+    const foe = rolling() ? lockedIn(from, 120) : -1;
+    let met = foe >= 0 ? -1 : horde.hit(from, dir, reach)?.orc ?? -1, first: Roll | null = null;
+    if (foe >= 0) {
+      const mid = horde.middle(foe);
+      first = rollAttack(diceRng, 'lightning', guardOf(foe), mid.distanceTo(from), rollBonus());
+      noteRoll(foe, 'lightning', first);
+      if (first.hit) met = foe;
+      else {
+        missSaid(foe, mid);
+        const p = from.clone().add(wideOf(from, mid, 1.6).multiplyScalar(mid.distanceTo(from)));
+        p.y = ground(p.x, p.z);
+        through.push(p); burst(p, 2, 8);
+      }
+    } else if (met < 0) {
       let best = Math.tan((ZAP.aim * Math.PI) / 180);
       for (const o of horde.near(from, reach)) {
         const d = o.at.clone().sub(from), along2 = d.dot(dir);
@@ -5398,7 +5617,10 @@ async function start() {
       struck.add(met);
       const at = horde.middle(met);
       through.push(at);
-      const hurt = horde.strike(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), 2, false);
+      // (Each leap the weaker, `LEAP`.)
+      const dmg = first && struck.size === 1 ? first.dmg : rollDamage(diceRng, ARM_DICE.lightning.dmg, false, LEAP ** (struck.size - 1));
+      const hurt = horde.strike(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), dmg / HP, false);
+      if (hurt) dmgSaid(at, dmg, !!first?.crit && struck.size === 1);
       if (hurt?.down) { gunSound.grunt(); orcDowned(at, 'zapped', hurt.kind); }
       burst(at, 2, 6);
       met = -1;
@@ -5436,6 +5658,9 @@ async function start() {
   /** Which side to cut at, the skier going at `vel`: where each within reach will be as the blade comes down. */
   const slashSide = (right: Vector3, vel: Vector3) => {
     const soon = SLASH.up + SLASH.cut, reach = slashReach() + 0.8;
+    // (The foe locked on, near enough to be cut at: at its side.)
+    const foe = rolling() && mode === 'ride' ? lockedIn(rider.position, reach + vel.length() * soon + 2) : -1;
+    if (foe >= 0) return (lastSide = horde.middle(foe).sub(rider.position).addScaledVector(vel, -soon).dot(right) >= 0 ? 1 : -1);
     let r = 0, l = 0;
     for (const o of horde.near(rider.position, reach + vel.length() * soon + 1)) {
       const d = o.at.clone().sub(rider.position).addScaledVector(vel, -soon).setY(0);
@@ -5461,9 +5686,20 @@ async function start() {
         const d = o.at.clone().sub(rider.position).setY(0), far = d.length();
         if (swing.struck.has(o.orc) || far > reach || d.dot(out) < -0.2 || d.dot(ahead) < -1.2) continue;
         swing.struck.add(o.orc);
+        // (Rolled, the arms aiming themselves: each the blade comes to may turn it, or be missed; a cut held full strikes surer. Its damage
+        // rolled either way, a held cut's the harder, `CHARGED`.)
+        const times = 1 + (CHARGED.dmg - 1) * power;
+        let dmg: number, crit = false;
+        if (rolling()) {
+          const r = rollAttack(diceRng, 'sword', guardOf(o.orc), 0, CHARGED.skill * power + rollBonus(), times);
+          noteRoll(o.orc, 'sword', r);
+          if (!r.hit) { missSaid(o.orc, o.at); continue; }
+          dmg = r.dmg; crit = r.crit;
+        } else dmg = rollDamage(diceRng, ARM_DICE.sword.dmg, false, times);
         const push = out.clone().multiplyScalar(5 * (1 + 1.2 * power)).addScaledVector(ahead, 1.5).addScaledVector(vel, 0.35).addScaledVector(UP, 2.5 + 2 * power);
-        const struck = horde.strike(o.orc, push, 3 + 6 * power);
+        const struck = horde.strike(o.orc, push, dmg / HP);
         if (!struck) continue;
+        dmgSaid(o.at, dmg, crit);
         swing.blood = true;
         gunSound.hear('chop');
         bladeJolt = Math.max(bladeJolt, 0.25 + 0.45 * power);
@@ -5968,7 +6204,8 @@ async function start() {
       burst(best.at, 2, 6);
       gunSound.hear('zap');
       wardRing.pulse();
-      const struck = horde.strike(best.orc, new Vector3(0, 3, 0), 2, false);
+      const dmg = rollDamage(wardRng, ARM_DICE.lightning.dmg), struck = horde.strike(best.orc, new Vector3(0, 3, 0), dmg / HP, false);
+      if (struck) dmgSaid(best.at, dmg, false);
       if (struck?.down) { gunSound.grunt(); orcDowned(best.at, 'zapped', struck.kind); }
     }
   };
@@ -5988,6 +6225,53 @@ async function start() {
 
   /** Where the arm was last aimed, for a script to see that it holds still (`__slope.aimed`). */
   const aimedAt = new Vector3();
+  /** How an arm is used, said as it is taken up, the arms aiming themselves. */
+  const autoHint = (arm: Arm, touch: boolean) => {
+    const press = touch ? 'Attack' : 'Attack (Space, or a click)', hold = touch ? 'hold Attack' : 'hold Attack (Space, or the button)';
+    const how = arm.firing === 'swing' ? `${press} cuts at the foe locked on; hold to raise it, let go to cut harder` : arm.firing === 'single' ? `${press} fires at the foe locked on` : `${hold} to fire at the foe locked on`;
+    return `${how}; ${touch ? '◀ ▶ or a touch on a foe' : '◀ ▶ (Q, E) or a click on a foe'} locks on another`;
+  };
+  /**
+   * The fight shown, riding with the arms aiming themselves (`arm`; none, not): brackets about the foe locked on, sized to it, and a
+   * thin bar of its strength under them; and by *Attack* and ◀ ▶, its name, its strength in hit points, and the last roll made at it.
+   */
+  const lockEl = $('lockOn'), fightEl = $('fight'), attackEl = $('attack'), fightWho = fightEl.querySelector<HTMLElement>('.who')!;
+  const fightHp = fightEl.querySelector<HTMLElement>('.hpN')!, fightBar = fightEl.querySelector<HTMLElement>('.bar')!, fightRoll = fightEl.querySelector<HTMLElement>('.roll')!;
+  let lockAt = '', lockHp = '-', fightRolls = 0;
+  const showFight = (arm: Arm | null) => {
+    const on = !!arm && mode === 'ride' && rolling() && !cat;
+    if (fightEl.hidden === on) fightEl.hidden = !on;
+    document.body.classList.toggle('autoaim', on);
+    const foe = on && lock.orc >= 0 && horde.coming(lock.orc) ? lock.orc : -1, health = foe >= 0 ? horde.health(foe) : null;
+    const mid = foe >= 0 ? horde.middle(foe) : null, at = mid && overPictureAt(mid), mark = foe >= 0 ? lock.list.find((m) => m.orc === foe) : null;
+    if (!at || !health) { if (!lockEl.hidden) lockEl.hidden = true; }
+    else {
+      if (lockEl.hidden) lockEl.hidden = false;
+      // (As tall as it stands on the picture: its middle, and as far over it as it is tall.)
+      const top = overPictureAt(mid!.clone().addScaledVector(UP, (mark?.tall ?? 2) * 0.55)), tall = clamp(top ? Math.abs(at[1] - top[1]) * 2 : 40, 26, 220);
+      const to = `translate(${at[0].toFixed(0)}px, ${at[1].toFixed(0)}px)|${tall.toFixed(0)}`;
+      if (to !== lockAt) { lockAt = to; lockEl.style.transform = `translate(${at[0].toFixed(0)}px, ${at[1].toFixed(0)}px)`; lockEl.style.setProperty('--tall', `${tall.toFixed(0)}px`); }
+      const reachOf = arm!.firing === 'swing' ? slashReach() + 1.5 : ARM_DICE[arm!.kind].lock;
+      lockEl.classList.toggle('far', mid!.distanceTo(rider.position) > reachOf);
+      lockEl.classList.toggle('chosen', lock.chosen);
+    }
+    // (Its name and strength, and the last roll made at it, by the buttons.)
+    const hp = health ? `${Math.ceil(health.hp * HP)}|${Math.round(health.most * HP)}|${health.kneeling}` : '';
+    if (hp !== lockHp) {
+      lockHp = hp;
+      const k = health ? health.hp / health.most : 0;
+      lockEl.style.setProperty('--hp', k.toFixed(3)); fightBar.style.setProperty('--hp', k.toFixed(3));
+      say(fightWho, foe >= 0 ? horde.titleOf(foe) : on ? 'No foe in reach' : '');
+      say(fightHp, health ? (health.kneeling ? 'beaten · strike once more' : `${Math.ceil(health.hp * HP)} / ${Math.round(health.most * HP)} hp`) : '');
+      fightEl.classList.toggle('none', foe < 0);
+    }
+    if (on && rollsMade !== fightRolls && rolls.length) {
+      fightRolls = rollsMade; const r = rolls[rolls.length - 1];
+      say(fightRoll, r.say);
+      fightRoll.classList.toggle('hit', r.roll.hit); fightRoll.classList.toggle('crit', r.roll.crit);
+      fightRoll.classList.remove('new'); void fightRoll.offsetWidth; fightRoll.classList.add('new');
+    }
+  };
   const armUp = (dt: number, now: Now) => {
     // (A weapon found strikes harder.)
     horde.might = 1 + (wornWeapon() ? kit().might : 0);
@@ -5998,7 +6282,7 @@ async function start() {
     // and each after it as it is taken up.)
     if (on && human && mode === 'ride' && armSaid !== arm.kind && !cat && !crash) {
       armSaid = arm.kind;
-      tell(arm.kind === 'sword' ? 'Sword' : `${arm.name}!`, touch ? arm.hint.replace('click or tap', 'tap').replace('a click', 'a tap').replace('hold to', 'hold a finger on the picture to') : arm.hint, false, 3.5);
+      tell(arm.kind === 'sword' ? 'Sword' : `${arm.name}!`, rolling() ? autoHint(arm, touch) : touch ? arm.hint.replace('click or tap', 'tap').replace('a click', 'a tap').replace('hold to', 'hold a finger on the picture to') : arm.hint, false, 3.5);
     }
     for (const [w, poles] of poleSets) for (const p of poles) p.visible = !((on || foot) && w === who);
     $('tally').hidden = !on;
@@ -6007,6 +6291,8 @@ async function start() {
     // (The sword out of its scabbard on the back while it is in the hand.)
     for (const [r, h] of hilts) if (h) h.visible = !(on && r === human && arm.kind === 'sword');
     if (!on || !human) {
+      lock.orc = -1;
+      showFight(null);
       if (bossShown.size) showBosses([]);
       if (horde.about) clearGun!();
       endArena(true);
@@ -6027,17 +6313,24 @@ async function start() {
     // spinning or upside down, and fired along where it points; else the trick's own, its grab, the gun in the right hand alone.)
     if (!watching && air && (firing || pulls || swing)) airAim = AIR_AIM; else airAim = Math.max(0, airAim - going);
     const holding = watching ? !!frame && !frame.air && Math.abs((frame.c as RideControls).spin ?? 0) < 0.3 : (!air || airAim > 0) && !crash && !ride.turn180 && !cat;
+    // (The frame of what holds the human, a skier's own, a horse's saddle's: whose right and ahead, in the scene, the sword cuts to, and
+    // the arms turn about.)
+    const hq = holder.getWorldQuaternion(new Quaternion());
+    const right = new Vector3(-1, 0, 0).applyQuaternion(hq).setY(0).normalize(), ahead = new Vector3(0, 0, 1).applyQuaternion(hq).setY(0).normalize();
+    lock.ahead.copy(ahead);
     let target: Vector3;
     if (watching) {
       // The nearest orc to be seen from the muzzle, within the arm's reach (`WATCH_REACH`): ahead, or, for the sword, at either side;
-      // none, the gun held on the snow some way ahead, and not fired. One there: fired at, a round a click for those fired so.
+      // none, the gun held on the snow some way ahead, and not fired. One there: fired at, a round a click for those fired so; locked on,
+      // for what is fired at it to be rolled.
       const [least, reach] = WATCH_REACH[arm.kind], from = arm.firing === 'swing' ? rider.position : muzzle;
       let best: Vector3 | null = null, most = reach;
-      for (const p of horde.aims()) {
-        const at = p, d = at.clone().sub(from), far = d.length();
+      lock.orc = -1;
+      for (const m of horde.marks()) {
+        const at = m.at, d = at.clone().sub(from), far = d.length();
         if (far < least || far > most || (arm.firing !== 'swing' && (d.x * go.x + d.z * go.z) / far < 0.35)) continue;
         if (arm.firing !== 'swing' && snowAlong(muzzle, at.clone().sub(muzzle).normalize(), at.distanceTo(muzzle)) < at.distanceTo(muzzle) - 1) continue;
-        best = at; most = far;
+        best = at; most = far; lock.orc = m.orc;
       }
       target = best ?? rider.position.clone().addScaledVector(go, 30).setY(ground(rider.position.x + go.x * 30, rider.position.z + go.z * 30));
       firing = !!best;
@@ -6049,6 +6342,13 @@ async function start() {
         target = p.setY(ground(p.x, p.z) + 0.5);
         firing = true;
       }
+    } else if (rolling()) {
+      // The arms aiming themselves: at the foe locked on (`relock`), its middle; none, on foot the way the body faces, riding the snow
+      // some way ahead, low.
+      relock(arm, going);
+      if (lock.orc >= 0) target = horde.middle(lock.orc);
+      else if (foot) target = rider.position.clone().addScaledVector(new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)), 8).setY(foot.y + 1.1);
+      else { const p = rider.position.clone().addScaledVector(go, 24); target = p.setY(ground(p.x, p.z) + 0.6); }
     } else {
       // What the guide's mark is over (or, by touch, the finger held on the picture, `finger`): the first orc or the snow along the
       // line from the eye through it.
@@ -6123,11 +6423,9 @@ async function start() {
         }
       }
     }
-    // The gun turned to it from the muzzle, as far round as the arms let it (in the frame of what holds the human: a skier's own, a
-    // horse's saddle's; whose right and ahead, in the scene, the sword cuts to).
+ // The gun turned to it from the muzzle, as far round as the arms let it.
     aimedAt.copy(target);
-    const hq = holder.getWorldQuaternion(new Quaternion());
-    const right = new Vector3(-1, 0, 0).applyQuaternion(hq).setY(0).normalize(), ahead = new Vector3(0, 0, 1).applyQuaternion(hq).setY(0).normalize();
+    showFight(watching ? null : arm);
     const d = target.sub(muzzle).normalize().applyQuaternion(hq.clone().invert());
     let yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
     // (On foot the floor is level, and the gun with it: tipped down no more than it takes to reach a foe fallen low, nor up much.)
@@ -6149,7 +6447,7 @@ async function start() {
     }
     // (The force gathered in a held cut, a ring filling about the guide's mark.)
     const charging = swing?.held && swing.k >= SLASH_MARKS.up ? Math.round(swing.charge * 50) / 50 : -1;
-    if (charging !== shownCharge) { shownCharge = charging; aimEl.style.setProperty('--charge', String(Math.max(0, charging))); aimEl.classList.toggle('charging', charging >= 0); aimEl.classList.toggle('charged', charging >= 1); }
+    if (charging !== shownCharge) { shownCharge = charging; aimEl.style.setProperty('--charge', String(Math.max(0, charging))); attackEl.style.setProperty('--charge', String(Math.max(0, charging))); aimEl.classList.toggle('charging', charging >= 0); aimEl.classList.toggle('charged', charging >= 1); }
     // Fired on the snow, each arm as it is fired: the tommy gun while the button is held (or an orc is in its sights, watching), the
     // first round as it is pressed; the pistol and the shotgun a round, or a blast, a click; the flamethrower pouring fire while held;
     // the lightning gun a bolt every third of a second while held; the sword a swing a click.
@@ -6334,7 +6632,8 @@ async function start() {
     return o.clone().addScaledVector(d, (foot.y + 0.05 - o.y) / d.y);
   };
   /** Where what is carried is aimed on foot: the floor (or an orc) under the finger on the picture, or the pointer. */
-  const footAim = () => footGround(fingerAims() ? new Vector2(finger.x, finger.y) : footPad.ndc);
+  // (The arms aiming themselves, the foe locked on.)
+  const footAim = () => (rolling() && lock.orc >= 0 && horde.coming(lock.orc) ? horde.middle(lock.orc) : footGround(fingerAims() ? new Vector2(finger.x, finger.y) : footPad.ndc));
   /** The pointer over the picture, on foot: where it is kept, a cross over the picture. Gives back whether it was taken so. */
   const footMouse = (e: PointerEvent) => {
     if (!foot || mode !== 'ride' || menuOpen || e.pointerType !== 'mouse') return false;
@@ -7132,6 +7431,7 @@ async function start() {
   setDistance(Number(kept('distance') ?? 1) || 1);
   setOffPiste(query.has('offpiste') ? query.get('offpiste') !== '0' : kept('offpiste') !== '0');
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
+  setAiming(query.has('aim') ? query.get('aim') !== 'free' : kept('aiming') !== 'free');
   setInfo(query.has('info') ? query.get('info') !== '0' : kept('info') === '1');
   setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
   setSlowmo(query.has('slowmo') ? query.get('slowmo') !== '0' : kept('slowmo') === '1');
@@ -7555,6 +7855,12 @@ async function start() {
     },
     offPiste: () => ({ allowed: offPisteOn, now: offPisteOk(), for: +offPisteFor.toFixed(2), edges: land.edges(ride.down), reach: reachAt(ride.down), left: +ride.left.toFixed(1) }),
     trigger: (on: boolean) => { firing = on; if (on) { shotClock = SHOT; pull(); } },
+    // (The arms aiming themselves: `aiming('free' | 'auto')`; the foe locked on, and its strength in hit points; `cycle(1)` to the right;
+    // the last rolls made, newest last.)
+    aiming: (how?: 'auto' | 'free') => { if (how) setAiming(how === 'auto'); return autoAim ? 'auto' : 'free'; },
+    target: () => { const h = lock.orc >= 0 ? horde.health(lock.orc) : null; return h && horde.coming(lock.orc) ? { orc: lock.orc, name: horde.titleOf(lock.orc), kind: horde.kindOf(lock.orc)?.name, hp: Math.ceil(h.hp * HP), most: Math.round(h.most * HP), chosen: lock.chosen, far: +horde.middle(lock.orc).distanceTo(rider.position).toFixed(1), lockable: lock.list.length } : null; },
+    cycle: (by = 1) => { cycleLock(by); return lock.orc; },
+    rolls: () => rolls.map((r) => ({ foe: r.foe, arm: r.arm, say: r.say })),
     // (The sword `k` of the way through a swing at `side` (1, the right), held there while all is held still: for pictures.)
     // (The nearest tree ahead of the skier down the run, within `most` metres along it and `wide` either side: how far down the run
     // and across it its middle stands, and how far out it reaches, `Land.treeNear`.)

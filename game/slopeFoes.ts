@@ -40,8 +40,13 @@ export interface FoeKind {
   name: FoeName;
   /** How large, against the skier; how fast it comes up the run (metres a second); how many come together. */
   size: [number, number]; pace: [number, number]; pack: [number, number];
-  /** How many blows bring it down (a round is one, `Horde.strike`); how many times an orc's points it is worth. */
+  /**
+   * How many blows bring it down (a blow is `HP` hit points, `slopeDice.ts`; asked: "basic enemies can have a bit more health", an orc
+   * two and a half where it had been one); how many times an orc's points it is worth.
+   */
   hp: number; worth: number;
+  /** How hard it is to strike: what an attack's d20 and the arm's skill must come to (`slopeDice.ts`). */
+  guard: number;
   /** How often a horde is of this kind, against the others; from how far down the run (0 to 1) it comes at all. */
   chance: number; from: number;
   /** What share of the horde's bodies may be of this kind; how far apart a pack comes, along the run and across it. */
@@ -73,30 +78,30 @@ export interface FoeKind {
 const UPRIGHT: [number, number, number][] = [[0, 1.0, 0.4], [0, 1.58, 0.25]];
 export const FOES: FoeKind[] = [
   {
-    name: 'orc', size: [1.05, 1.2], pace: [0.9, 1.4], pack: [4, 9], hp: 1, worth: 1, chance: 5, from: 0, share: 0.35, spread: 9, hunt: 1,
+    name: 'orc', size: [1.05, 1.2], pace: [0.9, 1.4], pack: [4, 9], hp: 2.4, worth: 1, guard: 11, chance: 5, from: 0, share: 0.35, spread: 9, hunt: 1,
     mid: 0.6, balls: [[0, 0.6, 0.42], [0, 1.1, 0.26]], bloody: true, lies: 3.6,
     body: (library) => rigged(library, orcBody, { walk: 'Crouch_Fwd_Loop', die: 'Death01' }),
     den: { pace: [1.3, 1.9], pack: [2, 4], chance: 3, blow: 1 },
   },
   {
-    name: 'goblin', size: [0.66, 0.78], pace: [2.6, 3.6], pack: [5, 10], hp: 1, worth: 1, chance: 3, from: 0, share: 0.4, spread: 10, hunt: 1.3,
+    name: 'goblin', size: [0.66, 0.78], pace: [2.6, 3.6], pack: [5, 10], hp: 1.6, worth: 1, guard: 13, chance: 3, from: 0, share: 0.4, spread: 10, hunt: 1.3,
     mid: 1.0, balls: UPRIGHT, bloody: true, lies: 3.6,
     body: (library) => rigged(library, goblinBody, { walk: 'Jog_Fwd_Loop', die: 'Death01', speed: 5.2 }),
     den: { pace: [2.3, 3.0], pack: [3, 5], chance: 2, blow: 0.6 },
   },
   {
-    name: 'wolf', size: [0.95, 1.15], pace: [4.2, 5.6], pack: [3, 6], hp: 1, worth: 1.5, chance: 2.5, from: 0.04, share: 0.3, spread: 7, hunt: 2.6,
+    name: 'wolf', size: [0.95, 1.15], pace: [4.2, 5.6], pack: [3, 6], hp: 2, worth: 1.5, guard: 14, chance: 2.5, from: 0.04, share: 0.3, spread: 7, hunt: 2.6,
     mid: 0.72, balls: [[0.3, 0.74, 0.3], [-0.25, 0.7, 0.28], [0.7, 0.95, 0.18]], bloody: true, lies: 3.2,
     body: async () => (size, coat) => new Wolf(size, coat),
   },
   {
-    name: 'draugr', size: [1.0, 1.12], pace: [0.55, 0.8], pack: [3, 7], hp: 2, worth: 1.5, chance: 2, from: 0.1, share: 0.3, spread: 8, hunt: 0.5,
+    name: 'draugr', size: [1.0, 1.12], pace: [0.55, 0.8], pack: [3, 7], hp: 3.6, worth: 1.5, guard: 10, chance: 2, from: 0.1, share: 0.3, spread: 8, hunt: 0.5,
     mid: 1.0, balls: UPRIGHT, bloody: false, lies: 3.6,
     body: (library) => rigged(library, draugrBody, { walk: 'Zombie_Walk_Fwd_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }),
     den: { pace: [0.9, 1.25], pack: [2, 4], chance: 2, blow: 1.4 },
   },
   {
-    name: 'yeti', size: [1.9, 2.25], pace: [1.4, 1.9], pack: [1, 2], hp: 8, worth: 5, chance: 1, from: 0.18, share: 0.1, spread: 6, hunt: 0.8,
+    name: 'yeti', size: [1.9, 2.25], pace: [1.4, 1.9], pack: [1, 2], hp: 10, worth: 5, guard: 12, chance: 1, from: 0.18, share: 0.1, spread: 6, hunt: 0.8,
     mid: 1.0, balls: [[0, 0.95, 0.48], [0, 1.55, 0.3]], bloody: true, lies: 5,
     body: (library) => rigged(library, yetiBody, { walk: 'Walk_Loop', die: 'Death01', hit: 'Hit_Chest', kneel: 'Fixing_Kneeling', speed: 1.0 }, 1.14),
     kneels: true,
@@ -108,7 +113,7 @@ export const FOES: FoeKind[] = [
   {
     // (Only in the dungeon (asked: "maybe the dungeons can have other than orcs as well now. Possible single stronger opponent some times
     // also"): a great one of the dead, half as tall again as a man, crowned, alone; never on the snow, `from` past the run's foot.)
-    name: 'barrow-king', size: [1.5, 1.6], pace: [1, 1.2], pack: [1, 1], hp: 14, worth: 6, chance: 0, from: 2, share: 0.04, spread: 0, hunt: 0,
+    name: 'barrow-king', size: [1.5, 1.6], pace: [1, 1.2], pack: [1, 1], hp: 16, worth: 6, guard: 14, chance: 0, from: 2, share: 0.04, spread: 0, hunt: 0,
     mid: 1.0, balls: [[0, 0.98, 0.45], [0, 1.58, 0.27]], bloody: false, lies: 5,
     body: (library) => rigged(library, kingBody, { walk: 'Zombie_Walk_Fwd_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }),
     titles: ['Sverre, the Barrow-King', 'Old Hrodna of the Mound', 'The Crowned Dead', 'Haldor Ice-Beard', 'Gunnvor, Who Keeps the Tomb', 'The Jarl Under the Snow'],

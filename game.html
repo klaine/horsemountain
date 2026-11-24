@@ -734,6 +734,71 @@
     }
     @media (prefers-reduced-motion: reduce) { #status .bar::after { animation: none; } }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    /* The fight, the arms aiming themselves (asked: "Can we find a nice way to leave out human aiming? Like auto targeting and just attack
+       button and maybe cycle target buttons next to attack"): brackets about the foe locked on, a thin bar of its strength under them
+       (dimmed while it is out of the arm's reach; brass, chosen); and *Attack* between ◀ and ▶, over them the foe's name, its hit
+       points, and the last roll made at it. On a computer at the lower left, where the stick is not; by touch, *Attack* large in the
+       lower right corner, ◀ ▶ beside it, the 180 and *Skate* over it. */
+    #lockOn { position: fixed; left: 0; top: 0; z-index: 3; pointer-events: none; --tall: 60px; width: 0; height: 0; }
+    #lockOn .c { position: absolute; width: 11px; height: 11px; border: 0 solid #fff; filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(0, 0, 0, .7)); }
+    #lockOn .tl { left: calc(var(--tall) * -.32 - 4px); top: calc(var(--tall) * -.5); border-width: 2.5px 0 0 2.5px; }
+    #lockOn .tr { left: calc(var(--tall) * .32 - 7px); top: calc(var(--tall) * -.5); border-width: 2.5px 2.5px 0 0; }
+    #lockOn .bl { left: calc(var(--tall) * -.32 - 4px); top: calc(var(--tall) * .5 - 11px); border-width: 0 0 2.5px 2.5px; }
+    #lockOn .br { left: calc(var(--tall) * .32 - 7px); top: calc(var(--tall) * .5 - 11px); border-width: 0 2.5px 2.5px 0; }
+    #lockOn.chosen .c { border-color: #ffe07a; }
+    #lockOn.far { opacity: .5; }
+    #lockOn .hp { position: absolute; left: -22px; top: calc(var(--tall) * .5 + 5px); width: 44px; height: 4px; background: rgba(12, 10, 10, .75);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
+    #lockOn .hp i { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--hp, 1) * 100%); background: #d23a2c; transition: width .1s linear; }
+    @media (prefers-reduced-motion: no-preference) { #lockOn:not([hidden]) .c { animation: lockIn .25s ease-out; } }
+    @keyframes lockIn { from { scale: 1.6; opacity: 0; } }
+    #fight { position: fixed; left: var(--gutter-l); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: grid;
+      grid-template-columns: 38px 86px 38px; grid-template-areas: "foe foe foe" "prev attack next"; gap: 6px 5px; align-items: center; }
+    #fight[hidden] { display: none; }
+    #fight .foe { grid-area: foe; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 6px; width: 170px; box-sizing: border-box; padding: 6px 8px 5px;
+      background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; }
+    #fight .who { font: 700 11px/1.15 "Cinzel", var(--serif); letter-spacing: .06em; text-transform: uppercase; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #fight .hpN { font: 600 10.5px/1.15 var(--sans); color: var(--ink-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #fight .bar { grid-column: 1 / -1; position: relative; height: 4px; background: rgba(255, 255, 255, .08); border-radius: 2px; overflow: hidden; }
+    #fight .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--hp, 0) * 100%); background: linear-gradient(#d23a2c, #8a1a12); transition: width .1s linear; }
+    #fight .roll { grid-column: 1 / -1; min-height: 1.2em; font: 600 10px/1.2 var(--sans); color: var(--ink-dim); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #fight .roll.hit { color: var(--ink); }
+    #fight .roll.crit { color: #ffe07a; }
+    #fight .roll.new { animation: rollNew .35s ease-out; }
+    @keyframes rollNew { from { filter: brightness(2); } }
+    #fight.none .who { color: var(--ink-dim); text-transform: none; font: italic 600 12px/1.15 var(--serif); letter-spacing: .02em; }
+    #fight.none .bar { visibility: hidden; }
+    #fight button { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; min-height: 40px; padding: 0; background: var(--sheet); border-color: var(--rule); }
+    #prevFoe { grid-area: prev; } #nextFoe { grid-area: next; }
+    #fight #prevFoe, #fight #nextFoe { font-size: 13px; border-radius: 20px; }
+    #fight #attack { grid-area: attack; position: relative; overflow: hidden; border-radius: 20px; font: 800 13px/1 "Cinzel", var(--serif); letter-spacing: .08em; text-transform: uppercase;
+      border-color: var(--brass); color: var(--brass); }
+    /* (A cut held drawn up, the force it gathers filling it from the foot.) */
+    #fight #attack::before { content: ""; position: absolute; inset: 0; background: var(--brass); opacity: .45; transform-origin: bottom; transform: scaleY(var(--charge, 0)); }
+    #fight #attack.down { background: var(--brass); color: var(--on-brass); }
+    body.menu-open #fight, body.menu-open #lockOn, body.asking #fight, body.choosing #fight, body.choosing #lockOn, body.ended #fight { display: none !important; }
+    #pops .pop.dmg { font: 800 17px/1 var(--sans); color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, .7), 0 0 6px rgba(0, 0, 0, .6); animation: dmgUp .75s ease-out forwards; }
+    #pops .pop.dmg.crit { font-size: 25px; color: #ffd25a; text-shadow: 0 2px 0 rgba(20, 10, 0, .6), 0 0 14px rgba(255, 170, 40, .8); animation-duration: 1s; }
+    #pops .pop.dmg.burn { font-size: 13px; color: #ffb066; }
+    #pops .pop.dmg.miss { font: italic 600 13px/1 var(--serif); color: rgba(235, 235, 235, .85); }
+    @keyframes dmgUp { 0% { opacity: 0; transform: translateY(4px) scale(.7); } 15% { opacity: 1; transform: translateY(-4px) scale(1.15); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-34px) scale(.95); } }
+    @media (prefers-reduced-motion: reduce) { #pops .pop.dmg { animation: popFade .75s ease-out forwards; } }
+    body.touchhud #fight { left: auto; right: var(--gutter-r); bottom: calc(28px + env(safe-area-inset-bottom, 0px)); grid-template-columns: 46px 46px 78px;
+      grid-template-areas: "foe foe ." "prev next attack"; gap: 6px 6px; }
+    body.touchhud #fight .foe { width: 98px; padding: 5px 7px 4px; }
+    body.touchhud #fight .roll { font-size: 9px; }
+    body.touchhud #fight #attack { width: 78px; height: 78px; border-radius: 50%; font-size: 13px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+    body.touchhud #fight #prevFoe, body.touchhud #fight #nextFoe { width: 46px; height: 46px; min-height: 0; border-radius: 50%; align-self: end; margin-bottom: 4px; font-size: 15px; }
+    body.touchhud.autoaim #stance { right: calc(var(--gutter-r) + 10px); bottom: calc(118px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; font-size: 15px; }
+    body.touchhud.autoaim #skate { right: calc(var(--gutter-r) + 10px); bottom: calc(184px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
+    @media (orientation: landscape) {
+      body.touchhud #fight { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); grid-template-columns: 40px 40px 64px; }
+      body.touchhud #fight #attack { width: 64px; height: 64px; font-size: 11.5px; }
+      body.touchhud #fight #prevFoe, body.touchhud #fight #nextFoe { width: 40px; height: 40px; }
+      body.touchhud.autoaim #stance { right: calc(var(--gutter-r) + 76px + 92px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 14px; }
+      body.touchhud.autoaim #skate { right: calc(var(--gutter-r) + 76px + 92px + 54px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 11px; }
+      body.touchhud #fight .foe { width: 90px; }
+    }
   </style>
 </head>
 <body>
@@ -755,6 +820,13 @@
     <button id="stance" type="button" aria-label="180 to switch" title="Turn round on the snow, to riding backwards (switch) or back: a pop, a nose butter, a smooth 180 or a tail butter, in turn (X, or a right click on the picture)">180</button>
     <div class="wild"><span class="cap">Tricks</span><span>Wild</span><input id="wild" type="range" min="0" max="1" step="0.01" value="0.5" aria-orientation="vertical" aria-label="How wild the tricks off the kickers are, from mild to wild"><div id="wildMeter" role="meter" aria-valuemin="0" aria-valuemax="8" aria-valuenow="0" aria-label="How wild the tricks off the kickers are, earned by tricks landed and foes brought down" title="Filled by tricks landed and foes brought down, emptied by falls and blows taken; full, the guidebooks' tricks come up"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Mild</span><b id="wildLvl">0/8</b></div>
     <div id="armBar" hidden role="progressbar" aria-valuemin="0"><span class="cap">Arms</span><span class="now"></span><span class="next"></span><span class="to"></span><div class="blocks"></div><span class="left"></span></div>
+  </div>
+  <div id="lockOn" hidden aria-hidden="true"><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i><span class="hp"><i></i></span></div>
+  <div id="fight" hidden role="group" aria-label="The fight: the foe locked on, and attacking it">
+    <div class="foe" aria-live="polite"><span class="who"></span><span class="hpN"></span><div class="bar"><i></i></div><span class="roll"></span></div>
+    <button id="prevFoe" type="button" aria-label="Lock on the foe to the left" title="Lock on the foe to the left (Q)">◀</button>
+    <button id="attack" type="button" aria-label="Attack the foe locked on" title="Attack the foe locked on; held, fire on, or raise the sword to cut harder (Space, or the mouse button)">Attack</button>
+    <button id="nextFoe" type="button" aria-label="Lock on the foe to the right" title="Lock on the foe to the right (E, or Tab)">▶</button>
   </div>
   <div id="pops" aria-hidden="true"></div>
   <div id="bosses" aria-live="polite"></div>
@@ -812,6 +884,7 @@
         </div>
         <h2>Riding</h2>
         <div class="field" id="orcsField"><span class="label">Orcs &amp; weapons</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and weapons"></div></div>
+        <div class="field" id="aimField"><span class="label">Aiming</span><div class="seg" id="aimSeg" role="group" aria-label="How the arms are aimed"></div></div>
         <div class="field" id="pisteField"><span class="label">Off piste</span><div class="seg" id="pisteSeg" role="group" aria-label="Off piste"></div></div>
         <div class="field" id="tiltField" hidden><span class="label">Steering</span><div class="seg" id="tiltSeg" role="group" aria-label="Steering"></div></div>
         <div class="field" id="waysField"><span class="label">Back to the top</span><div class="seg rows" id="waysSeg" role="group" aria-label="How to get back to the top as a run ends"></div></div>
@@ -841,10 +914,10 @@
         <div class="field"><span class="label">Resolution</span><div class="seg" id="resolutions" role="group" aria-label="Resolution"></div></div>
         <p class="note" id="safeNote" hidden><span></span> <button type="button">Try full detail</button></p>
         <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
-        <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
+        <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause (carrying arms, attack) · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
         <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
         <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Z</kbd> (held) skate · <kbd>Enter</kbd> next run</p>
-        <p class="keys more"><b>Tommy gun</b> hold to fire at the mark · <kbd>Shift</kbd> brakes</p>
+        <p class="keys more"><b>Arms</b> <kbd>Space</kbd> or the mouse button attacks (held, fires on) · <kbd>Q</kbd> <kbd>E</kbd> or <kbd>Tab</kbd> lock on another foe, or click on one · <kbd>Shift</kbd> brakes · <i>Aiming: Free</i> fires at the mark</p>
       </section>
     </div>
   </div>
