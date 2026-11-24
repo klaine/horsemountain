@@ -200,13 +200,15 @@ const loading = (() => {
   const FILES = 0.4, whole = STAGES.reduce((a, [, w]) => a + w, 0);
   const files = new Map<string, { got: number; of: number }>();
   const times: [string, number][] = [];
-  let opening = true, stage = -1, shown = 0, said = '', began = performance.now();
+  // (How much of the stage now begun is done, nothing to one, and what of it is being done, said under it where the files' count is
+  // when none are coming: `part`.)
+  let opening = true, stage = -1, shown = 0, said = '', began = performance.now(), partDone = 0, detail = '';
   const mb = (n: number) => (n / 1e6).toFixed(1);
   const show = () => {
     let got = 0, of = 0;
     for (const f of files.values()) { got += f.got; of += f.of; }
     if (opening) {
-      const work = STAGES.slice(0, Math.max(0, stage)).reduce((a, [, w]) => a + w, 0) / whole;
+      const work = (STAGES.slice(0, Math.max(0, stage)).reduce((a, [, w]) => a + w, 0) + (STAGES[stage]?.[1] ?? 0) * partDone) / whole;
       // (Never back: a file whose size was not known ahead can grow as it comes. Before the first stage nothing has been asked for yet;
       // after it, all there is to fetch has been.)
       shown = Math.max(shown, FILES * (of > 0 ? got / of : stage >= 1 ? 1 : 0) + (1 - FILES) * work);
@@ -218,7 +220,7 @@ const loading = (() => {
       box.classList.toggle('waiting', !coming);
       if (coming) fill.style.transform = `scaleX(${(got / of).toFixed(4)})`;
     }
-    const text = got < of ? `Fetched ${mb(got)} of ${mb(of)} MB` : '';
+    const text = got < of ? `Fetched ${mb(got)} of ${mb(of)} MB` : opening ? detail : '';
     if (text !== said) { said = text; bytes.textContent = text; }
   };
   /** A moment for the page to be drawn, before work that holds it up. */
@@ -246,11 +248,22 @@ const loading = (() => {
       if (i < 0) return paint();
       if (!opening) return busy(text ?? STAGES[i][2]);
       if (stage >= 0) times.push([STAGES[stage][0], Math.round(now - began)]);
-      began = now; stage = Math.max(stage, i);
+      began = now; stage = Math.max(stage, i); partDone = 0; detail = '';
       box.classList.remove('waiting');
       say.textContent = text ?? STAGES[i][2];
       show();
       return paint();
+    },
+    /**
+     * Opening, so much of the stage now begun done, nothing to one, and what of it is being done (asked of *Lighting the mountain*,
+     * some seconds with nothing moving: "Can that phase in loading show more detailed progress while loading?"). Never back. After
+     * opening, nothing.
+     */
+    part(done: number, text?: string) {
+      if (!opening) return;
+      partDone = Math.max(partDone, clamp(done, 0, 1));
+      if (text !== undefined) detail = text;
+      show();
     },
     /** So much of a file fetched, of so much. */
     count(url: string, got: number, of: number) { files.set(url, { got, of }); show(); },
@@ -7142,9 +7155,14 @@ async function start() {
   if (!query.has('nointro')) { await loading.stage('map'); mapView.draw(); }
   // (The first frames make the shaders, which can take some seconds: the screen goes once two have been drawn. What may come later is
   // made ready with them: the land turned inside out built, an orc made if they are on, and the gun.)
+  // (Each step of it said under it as it is done, and the bar moved on through it: `loading.part`; the most of it, the shaders, counted
+  // as they are made, in the first frame.)
   await loading.stage('shaders');
+  loading.part(0.01, 'Turning the land inside out');
+  await loading.paint();
   buildFold();
-  if (orcsOn || demoKind === 'show') await horde.prepare().catch(() => {});
+  if (orcsOn || demoKind === 'show') { loading.part(0.03, 'Raising the foes'); await horde.prepare().catch(() => {}); }
+  loading.part(0.08, 'Gathering all there is to draw');
   warmSoon(gun, ...arms.values());
 
   // The opening (asked: "Game opening shows a brief grand title: HORSE / Mountain; the demo runs on the background and after the title a
@@ -7336,11 +7354,27 @@ async function start() {
         // (The pass sets the renderer drawing into its own target while it waits, and puts it back once done: put back here too if it
         // is given up on, so that the frame draws to the picture.)
         const target = renderer.getRenderTarget(), mrt = renderer.getMRT(), context = renderer.contextNode;
-        const made = (blurLevel > 0 ? scenePass : sharpPass).compileAsync(renderer).catch((e) => console.warn(e));
+        // (Opening, each shader counted on the loading screen as it is made: the renderer tells it, so many of so many, when asked; the
+        // pass, which asks the renderer for them, does not ask, so the renderer is asked for them so for that one call.)
+        const r = renderer as unknown as { compileAsync: (...a: unknown[]) => Promise<void> }, own = r.compileAsync;
+        if (opening) {
+          loading.part(0.1, 'Making the shaders');
+          const counted = (e: ProgressEvent) => loading.part(0.1 + (0.8 * e.loaded) / Math.max(1, e.total), `Made ${e.loaded} of ${e.total} shaders`);
+          r.compileAsync = (scene: unknown, camera: unknown, into: unknown = null) => own.call(renderer, scene, camera, into, counted);
+        }
+        let asked: Promise<void>;
+        try { asked = (blurLevel > 0 ? scenePass : sharpPass).compileAsync(renderer); } finally { r.compileAsync = own; }
+        const made = asked.catch((e) => console.warn(e));
         const done = made.then(() => { if (warming === done) warming = null; });
         warming = done;
         const inTime = await Promise.race([made.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), opening ? WARM_WAIT_OPENING : WARM_WAIT))]);
         if (!inTime) { console.warn('Grand Horse Mountain went on without waiting longer for its shaders'); renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context; }
+        loading.part(0.92, 'Drawing the first picture');
+      } else {
+        // (With WebGL 2 the shaders are all made as the first frame is drawn, the page held still the while: nothing can be counted, so
+        // that is said, and shown before it begins.)
+        loading.part(0.1, 'Making the shaders, all at once: the page stands still a moment');
+        await loading.paint();
       }
       if (!opening) { unwarm(); unwarm = null; }
     }
