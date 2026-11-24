@@ -61,7 +61,7 @@ import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sweep } from './slopeArms';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
-import { Horde } from './slopeOrcs';
+import { type FoeKind, Horde } from './slopeOrcs';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
 import { Tornado } from './slopeStorm';
@@ -1540,21 +1540,22 @@ async function start() {
   let slain = 0;
   /** How an orc was brought down: shot, run down, cut down with the sword, burnt, struck by lightning, or blown up by a rocket. */
   type Downed = 'shot' | 'run' | 'slain' | 'burnt' | 'zapped' | 'blown';
-  const orcDowned = (p: Vector3, how: Downed) => {
+  const orcDowned = (p: Vector3, how: Downed, foe: FoeKind) => {
     const clock = mode === 'ride' ? ride.time : t;
     downedRun = clock < downedUntil ? downedRun + 1 : 1;
     downedUntil = clock + 1.5;
     // (Up close, run down or cut down, worth half as much again as at a distance.)
-    const close = how === 'run' || how === 'slain', pts = (close ? 150 : 100) * downedRun, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
+    // (A foe harder to bring down worth more: a yeti five times an orc, `FOES`.)
+    const close = how === 'run' || how === 'slain', pts = Math.round(((close ? 150 : 100) * downedRun * foe.worth) / 10) * 10, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
     const said = { run: 'run down', slain: 'cut down', burnt: 'burnt', zapped: 'struck down', blown: 'blown up', shot: '' }[how];
-    if (at) { if (how === 'shot') hitMark(at); popUp(at, `+${pts}`, close ? 'run' : 'shot', said ? (downedRun > 1 ? `${said} · ${named}` : said) : named); }
+    if (at) { if (how === 'shot') hitMark(at); popUp(at, `+${pts}`, close ? 'run' : 'shot', [foe.name, said, named].filter(Boolean).join(' · ')); }
     addScore(pts);
     // Riding, counted towards the next arm; and the next taken up, thrown up over the picture (and said, `armUp`).
     if (mode === 'ride') {
       const was = armAfter(slain).arm;
       slain++;
       const now = armAfter(slain).arm;
-      if (now !== was && at) popUp([at[0], at[1] - 40], now.name, 'trick', `${slain} orcs down`);
+      if (now !== was && at) popUp([at[0], at[1] - 40], now.name, 'trick', `${slain} down`);
     }
   };
   /** What a jump landed is worth: what was made of it, the more the longer in the air, and its length. */
@@ -4126,7 +4127,7 @@ async function start() {
     infoButtons.forEach((b, k) => b.classList.toggle('on', (k === 1) === on));
     document.body.classList.toggle('info', on);
   };
-  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => { if (k === 1) gunSound.wake(); setOrcs(k === 1); }, k ? 'The skier, or the horse\'s rider, carries arms in place of its poles, and orcs come up the run: a sword first, then a pistol, a shotgun, a flamethrower, a tommy gun, a lightning gun and a bazooka as more are brought down; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
+  const orcsButtons = (['Off', 'On'] as const).map((label, k) => button('orcsSeg', label, () => { if (k === 1) gunSound.wake(); setOrcs(k === 1); }, k ? 'The skier, or the horse\'s rider, carries arms in place of its poles, and orcs, goblins, wolves, the frozen dead and yetis come up the run: a sword first, then a pistol, a shotgun, a flamethrower, a tommy gun, a lightning gun and a bazooka as more are brought down; adds the orc hunt to watch (O)' : 'No orcs, and poles in the hands'));
   const setOrcs = (on: boolean) => {
     orcsOn = on;
     keep('orcs', on ? '1' : '0');
@@ -4630,7 +4631,12 @@ async function start() {
   const gunRng = new Rng('tommy gun'), gun = tommyGun(), gunfire = new Gunfire(scene, gunRng.fork('fire')), gunSound = new GunSound(gunRng.fork('sound'));
   // (Struck, an orc spatters its blood over the snow, a great deal of it, and a pool spreads where it falls: `slopeSplatter.ts`.)
   const splatter = new Splatter(scene, gunRng.fork('blood'), ground, (x, z) => normalAt(x, z, 0.5));
-  const horde = new Horde(library, scene, rimAll, (at, push, size, bloody) => { if (!bloody) return; splatter.spray(at, push, 56); splatter.pool(at, gunRng.range(1.1, 1.6) * size); });
+  // (Struck and not brought down, a little blood thrown, and no pool.)
+  const horde = new Horde(library, scene, rimAll, (at, push, size, fell, bloody) => {
+    if (!bloody) return;
+    if (!fell) { splatter.spray(at, push, 12); return; }
+    splatter.spray(at, push, 56); splatter.pool(at, gunRng.range(1.1, 1.6) * size);
+  });
   // (Fewer at a time on a phone or a tablet, where each is a good deal more to draw: half as many.)
   if (!matchMedia('(hover: hover) and (pointer: fine)').matches) horde.most = 14;
   rimAll(gun);
@@ -4716,8 +4722,10 @@ async function start() {
     if (met) {
       const orc = met.orc;
       gunfire.fire(from, dir, met.t, () => {
-        const at = horde.middle(orc);
-        if (horde.fall(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6))) { gunSound.grunt(); orcDowned(at, 'shot'); }
+        const at = horde.middle(orc), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6));
+        if (struck?.down) { gunSound.grunt(); orcDowned(at, 'shot', struck.kind); }
+        // (Struck and not brought down, the cross where it was struck all the same.)
+        else if (struck) { const on = overPictureAt(at); if (on) hitMark(on); }
         burst(at, 3, 10);
       });
     } else gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : reach, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
@@ -4749,15 +4757,17 @@ async function start() {
       inFire.add(o.orc);
       const h = (heat.get(o.orc) ?? 0) + dt;
       heat.set(o.orc, h);
-      if (h > 0.2) burnDown(o.orc, o.at, dir);
+      // (The harder one is to bring down, the longer the fire must be kept on it: a yeti, a second and a half and more.)
+      if (h > 0.2 * horde.tough(o.orc)) burnDown(o.orc, o.at, dir);
     }
     // (Out of the fire, it cools: the fire must be kept on it.)
     for (const k of heat.keys()) if (!inFire.has(k)) heat.delete(k);
   };
   /** An orc brought down burning, thrown on along `dir`; fire left on it, and under it. */
-  const burnDown = (orc: number, at: Vector3, dir: Vector3) => {
-    if (!horde.fall(orc, dir.clone().setY(0).normalize().multiplyScalar(2).addScaledVector(UP, 1.2), false)) return;
-    flames.burn(at, 18); gunSound.grunt(); orcDowned(at, 'burnt'); heat.delete(orc);
+  const burnDown = (orc: number, at: Vector3, dir: Vector3, blow = Infinity) => {
+    const struck = horde.strike(orc, dir.clone().setY(0).normalize().multiplyScalar(2).addScaledVector(UP, 1.2), blow, false);
+    if (!struck?.down) return;
+    flames.burn(at, 18); gunSound.grunt(); orcDowned(at, 'burnt', struck.kind); heat.delete(orc);
   };
   /**
    * A rocket gone off at `at`: the blast made small there (`BOOM`), and every orc within `BOOM.reach` of it brought down, thrown out
@@ -4774,7 +4784,9 @@ async function start() {
       const d = o.at.clone().sub(at), far = d.length();
       if (far > BOOM.reach) continue;
       const near = 1 - far / BOOM.reach, out = far > 0.01 ? d.setY(0).normalize() : new Vector3(1, 0, 0);
-      if (horde.fall(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near))) { gunSound.grunt(); orcDowned(o.at, 'blown'); }
+      // (Every orc in reach brought down; a yeti, only near where it went off.)
+      const struck = horde.strike(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near), 3 + 8 * near);
+      if (struck?.down) { gunSound.grunt(); orcDowned(o.at, 'blown', struck.kind); }
     }
   };
   /**
@@ -4823,7 +4835,8 @@ async function start() {
       struck.add(met);
       const at = horde.middle(met);
       through.push(at);
-      if (horde.fall(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), false)) { gunSound.grunt(); orcDowned(at, 'zapped'); }
+      const hurt = horde.strike(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), 2, false);
+      if (hurt?.down) { gunSound.grunt(); orcDowned(at, 'zapped', hurt.kind); }
       burst(at, 2, 6);
       met = -1;
       let near = ZAP.leap;
@@ -4858,7 +4871,8 @@ async function start() {
         const d = o.at.clone().sub(rider.position).setY(0), far = d.length();
         if (swing.struck.has(o.orc) || far > reach || d.dot(out) < -0.2 || d.dot(ahead) < -1.2) continue;
         swing.struck.add(o.orc);
-        if (horde.fall(o.orc, out.clone().multiplyScalar(5).addScaledVector(ahead, 1.5).addScaledVector(UP, 2.5))) { gunSound.grunt(); orcDowned(o.at, 'slain'); }
+        const struck = horde.strike(o.orc, out.clone().multiplyScalar(5).addScaledVector(ahead, 1.5).addScaledVector(UP, 2.5), 3);
+        if (struck?.down) { gunSound.grunt(); orcDowned(o.at, 'slain', struck.kind); }
       }
     }
     if (k >= 1) swing = null;
@@ -4949,8 +4963,8 @@ async function start() {
       // none, the gun held on the snow some way ahead, and not fired. One there: fired at, a round a click for those fired so.
       const [least, reach] = WATCH_REACH[arm.kind], from = arm.firing === 'swing' ? rider.position : muzzle;
       let best: Vector3 | null = null, most = reach;
-      for (const p of horde.where()) {
-        const at = p.clone().setY(p.y + 0.75), d = at.clone().sub(from), far = d.length();
+      for (const p of horde.aims()) {
+        const at = p, d = at.clone().sub(from), far = d.length();
         if (far < least || far > most || (arm.firing !== 'swing' && (d.x * go.x + d.z * go.z) / far < 0.35)) continue;
         if (arm.firing !== 'swing' && snowAlong(muzzle, at.clone().sub(muzzle).normalize(), at.distanceTo(muzzle)) < at.distanceTo(muzzle) - 1) continue;
         best = at; most = far;
@@ -4979,8 +4993,8 @@ async function start() {
         // (An orc within some forty-five points of the finger aimed at itself, the nearest to it; only one before the eye, as one behind
         // it is put on the picture turned about.)
         let near = 45 * 45;
-        for (const p of horde.where()) {
-          const at = p.clone().setY(p.y + 0.75);
+        for (const p of horde.aims()) {
+          const at = p;
           if (at.clone().applyMatrix4(camera.matrixWorldInverse).z > -1) continue;
           const s = at.project(camera), dx = (s.x - finger.x) * canvas.clientWidth / 2, dy = (s.y - finger.y) * canvas.clientHeight / 2;
           if (dx * dx + dy * dy < near) { near = dx * dx + dy * dy; ndc.set(s.x, s.y); }
@@ -5059,13 +5073,12 @@ async function start() {
       if (boomClock > b.until) { b.blast.hide(); b.until = 0; } else b.blast.step(going, camera, ground);
     }
     // (Orcs that walk into fire left burning on the snow, burnt.)
-    if (going > 0) for (const f of [...flames.pools]) for (const o of horde.near(f.p, f.r + 1)) if (o.at.distanceTo(f.p) < f.r + 0.7) burnDown(o.orc, o.at, ZERO);
+    if (going > 0) for (const f of [...flames.pools]) for (const o of horde.near(f.p, f.r + 1)) if (o.at.distanceTo(f.p) < f.r + 0.7) burnDown(o.orc, o.at, ZERO, going * 6);
     splatter.step(going);
     const v = !watching && air ? air.v.clone() : go.clone().multiplyScalar(now.speed);
     // (Any downed as the orcs come on, the skier ran down: the rounds' are counted as they strike.)
-    const downedBefore = horde.downed;
-    horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
-    for (let i = horde.downed - downedBefore; i > 0; i--) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run');
+    const ranDown = horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
+    for (const r of ranDown) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run', r.kind);
     say($('orcs'), String(horde.downed));
     // (Riding, what is carried: how many more until the next, the bar beside the picture says.)
     say($('armSay'), watching ? '' : ` · ${armAfter(slain).arm.name}`);
@@ -5078,6 +5091,8 @@ async function start() {
   // and above look most of the way along the way it goes.
   let placed = false, distance = 1;
   const eyeOff = new Vector3(), lookOff = new Vector3(), lastRider = new Vector3(), ahead = new Vector3(0, 0, 1);
+  /** What the free view is held looking at, for a picture of what is not the skier (`__slope.lookAt`); none, the skier. */
+  let heldLook: Vector3 | null = null;
   let across = 0;
   /** Where the view is about: the skier's feet, or, gone limp, the snow under its hips. */
   // (Not swung round in a circle with a barrel roll's feet, the view following it swung about with them: `rollShift`.)
@@ -5425,7 +5440,7 @@ async function start() {
     else if (view === 'free') {
       if (!placed) { camera.position.copy(at).addScaledVector(UP, 3 * distance).addScaledVector(aside, 6 * distance).addScaledVector(down, -6 * distance); controls.target.copy(at); }
       else camera.position.add(at.clone().sub(lastRider));
-      controls.target.copy(at).addScaledVector(UP, 0.9);
+      if (heldLook) controls.target.copy(heldLook); else controls.target.copy(at).addScaledVector(UP, 0.9);
       controls.update();
       // (Not let under the snow: on a world's land the hills about can stand over the skier.)
       camera.position.y = Math.max(camera.position.y, ground(camera.position.x, camera.position.z) + 0.6);
@@ -6057,7 +6072,7 @@ async function start() {
     afterFrame?.();
     requestAnimationFrame(frame);
   };
-  const __look = (off: Vector3) => { view = 'free'; controls.enabled = true; const at = focus(); camera.position.copy(at).add(off); controls.target.copy(at).addScaledVector(UP, 0.9); controls.update(); lastRider.copy(at); placed = true; };
+  const __look = (off: Vector3) => { heldLook = null; view = 'free'; controls.enabled = true; const at = focus(); camera.position.copy(at).add(off); controls.target.copy(at).addScaledVector(UP, 0.9); controls.update(); lastRider.copy(at); placed = true; };
   // (For a script that drives the page: where it is, and to put it anywhere; riding, what the pointer would ask.)
   (window as unknown as Record<string, unknown>).__slope = {
     seek: (to: number) => { t = to; clearSpray(); placed = false; }, pause: (p: boolean) => { playing = !p; reflect(); }, setView, setMode,
@@ -6166,6 +6181,8 @@ async function start() {
     setSkier: (w: Who, skis?: HorseSkis) => setSkier(w, skis), who: () => who,
     // (The view from so far east, up and south of the skier, looking at it: for pictures.)
     lookFrom: (dx: number, dy: number, dz: number) => __look(new Vector3(dx, dy, dz)),
+    // (The view from `from` looking at `at`, both in the scene, kept as the skier goes: for pictures of what is not the skier.)
+    lookAt: (from: number[], at: number[]) => { __look(new Vector3()); camera.position.fromArray(from); heldLook = new Vector3().fromArray(at); controls.target.copy(heldLook); controls.update(); },
     // (For a script measuring what each part of the picture costs: the present view drawn `frames` times, each waited for to be done,
     // with some things changed for the while; how long a frame took, in milliseconds, and what was drawn. `hide` names parts of the
     // land (`run`, `about`, `country`, `firs`, `far firs`, `poles`) or `skier`.)
@@ -6239,7 +6256,9 @@ async function start() {
     // (As if the graphics had failed as the page opened: to try the falling back to a simpler picture, `fallBack`.)
     failGraphics: (why = 'tried') => fallBack(why),
     // (With the tommy gun: how many orcs are about, and how many have been brought down.)
-    orcs: () => ({ about: horde.about, downed: horde.downed, coming: horde.where().map((p) => { const s = p.clone().setY(p.y + 0.4).project(camera); return { at: p.toArray().map((v) => +v.toFixed(1)), screen: [+s.x.toFixed(3), +s.y.toFixed(3)] }; }) }),
+    // (Only one kind of foe comes, for a script trying it (`slopeFoes.ts`); `null`, every kind again; and from how far ahead.)
+    foes: (only: FoeKind['name'] | null, ahead?: [number, number]) => { horde.only = only; if (ahead) horde.ahead = ahead; horde.clear(); },
+    orcs: () => ({ about: horde.about, downed: horde.downed, kinds: horde.kinds(), coming: horde.where().map((p) => { const s = p.clone().setY(p.y + 0.4).project(camera); return { at: p.toArray().map((v) => +v.toFixed(1)), screen: [+s.x.toFixed(3), +s.y.toFixed(3)] }; }) }),
     // (The game's own trees on the land about the run, where it has them: where each stands, what it is, how tall.)
     trees: () => (land.group.getObjectByName('woods')?.userData.trees ?? []) as { x: number; z: number; kind: string; tall: number }[],
     // (How long each stage of opening took, in milliseconds.)

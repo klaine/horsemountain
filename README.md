@@ -108,7 +108,13 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   foot, gilt as it is taken up. Orcs come up the
   run in hordes to be brought down, red blood on the snow (none from the burnt or the struck by lightning), how many counted with
   the info; each shot, burnt or struck down a hundred points and a white cross where a round struck, each run down or cut down a
-  hundred and fifty, and a double, a triple, for each downed hard on the last.
+  hundred and fifty, and a double, a triple, for each downed hard on the last. Not only orcs: each horde is of one kind
+  (`game/slopeFoes.ts`): orcs, crouched; goblins, small and quick, running in packs of up to ten; wolves, galloping up faster
+  than anything and cutting across towards the skier's line (half as much again); further down, the draugr, the frozen dead,
+  shambling, pale and iced, who take two blows and do not bleed (half as much again); and yetis, twice a man's height in
+  shaggy white fur, one or two at a time, who take eight (a round is one blow, the sword three, lightning two, running one
+  down two, fire kept on them a second and a half, a rocket only near where it goes off), worth five times an orc. One
+  struck and not brought down reels a moment, and a white cross shows where it was struck.
 
 **The cave on Silent Warden.** Halfway down the run, where a bank rises beside the piste's left edge, a cave opens in a face of rock
 under a mound of snow, two torches at its mouth and a camp before it: a fire in a ring of stones smoking, logs to sit on, a rack, wood
@@ -213,7 +219,7 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   `game/slopeArm.ts`, the robot arm at the run's end, the parachute, and the throw's flight; `game/slopeStorm.ts`, the tornado,
   `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, `game/slopePlane.ts`, the airplane, `game/slopeIce.ts`, the ice jump, and
   `game/slopeInvert.ts`, the land turned inside out, and `game/slopeCart.ts`, the rocket cart, the run's other ends; `game/slopeGun.ts`, the tommy gun, its
-  tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the orcs coming up the run;
+  tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the hordes coming up the run; `game/slopeFoes.ts`, what they are made of (orcs, goblins, wolves, the draugr and yetis);
   `game/slopeSplatter.ts`, their blood on the snow; `game/slopeDungeon.ts`, the cave on Silent Warden, its camp and the dungeon in it (where it is, the snow levelled and cut for it, the rooms grown, the torches' light worked out); `game/slopeFoot.ts`, on foot there, the person by the packs' walk and jog and the horse's walk and trot made here; `game/slopeProps.ts`, the props the dungeon is furnished with; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.
 - `src/maps/inkWorld.ts`: the world's ink map, as klaine/dungeons draws it (the map of the runs is a stretch of it).
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
