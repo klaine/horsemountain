@@ -1736,13 +1736,15 @@ async function start() {
     const from = land, label = runs.find((r) => r.id === kind)?.label ?? kind;
     const rng = endRng.fork(`trip ${kind} ${ride.time.toFixed(2)}`), flying = ENDINGS.filter(carries);
     const way: Ending = backBy !== 'ask' && backBy !== 'random' && carries(backBy) ? backBy : rng.pick(flying);
-    trip = { kind, land: null, base: null, from, way, top: new Vector3(), downhill: new Vector3(), started: false, swapped: false, start: new Vector3() };
+    const mine = (trip = { kind, land: null, base: null, from, way, top: new Vector3(), downhill: new Vector3(), started: false, swapped: false, start: new Vector3() });
     tell(`Off to ${label}`, 'making the mountain ready', false, 2.5);
     loading.hush(true);
     let base: Land;
     try { base = await landOf(kind); } finally { loading.hush(false); }
+    // (Broken off while it was made, by another run chosen, or watching: let be.)
+    if (trip !== mine) return;
     const fromTop = landTop, toTop = topOf.get(base);
-    if (!trip || !fromTop || !toTop) { trip = null; void setLand(kind); return; }
+    if (!fromTop || !toTop || land !== from) { trip = null; void setLand(kind); return; }
     // (Stood where it lies from the land ridden, as that one is stood.)
     const off = landShift.clone().add(toTop.clone().sub(fromTop)), stood = shiftedLand(base, off), top = stood.at(0, 0);
     stood.group.visible = false;
@@ -1760,6 +1762,7 @@ async function start() {
     if (!t?.land || mode !== 'ride') return;
     if (!t.started && !cat && !air && !carting && !inside) {
       t.started = true; backOnto = null; ending = t.way;
+      if (asking) hideAsk();
       t.start.copy(focus());
       WAYS[t.way].begin();
       return;
@@ -1777,6 +1780,19 @@ async function start() {
       dropKickers();
       t.swapped = true;
     }
+  };
+  /**
+   * A trip broken off (asked, of these: "for some reason the in world run change transitions dont trigger anymore"): past halfway, the
+   * new run kept as the one ridden; before, put away and the old one shown again. Broken off and kept, a trip had held back every one
+   * after it: another run chosen was laid at once, as when not riding.
+   */
+  const abortTrip = () => {
+    const t = trip;
+    if (!t) return;
+    if (t.swapped) { arrive(); return; }
+    trip = null;
+    t.land?.group.removeFromParent();
+    t.from.group.visible = true;
   };
   /** Down at the new run's top: it the run ridden now, the old one let go of. */
   const arrive = () => {
@@ -4049,10 +4065,12 @@ async function start() {
   // The land: the world's run, or the groomed slope; changed where the skier is, the demo run flown on the new land and riding
   // begun again from its top.
   const landKinds: [string, LandKind, string, string][] = [...runs.map((r): [string, LandKind, string, string] => [r.label, r.id, r.title, r.detail]), ['Groomed', 'groomed', 'A groomed slope at sixteen degrees, going on for ever', 'Sixteen degrees, going on for ever']];
-  const landButtons = landKinds.map(([label, k, title, detail]) => button('lands', label, () => { void setLand(k); }, title, detail));
+  // (Riding a world's run, another of them chosen here is ridden off to as on the map, `rideOn`.)
+  const landButtons = landKinds.map(([label, k, title, detail]) => button('lands', label, () => { if (mode === 'ride' && k !== 'groomed' && landKind !== 'groomed' && k !== landKind) { setMenu(false); rideOn(k); } else void setLand(k); }, title, detail));
   const snowLooks: [string, SnowLook, string][] = [['Detailed', 'game', 'Snow, rock and far country in full detail'], ['Plain', 'plain', 'Plain snow and rock: lighter to draw']];
   const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind !== 'groomed') void setLand(landKind, true); else reflect(); } }, title));
   const setLand = async (kind: LandKind, again = false) => {
+    abortTrip();
     if (kind === landKind && !again) return;
     await loading.busy(kind !== 'groomed' ? `Laying the snow ${whereOf(kind)}` : 'Laying the groomed slope');
     const next = await landOf(kind);
@@ -4169,6 +4187,7 @@ async function start() {
     if (!quietly) { $('choose').hidden = true; $('intro').hidden = true; document.body.classList.remove('choosing'); }
     showEnding = false; showBack = 0;
     if (m === mode) return;
+    abortTrip();
     offPisteFor = 0; $('offPiste').hidden = true;
     endCatapult();
     letAimGo();
@@ -5617,7 +5636,9 @@ async function start() {
   /** A run chosen on the map (or the groomed slope), ridden from its top. */
   const rideOn = (id: string) => {
     // (Riding a world's run, another of them chosen: ridden off to it, `travelTo`.)
-    const riding = mode === 'ride' && landKind !== 'groomed' && id !== 'groomed' && id !== landKind && !trip && !cat && !carting && !inside;
+    // (During a run's end, the trip waits for it to be over, and begins from where it set the rider down; not driving the cart back up
+    // or riding the land turned inside out, which are rides of their own.)
+    const riding = mode === 'ride' && landKind !== 'groomed' && id !== 'groomed' && id !== landKind && !trip && !carting && !inside;
     heldRide = false; playing = true;
     chosen(); setMode('ride');
     if (riding) void travelTo(id);
