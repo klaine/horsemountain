@@ -106,8 +106,13 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   0.45 seconds, which leaps from orc to orc, four at the most; thirty-five more, a bazooka, laid on the shoulder, a rocket a click, which blows up all within seven metres of where it strikes, the run's end's
   explosion made small. On a computer each is aimed at the guide's mark, the button firing it (and Shift braking); on a
   phone or a tablet, a finger on the picture fires it there, an orc near the finger aimed at itself, while tilting or the stick
-  steers (fewer orcs at a time there). What is carried is said beside the count, and a bar at the left of the picture fills toward the next, how many more at its
-  foot, gilt as it is taken up. Orcs come up the
+  steers (fewer orcs at a time there). What is carried is said beside the count, and a card at the lower right, beside the tricks' meter and drawn as it is, fills
+  toward the next, a block for every five brought down, the arm named at its head and how many more at its foot, gilt as it is taken up.
+  With *Orcs & weapons* on, how wild the tricks are is earned, not chosen: the slider becomes a meter of eight blocks, empty as the page
+  opens, filled by each trick landed (the more it is worth the more of a block, up to a whole one) and each foe brought down (a tenth of
+  a block for an orc, half a block for a yeti, a block and a half more for a great one), emptied by a fall (three blocks) and by a blow
+  taken in the dungeon (one, more for a harder one); it is kept over the runs until the page is closed, and each block won or lost is
+  said beside it. Only full, at *Wild 8/8*, do the guidebooks' tricks come up off the kickers, and then as often as the wildest. Orcs come up the
   run in hordes to be brought down, red blood on the snow (none from the burnt or the struck by lightning), how many counted with
   the info; each shot, burnt or struck down a hundred points and a white cross where a round struck, each run down or cut down a
   hundred and fifty, and a double, a triple, for each downed hard on the last. Not only orcs: each horde is of one kind
@@ -165,6 +170,24 @@ last, a barrow-king, a crowned draugr half as tall again as a man, named, its st
 taking fourteen blows, striking two and a half times as hard as an orc; shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there (come in on the cart, too: down, the run carried on as before the cart came).
 
+**Loot.** Riding, the chest at a dungeon's end gives something besides its gold, and every great one felled leaves something
+behind (`game/slopeLoot.ts`): thrown up glowing out of where it was found, a gem in its rarity's colour (*Common*, *Fine*, *Rare*,
+*Ancient*) under a beam of light, it waits there a moment and is then drawn to you, nothing found ever lost, and a card high in the
+picture says what it is and what it does. What is found is kept in the browser, worn at once if nothing is worn in its place, and
+changed in the menu under *Pack*, a card for each thing, clicked to wear it. *Skis*, each better at one thing and a little worse at
+another: slalom skis turn sharper and run a little slower, downhill skis run faster at the top and turn wider, powder skis float in
+the deep snow off the piste, skating skis push on from slow, iron-edged skis run faster over the stones before an edge catches.
+*Boots*: padded boots take a harder landing, spring boots pop higher off a kicker's lip (the trick chosen off it chosen for the longer
+air), masters' boots land a spin or a flip come up some degrees short, hobnailed boots grip the stones and take a little harder
+landing. *Wards*, about you while you carry arms, a ring on the snow as far as each reaches, flaring as it acts: an ember ward burns
+every foe within it, a storm ward calls lightning down out of the sky on the nearest every couple of seconds, a barrow ward turns
+aside the blows of the orcs in the dungeon, a magpie's charm adds to the points won for tricks and foes. *Weapons*: an arm of the foes' ladder made
+better, striking harder and (what fires) firing quicker, carried in place of the arm the foes have given while it is worn. And
+*guidebooks*, read as they are found and learned for good: *The Rodeo Scrolls* (a rodeo 540 and 900), *The Barrelwright's Almanac*
+(the double barrel roll), the *Codex of the Three Turnings* (the triple backflip) and the *Treatise on the Triple Cork* (triple corks
+of 1440 and 1800), the trick chosen off a kicker then sometimes theirs, when the air it gives is long enough and the slider wild
+enough (with *Orcs & weapons* on, only with the meter full, at *Wild 8/8*). Nothing worn alters the demo runs. `?pack=0` rides with nothing found, without forgetting what is kept.
+
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
 the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, riding, *Restart run* first, at its
 top; then *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;
@@ -192,7 +215,7 @@ and its foot a dark bar; and the skier on it, an arrow the way it goes, gold whi
 further out than it shows. Light to draw: the run is drawn once for each run, and each frame only the arrow set over it. (None on
 the groomed slope, which has no foot.)
 
-In the address: `?nointro` (no title, no map), `?offpiste=0` (kept between the poles), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run; `#w2-8`, `#w2-10`, `#w2-2`, `#w2-14`, `#w2-17`, `#w2-25`, the third to the eighth), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
+In the address: `?nointro` (no title, no map), `?pack=0` (nothing found worn), `?offpiste=0` (kept between the poles), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run; `#w2-8`, `#w2-10`, `#w2-2`, `#w2-14`, `#w2-17`, `#w2-25`, the third to the eighth), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
 `?dungeon=` (the cave's dungeon from a given seed, rather than a new one), `?tags=` (its tags: `?tags=prison,large,winding`), `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
 frames come), `?webgl` (WebGL 2 rather than WebGPU). Where the graphics report that they could not draw something as the page opens, it opens
 again drawn more simply (the plain snow; then by WebGL 2) and keeps to it in that browser, said in the menu under *Picture* with a way
@@ -251,7 +274,7 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   `game/slopeArm.ts`, the robot arm at the run's end, the parachute, and the throw's flight; `game/slopeStorm.ts`, the tornado,
   `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, `game/slopePlane.ts`, the airplane, `game/slopeIce.ts`, the ice jump, and
   `game/slopeInvert.ts`, the land turned inside out, and `game/slopeCart.ts`, the rocket cart, the run's other ends; `game/slopeGun.ts`, the tommy gun, its
-  tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the hordes coming up the run; `game/slopeFoes.ts`, what they are made of (orcs, goblins, wolves, the draugr and yetis); `game/slopeArena.ts`, the arena laid where yetis come (the quarter-pipe and the boosters);
+  tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the hordes coming up the run; `game/slopeFoes.ts`, what they are made of (orcs, goblins, wolves, the draugr and yetis); `game/slopeArena.ts`, the arena laid where yetis come (the quarter-pipe and the boosters); `game/slopeLoot.ts`, the loot (what may be found, drawn, kept, worn and shown);
   `game/slopeSplatter.ts`, their blood on the snow; `game/slopeDungeon.ts`, the cave on Silent Warden, its camp and the dungeon in it (where it is, the snow levelled and cut for it, the rooms grown, the torches' light worked out); `game/slopeFoot.ts`, on foot there, the person by the packs' walk and jog and the horse's walk and trot made here; `game/slopeProps.ts`, the props the dungeon is furnished with; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.
 - `src/maps/inkWorld.ts`: the world's ink map, as klaine/dungeons draws it (the map of the runs is a stretch of it).
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse

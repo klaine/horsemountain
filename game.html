@@ -112,6 +112,17 @@
     #menu .wide.map { margin: 0 0 8px; }
     #menu .keys { margin: 20px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-dim); }
     #menu .keys.more { margin-top: 6px; }
+    #menu h2 #packCount { font: 600 10.5px/1 var(--sans); letter-spacing: .04em; text-transform: none; color: var(--ink-dim); }
+    #menu .pack-note { margin-top: 0; }
+    #menu .pack { display: grid; gap: 5px; margin-top: 8px; }
+    #menu .pack .slot { margin: 8px 0 1px; font: 600 12px/1.2 var(--sans); color: var(--ink-dim); }
+    #menu .pack .item { display: grid; gap: 2px; text-align: left; padding: 7px 12px 8px; border-radius: 10px; background: rgba(232, 226, 214, .04); border: 1px solid var(--rule); }
+    #menu .pack .item b { font: 650 13.5px/1.25 var(--sans); color: var(--ink); }
+    #menu .pack .item span { font-size: 12px; line-height: 1.35; color: var(--ink-dim); }
+    #menu .pack .item span:first-of-type { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+    #menu .pack div.item span:first-of-type { font-size: 12px; letter-spacing: 0; text-transform: none; }
+    #menu .wide.quiet { color: var(--ink-dim); background: transparent; font-weight: 600; }
+    #menu .pack .item.on { background: rgba(224, 176, 112, .14); border-color: var(--brass); }
     #menu .note { margin: 12px 0 0; font-size: 12px; line-height: 1.45; color: var(--ink-dim); }
     #menu .note button { margin-top: 6px; min-height: 32px; font-size: 12px; }
     #menu .keys b { font-weight: 650; color: var(--ink); margin-right: 4px; }
@@ -161,13 +172,29 @@
     /* (Asked then: "make the mild - wild control a vertical slider in the bottom right with a smaller "180" labeled button above it to
        control to /from switch": a narrow column at the lower right, the 180 over the slider, wild at its top and mild at its foot; the
        180 lit while riding switch.) */
-    #tricky { position: fixed; right: var(--gutter-r); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: grid; gap: 8px; justify-items: center; width: 58px; }
+    #tricky { position: fixed; right: var(--gutter-r); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: grid; gap: 8px; justify-items: center; width: 58px;
+      --meter: 120px; --block: calc((var(--meter) - 21px) / 8); }
     #tricky .wild { display: grid; justify-items: center; gap: 5px; width: 100%; box-sizing: border-box; padding: 8px 0 9px;
       background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; }
     #tricky .cap { font: 600 8.5px/1 var(--serif); letter-spacing: .12em; text-transform: uppercase; color: var(--brass); }
     #tricky .wild span { font: 600 9px/1 var(--serif); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
     /* (Upright: written top to bottom, and the other way about, so that wild is at the top.) */
     #tricky input { writing-mode: vertical-lr; direction: rtl; width: var(--hit); height: 120px; margin: 0; accent-color: var(--brass); }
+    /* (With orcs and weapons, earned rather than chosen: eight blocks, the first at the foot, the one filling filled as far as it has come;
+       full, they glow. A moment's flash as it rises or falls.) */
+    #wildMeter, #wildLvl { display: none; }
+    #tricky.earned input { display: none; }
+    #tricky.earned #wildMeter { display: flex; flex-direction: column-reverse; gap: 3px; width: 20px; height: var(--meter); }
+    #tricky.earned #wildLvl { display: block; font: 700 11px/1 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; }
+    #wildMeter i, #armBar .blocks i { flex: 0 0 var(--block); box-sizing: border-box; border-radius: 2px; border: 1px solid var(--rule);
+      background: linear-gradient(to top, var(--brass) calc(var(--f, 0) * 100%), rgba(255, 255, 255, .06) calc(var(--f, 0) * 100%)); }
+    #wildMeter.full i { border-color: var(--brass); box-shadow: 0 0 7px var(--brass); }
+    #wildMeter.up { animation: wildUp .5s ease-out; }
+    #wildMeter.down { animation: wildDown .6s ease-out; }
+    @keyframes wildUp { 30% { filter: brightness(1.6); } }
+    @keyframes wildDown { 20% { filter: saturate(0) brightness(.6); translate: 2px 0; } 40% { translate: -2px 0; } 60% { translate: 1px 0; } }
+    #pops .pop.wild { font-size: 20px; color: var(--brass); }
+    #pops .pop.wild.lost { color: #ff7a4a; }
     #stance { touch-action: none; width: 58px; min-height: 40px; padding: 0; border-radius: 20px; font-weight: 750; font-size: 14px; letter-spacing: .02em; background: var(--sheet); }
     #stance.switch { border-color: var(--brass); color: var(--brass); }
     /* (Skating, held: over the 180, as round, lit while held.) */
@@ -238,6 +265,19 @@
     #felled.on { display: block; animation: felled 3.2s ease-out forwards; }
     @keyframes felled { 0% { opacity: 0; letter-spacing: .3em; } 14% { opacity: 1; } 72% { opacity: 1; } 100% { opacity: 0; } }
     body.choosing #bosses, body.choosing #felled { display: none; }
+    /* What is found (slopeLoot.ts): a card high in the picture, edged in its rarity's colour. */
+    #loot { position: fixed; left: 50%; top: calc(84px + env(safe-area-inset-top, 0px)); translate: -50% 0; z-index: 3; pointer-events: none; display: none;
+      width: min(360px, calc(100vw - 32px)); box-sizing: border-box; padding: 12px 16px 13px; border-radius: 12px; background: var(--sheet);
+      border: 1px solid var(--rarity, var(--brass)); box-shadow: 0 0 28px color-mix(in srgb, var(--rarity, #e0b070) 45%, transparent), 0 8px 24px rgba(0, 0, 0, .5); text-align: center; }
+    #loot.on { display: block; animation: lootIn .45s cubic-bezier(.2, 1.4, .4, 1) both; }
+    #loot .kind { font: 700 10.5px/1 "Cinzel", var(--serif); letter-spacing: .2em; text-transform: uppercase; color: var(--rarity, var(--brass)); }
+    #loot .name { margin-top: 6px; font: italic 700 23px/1.15 "Cormorant Garamond", var(--serif); color: var(--rarity, var(--brass)); text-wrap: balance; }
+    #loot .lines { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.45; color: var(--ink); }
+    #loot .lines .about { margin-top: 4px; font: italic 500 15px/1.3 "Cormorant Garamond", var(--serif); color: var(--ink-dim); }
+    #loot .where { margin-top: 8px; font-size: 11.5px; color: var(--ink-dim); }
+    @keyframes lootIn { from { opacity: 0; translate: -50% -14px; scale: .92; } to { opacity: 1; translate: -50% 0; scale: 1; } }
+    body.choosing #loot { display: none; }
+    @media (prefers-reduced-motion: reduce) { #loot.on { animation: none; } }
     @media (prefers-reduced-motion: reduce) { #bosses .boss, #bosses .boss.gone { animation-duration: .01s; } #bosses .bar .lag { transition-delay: 0s; } #felled.on { animation-name: none; } }
     /* The force gathered in a held cut of the sword, a ring filling about the mark; bright once whole. */
     #aim .dot::after { content: ""; position: absolute; inset: -9px; border-radius: 50%; opacity: 0; transition: opacity .12s;
@@ -413,34 +453,21 @@
     #offPiste.late .n { font-size: 46px; }
     @media (prefers-reduced-motion: reduce) { #offPiste, #offPiste .n { transition: none; } }
     @media (max-height: 500px) and (orientation: landscape) { #offPiste { top: calc(40% + env(safe-area-inset-top, 0px)); padding: 3px 10px 2px; } #offPiste .n { font-size: 18px; } #offPiste.late { padding: 4px 14px 3px; } #offPiste.late .n { font-size: 30px; } }
-    /* Toward the next arm (asked: "there could be some kind of a bar on the side that goes up towards the next weapon unlock"): at the
-       left, between what the skier is doing and the stick, as tall as there is room for up to 260 pixels, filled from the foot as the
-       orcs are brought down, notched every five; the arm it fills toward named at its head, how many more at its foot. Full and gilt a
-       moment as that arm is taken up. Only told, never pressed, as what the skier is doing is. */
-    #armBar { position: fixed; left: var(--gutter-l); top: calc(150px + env(safe-area-inset-top, 0px)); bottom: calc(190px + env(safe-area-inset-bottom, 0px));
-      max-height: 260px; margin: auto 0; z-index: 2; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; pointer-events: none; }
-    #armBar .next, #armBar .left { padding: 2px 7px 3px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; white-space: nowrap; }
-    #armBar .next { font: 700 10px/1.25 "Cinzel", var(--serif); letter-spacing: .12em; text-transform: uppercase; color: var(--brass); }
-    #armBar .left { font: 600 11px/1.25 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; }
-    #armBar .track { position: relative; flex: 1; min-height: 36px; width: 12px; margin-left: 7px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
-    #armBar .fill { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--got, 0) * 100%); border-radius: 6px; background: linear-gradient(to top, #5f8f2e, #9fd45a); transition: height .3s ease-out; }
-    #armBar .track::after { content: ""; position: absolute; inset: 0;
-      background: repeating-linear-gradient(to top, transparent 0 calc(var(--notch, 50%) - 1px), rgba(10, 12, 16, .6) calc(var(--notch, 50%) - 1px) var(--notch, 50%)); }
-    #armBar.snap .fill { transition: none; }
-    #armBar.won .track, #armBar.won .next { border-color: #ffe07a; box-shadow: 0 0 14px rgba(255, 200, 60, .7); }
+    /* Toward the next arm (asked: "there could be some kind of a bar on the side that goes up towards the next weapon unlock"; then:
+       "the weapon progression slide can be shown in similar style next to it for visual uniformity?"): a card as the tricks' meter is,
+       just to its left and level with it, a block for each five orcs to bring down, filled from the foot as they are and each block as
+       far as it has come; the arm it fills toward named at its head, how many more at its foot. Gilt a moment, every block full, as that
+       arm is taken up. Only told, never pressed. */
+    #armBar { position: absolute; right: calc(100% + 8px); bottom: 0; z-index: 2; display: grid; justify-items: center; gap: 5px; min-width: 58px;
+      box-sizing: border-box; padding: 8px 6px 9px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; pointer-events: none; }
+    #armBar[hidden] { display: none; }
+    #armBar .next { font: 700 8.5px/1 "Cinzel", var(--serif); letter-spacing: .06em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+    #armBar .blocks { display: flex; flex-direction: column-reverse; gap: 3px; width: 20px; height: var(--meter); }
+    #armBar .left { font: 700 11px/1 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #armBar.won { border-color: #ffe07a; box-shadow: 0 0 14px rgba(255, 200, 60, .7); }
     #armBar.won .next, #armBar.won .left { color: #ffe07a; }
-    #armBar.won .fill { background: linear-gradient(to top, #d39a26, #ffe07a); }
-    body.choosing #armBar { display: none; }
-    /* (Without the info at the top left, from the top of the picture.) */
-    body:not(.info) #armBar { top: calc(14px + env(safe-area-inset-top, 0px)); }
-    @media (prefers-reduced-motion: reduce) { #armBar .fill { transition: none; } }
-    @media (max-height: 500px) and (orientation: landscape) {
-      #armBar { top: calc(58px + env(safe-area-inset-top, 0px)); bottom: calc(134px + env(safe-area-inset-bottom, 0px)); gap: 3px; }
-      body:not(.info) #armBar { top: calc(8px + env(safe-area-inset-top, 0px)); bottom: calc(152px + env(safe-area-inset-bottom, 0px)); }
-      #armBar .next { font-size: 9px; padding: 1px 5px 2px; }
-      #armBar .left { font-size: 10px; padding: 1px 5px 2px; }
-      #armBar .track { width: 10px; margin-left: 5px; }
-    }
+    #armBar.won .blocks i { border-color: #ffe07a; box-shadow: 0 0 7px #ffe07a; }
+    @media (max-height: 500px) and (orientation: landscape) { #armBar { padding: 6px 5px 7px; gap: 4px; right: calc(100% + 6px); } #armBar .next { font-size: 8px; } }
     /* The minimap (`slopeMini.ts`): the whole run small at the right, under the menu's button, the way down pointing up and the skier's
        mark on it; on a sheet as faint as the rest, and only told, never pressed, as what the skier is doing is. */
     #mini { position: fixed; top: calc(66px + env(safe-area-inset-top, 0px)); right: var(--gutter-r); z-index: 2; display: block;
@@ -471,6 +498,7 @@
       #tricky .wild { padding: 6px 0 7px; gap: 4px; }
       #tricky .wild span { font-size: 8px; }
       #tricky input { height: 78px; }
+      #tricky { --meter: 78px; }
       #stance { width: 50px; min-height: 32px; font-size: 12.5px; }
       #skate { width: 50px; min-height: 32px; font-size: 11px; }
       #told { top: calc(58px + env(safe-area-inset-top, 0px)); padding: 4px 12px 5px; }
@@ -537,17 +565,18 @@
   <canvas id="mini" hidden aria-hidden="true"></canvas>
   <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
   <div id="offPiste" hidden role="alert"><span class="say">Back to the marked slopes</span><b class="n">5</b></div>
-  <div id="armBar" hidden role="progressbar" aria-valuemin="0"><span class="next"></span><div class="track"><div class="fill"></div></div><span class="left"></span></div>
   <div id="stick" hidden role="group" aria-label="Steer: to either side to turn, up to tuck, down to stand straight"><div class="base"></div><div class="knob"></div><span class="say up">Tuck</span><span class="say down">Straight</span></div>
   <div id="aim" aria-hidden="true"><i class="skid l"></i><i class="skid r"></i><i class="rail l"></i><i class="rail r"></i><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="say up">Tuck</span><span class="say down">Straight</span><span class="say skids l">Skid</span><span class="say skids r">Skid</span><span class="say here">Point in here to steer</span><i class="dot"></i></div>
   <div id="tricky" hidden>
     <button id="skate" type="button" aria-label="Skate: hold for skating strides, a little more speed" title="Hold to skate, a stride with each leg in turn, for a little more speed (hold Z)">Skate</button>
     <button id="stance" type="button" aria-label="180 to switch" title="Turn round on the snow, to riding backwards (switch) or back: a pop, a nose butter, a smooth 180 or a tail butter, in turn (X, or a right click on the picture)">180</button>
-    <div class="wild"><span class="cap">Tricks</span><span>Wild</span><input id="wild" type="range" min="0" max="1" step="0.01" value="0.5" aria-orientation="vertical" aria-label="How wild the tricks off the kickers are, from mild to wild"><span>Mild</span></div>
+    <div class="wild"><span class="cap">Tricks</span><span>Wild</span><input id="wild" type="range" min="0" max="1" step="0.01" value="0.5" aria-orientation="vertical" aria-label="How wild the tricks off the kickers are, from mild to wild"><div id="wildMeter" role="meter" aria-valuemin="0" aria-valuemax="8" aria-valuenow="0" aria-label="How wild the tricks off the kickers are, earned by tricks landed and foes brought down" title="Filled by tricks landed and foes brought down, emptied by falls and blows taken; full, the guidebooks' tricks come up"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Mild</span><b id="wildLvl">0/8</b></div>
+    <div id="armBar" hidden role="progressbar" aria-valuemin="0"><span class="cap">Arms</span><span class="next"></span><div class="blocks"></div><span class="left"></span></div>
   </div>
   <div id="pops" aria-hidden="true"></div>
   <div id="bosses" aria-live="polite"></div>
   <div id="felled" aria-hidden="true"><b>Felled</b><small></small></div>
+  <div id="loot" aria-live="polite"><div class="kind"></div><div class="name"></div><ul class="lines"></ul><div class="where"></div></div>
   <div id="backTo" hidden role="dialog" aria-labelledby="backToWhat">
     <div class="what" id="backToWhat">Back to the top</div>
     <div class="ways" role="group" aria-label="How to get back to the top"></div>
@@ -583,6 +612,10 @@
         <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
         <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
       </div>
+      <h2>Pack <span id="packCount"></span></h2>
+      <p class="note pack-note">Found in the chests at the ends of the dungeons and on the great ones felled, kept in this browser. Click one to wear it; weapons and wards act with <i>Orcs &amp; weapons</i> on.</p>
+      <div class="pack" id="pack" role="group" aria-label="What has been found"></div>
+      <button id="packEmpty" class="wide quiet" type="button" hidden>Empty the pack</button>
       <h2>Slope</h2>
       <button id="openMap" class="wide map" type="button" title="The map of the runs, to choose one to ride (M)">Map of the runs</button>
       <div class="cards" id="lands" role="group" aria-label="Slope"></div>

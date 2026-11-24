@@ -109,6 +109,10 @@ export class Horde {
    * back (`release`) once it is gone.
    */
   onTaken: ((model: Object3D, at: Vector3, size: number, kind: FoeKind) => void) | null = null;
+  /** How much harder every blow strikes than it is given (a weapon found, `slopeLoot.ts`; 1, as it is). */
+  might = 1;
+  /** The name of the last great one brought down, for what it leaves (`slopeLoot.ts`). */
+  lastGreat = '';
   /** How far ahead of the skier a horde comes from (nearer, for a script that would see them soon). */
   ahead: [number, number] = AHEAD;
   /** How many there may be out at once, coming and fallen (each kind's share of it waiting besides); a horde comes while fewer than two fifths of as many are coming. */
@@ -389,7 +393,7 @@ export class Horde {
       this.onTaken(b.gait.model, b.p.clone(), b.size, b.kind);
       return { kind: b.kind, down: true };
     }
-    b.hp -= blow;
+    b.hp -= blow * this.might;
     // (Beaten, one that kneels goes down on its knees rather than falling, waiting for the last blow.)
     if (b.hp <= 0 && b.kind.kneels && this.onTaken && b.gait.kneel) {
       b.hp = 0; b.kneeling = true; b.reel = 0;
@@ -407,6 +411,7 @@ export class Horde {
     b.state = 'down'; b.since = 0; b.v.copy(push).multiplyScalar(Math.min(1, 1.6 / b.size));
     b.gait.fall();
     this.downed++;
+    if (b.kind.titles) this.lastGreat = b.title;
     this.onStruck?.(this.middleOf(b), push, b.size, true, bleeds);
     return { kind: b.kind, down: true };
   }

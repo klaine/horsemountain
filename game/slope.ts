@@ -59,6 +59,7 @@ import { readSlice } from '../src/core/skiSlice';
 import { readRunMap, type RunMap } from '../src/core/runMap';
 import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sweep } from './slopeArms';
+import { Drops, type Item, LootCard, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type Den, type FoeKind, Horde } from './slopeOrcs';
@@ -1196,6 +1197,17 @@ async function start() {
   let foot: { x: number; y: number; z: number; heading: number; speed: number; dx: number; dz: number; turn: number; phase: number; room: number; told: boolean } | null = null;
   let stopping = false;
   let flyingDemo = false;
+  /**
+   * What the player wears, found in the dungeons' chests and on the great ones felled (`slopeLoot.ts`), and what it all comes to
+   * (`worn`, worked out again as it changes): read by the ride, the jumps, the landings, the arms and the wards, riding only, never in
+   * the demo runs or as one is flown, which the pilot flies as they always were.
+   */
+  let pack: Pack | null = null, worn: Mods = NO_MODS;
+  /** What was found and is still on its way to the player given it at once (as a run begins again); nothing, until loot is set up. */
+  let giveLeft = () => {};
+  const kit = (): Readonly<Mods> => (pack && mode === 'ride' && !flyingDemo ? worn : NO_MODS);
+  /** How hard skis that push on from slow (`Mods.accel`, a share) push at a standstill, m/s² a whole one; less the faster, none at 90 km/h. */
+  const ACCEL_PUSH = 3.5;
   const shoveNow = () => (carting || ride.ended || ride.brake > 0.3 ? 0 : SHOVE.most * smooth(ride.shove / SHOVE.long));
   /**
    * Skating (asked: "if the player speed goes too low, like below 10km/h, make the skier (horse or human) start making skating kick
@@ -1513,16 +1525,19 @@ async function start() {
     if (kind === 'flight') return 'Ski-jump flight';
     const lower = (t: string) => t.charAt(0).toLowerCase() + t.slice(1), upper = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
     if (kind === 'roll') {
-      if (style === 'mute' || style === 'tail') return horse_ ? `Barrel roll ${grab}` : `Barrel roll ${style === 'mute' ? 'mute' : 'tail grab'}`;
-      return 'Barrel roll';
+      // (Twice over, a double barrel roll: a guidebook's.)
+      const roll = flips > 1 ? 'Double barrel roll' : 'Barrel roll';
+      if (style === 'mute' || style === 'tail') return horse_ ? `${roll} ${grab}` : `${roll} ${style === 'mute' ? 'mute' : 'tail grab'}`;
+      return roll;
     }
     if (kind === 'flip') {
-      const back = flips > 1 ? 'Double backflip' : 'Backflip', base = spin ? `${back} ${spin}` : back;
+      // (A single backflip spun an odd number of half turns, landing switch, is a rodeo: a guidebook's.)
+      const back = flips > 2 ? 'Triple backflip' : flips > 1 ? 'Double backflip' : 'Backflip', base = spin ? (flips === 1 && halves % 2 ? `Rodeo ${spin}` : `${back} ${spin}`) : back;
       if (style === 'layout') return `Layout ${lower(base)}`;
       if (style === 'mute' || style === 'tail') return horse_ ? `${upper(grab)} ${lower(base)}` : `${style === 'mute' ? 'Mute' : 'Tail grab'} ${lower(base)}`;
       return base;
     }
-    const base = cork ? `${flips > 1 ? 'Double cork' : 'Cork'} ${spin}` : spin;
+    const base = cork ? `${flips > 2 ? 'Triple cork' : flips > 1 ? 'Double cork' : 'Cork'} ${spin}` : spin;
     if (style === 'mute' || style === 'tail') return horse_ ? (base ? `${base} ${grab}` : upper(grab)) : base ? `${base} ${style === 'mute' ? 'mute' : 'tail grab'}` : style === 'mute' ? 'Mute grab' : 'Tail grab';
     if (style === 'spread' && !base) return horse_ ? `${four ? 'Capriole' : 'Splits'}${rider_ ? ' no-hander' : ''}` : 'Spread eagle';
     // (A horse's straight air is a show jumper's.)
@@ -1530,7 +1545,9 @@ async function start() {
   };
   const halvesOf = (a: Air) => Math.round(Math.abs(a.spinTo) / Math.PI);
   const flipsOf = (a: Air) => Math.round(Math.abs(a.flipTo) / TURN);
-  const trickName = (a: Air) => nameOf(a.kind, halvesOf(a), !!a.cork, styleOf(a), a.fromSwitch, flipsOf(a));
+  /** (A barrel roll's turns over, a double's two.) */
+  const rollsOf = (a: Air) => Math.round(Math.abs(a.rollTo) / TURN);
+  const trickName = (a: Air) => nameOf(a.kind, halvesOf(a), !!a.cork, styleOf(a), a.fromSwitch, a.kind === 'roll' ? rollsOf(a) : flipsOf(a));
   // What has just happened, said over the picture for a while: a landing, or a fall.
   let told = { text: '', small: '', bad: false, until: 0 };
   const tell = (text: string, small: string, bad: boolean, seconds: number) => { told = { text, small, bad, until: ride.time + seconds }; };
@@ -1596,7 +1613,7 @@ async function start() {
     downedUntil = clock + 1.5;
     // (Up close, run down or cut down, worth half as much again as at a distance.)
     // (A foe harder to bring down worth more: a yeti five times an orc, `FOES`.)
-    const close = how === 'run' || how === 'slain' || how === 'cleaved', pts = Math.round(((how === 'cleaved' ? 200 : close ? 150 : 100) * downedRun * foe.worth) / 10) * 10, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
+    const close = how === 'run' || how === 'slain' || how === 'cleaved', pts = Math.round(((how === 'cleaved' ? 200 : close ? 150 : 100) * downedRun * foe.worth * (1 + kit().points)) / 10) * 10, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
     const said = { run: 'run down', slain: 'cut down', cleaved: 'cleaved', burnt: 'burnt', zapped: 'struck down', blown: 'blown up', shot: '' }[how];
     if (at) { if (how === 'shot') hitMark(at); popUp(at, `+${pts}`, close ? 'run' : 'shot', [foe.name, said, named].filter(Boolean).join(' · ')); }
     addScore(pts);
@@ -1606,14 +1623,17 @@ async function start() {
       slain++;
       const now = armAfter(slain).arm;
       if (now !== was && at) popUp([at[0], at[1] - 40], now.name, 'trick', `${slain} down`);
+      // (A great one leaves something behind it.)
+      if (foe.titles) findLoot('boss', p, `left by ${horde.lastGreat || 'a great one'}`);
+      earnWild(WILD.foe * foe.worth + (foe.titles ? WILD.great : 0));
     }
   };
   /** What a jump landed is worth: what was made of it, the more the longer in the air, and its length. */
   const trickPoints = (a: Air, far: number) => {
     const flips = flipsOf(a), grab = STYLES.reduce((g, s) => g + Math.min(1, a.held[s]), 0);
     // (A barrel roll as a flip; a second flip worth more than the first.)
-    const made = 50 + 100 * halvesOf(a) + 400 * flips + 200 * Math.max(0, flips - 1) + (a.rollTo ? 350 : 0) + (a.cork ? 150 : 0) + 120 * Math.min(1.5, grab) + (a.fromSwitch ? 100 : 0);
-    return Math.round((made * (1 + 0.5 * a.t) + 3 * far) / 10) * 10;
+    const made = 50 + 100 * halvesOf(a) + 400 * flips + 200 * Math.max(0, flips - 1) + 350 * rollsOf(a) + 200 * Math.max(0, rollsOf(a) - 1) + (a.cork ? 150 : 0) + 120 * Math.min(1.5, grab) + (a.fromSwitch ? 100 : 0);
+    return Math.round(((made * (1 + 0.5 * a.t) + 3 * far) * (1 + kit().points)) / 10) * 10;
   };
 
   /**
@@ -1719,6 +1739,9 @@ async function start() {
   const takeOff = (v: Vector3, nose: number, pop: number, plain = false) => {
     pipeThrow(v);
     if (!plain) soak(v);
+    // (Boots found that spring: off a kicker's lip, so much more up; before the time in the air is reckoned, so that the trick chosen
+    // is chosen for it.)
+    if (!plain && ride.out > 0.01) v.y += kit().pop;
     const from = new Vector3(ride.x, ride.y, ride.z), T = timeToSnow(from, v), long = T > 0.5;
     // (Off a knoll, `plain`: not set off on purpose, so no spin and no flip, whatever the stick was asking as the snow fell away.)
     const spinning = !plain && long && Math.abs(ask.x) > 0.3, dir = spinning ? -Math.sign(ask.x) : 0;
@@ -1727,13 +1750,14 @@ async function start() {
     // (A barrel roll, set off straight and neither tucked nor tall; two flips for a double backflip or a double cork, as planned.)
     const plan = plain ? null : planned, cork = tucked && spinning && stance === 'air';
     const rolls = stance === 'air' && !spinning && plan?.kind === 'roll', kind: Air['kind'] = rolls ? 'roll' : stance;
-    const flips = kind === 'flip' ? (plan?.kind === 'flip' && (plan.flips ?? 1) > 1 ? 2 : 1) : cork && plan?.cork && (plan.flips ?? 0) > 1 ? 2 : 0;
+    // (Three, for a triple backflip or a triple cork, which only a guidebook found in the caves teaches: `slopeLoot.ts`.)
+    const flips = kind === 'flip' ? (plan?.kind === 'flip' ? clamp(plan.flips ?? 1, 1, 3) : 1) : cork && plan?.cork && (plan.flips ?? 0) > 1 ? Math.min(3, plan.flips!) : 0;
     // Paced to the time in the air: the flip set off the lip to be made a little before the snow, no slower than about half the
     // quickest (a long air) and no quicker than the quickest (a short one wants a tighter tuck to come round). (A spin is paced once
     // let go of, in `stepAir`.)
     const avail = Math.max(0.3, T - TRICK_END - 0.1), pace = (n: number, rate: number) => clamp(n / (rate * avail), SLOWEST, 1);
     air = {
-      kind, spinTo: dir * Math.PI, flipTo: -flips * TURN, spin: 0, flip: 0, roll: 0, rollTo: rolls ? (plan?.side ?? 1) * TURN : 0,
+      kind, spinTo: dir * Math.PI, flipTo: -flips * TURN, spin: 0, flip: 0, roll: 0, rollTo: rolls ? (plan?.side ?? 1) * TURN * clamp(plan?.flips ?? 1, 1, 2) : 0,
       rollFor: clamp(T - ROLL.from - ROLL.left, ROLL.least, ROLL.most), t: 0, T, v, from, nose, name: '',
       cork: cork ? deg(42) : 0, rate: { spin: 1, flip: pace(flips, FLIP_RATE) }, set: ride.tall, pop0: pop,
       style: { mute: 0, tail: 0, spread: 0, layout: 0 }, held: { mute: 0, tail: 0, spread: 0, layout: 0 }, done: spinning || flips || rolls ? null : 0,
@@ -1759,8 +1783,10 @@ async function start() {
     const far = Math.hypot(ride.x - a.from.x, ride.z - a.from.z);
     air = null;
     knollAfter = ride.time + KNOLL.after;
-    if (flipShort > deg(55) || spinShort > deg(75) || blow > FALL_BLOW) {
-      const why = blow > FALL_BLOW ? 'landed too hard' : flipShort > deg(55) ? (flipShort > deg(200) ? (a.rollTo ? 'landed on its side' : 'landed on its back') : a.rollTo ? 'short of the roll' : 'short of the flip') : `short of the ${halvesOf(a) * 180}`;
+    // (Boots found that take a harder landing, or forgive a spin or a flip come up short.)
+    const g = kit(), hard = FALL_BLOW + g.landing, short = deg(g.forgive);
+    if (flipShort > deg(55) + short || spinShort > deg(75) + short || blow > hard) {
+      const why = blow > hard ? 'landed too hard' : flipShort > deg(55) + short ? (flipShort > deg(200) ? (a.rollTo ? 'landed on its side' : 'landed on its back') : a.rollTo ? 'short of the roll' : 'short of the flip') : `short of the ${halvesOf(a) * 180}`;
       fall(why);
       return;
     }
@@ -1783,6 +1809,7 @@ async function start() {
       tell(a.name, `+${pts.toLocaleString('en')} · ${far.toFixed(0)} m, ${a.t.toFixed(1)} s in the air`, false, 2.6);
       if (at) popUp(at, `+${pts.toLocaleString('en')}`, 'trick', a.name);
       addScore(pts);
+      earnWild(clamp(pts / WILD.trickPts, WILD.trick[0], WILD.trick[1]));
     }
   };
 
@@ -1804,6 +1831,7 @@ async function start() {
     // (Out of the saddle: its own body now, in the world.)
     if (who === 'mounted') rider.add(jockey.model);
     for (const { body, doll } of crash.dolls) body.poseJoints(doll.joints());
+    earnWild(-WILD.fall);
     tell(`Crashed: ${why}`, `A new run in a moment, or ${document.body.classList.contains('mouse') ? 'click' : 'tap'}`, true, 1e9);
     reflect();
   };
@@ -1843,6 +1871,8 @@ async function start() {
   /** The run again from the top, going a little. */
   const restart = () => {
     caveNow()?.shutChest();
+    // (What was found and not yet come to the player, given it now: nothing found is lost.)
+    giveLeft();
     // (Come down at another run's top: that the run now, the old let go of.)
     if (trip?.swapped) arrive();
     // (The land as it lies first: the ride begins again at its top.)
@@ -3430,6 +3460,7 @@ async function start() {
     if (!air) rollShift.set(0, 0, 0);
     if (crash) return stepFallen(dt);
     if (air) return stepAir(dt);
+    const g = kit();
     // (At the foot of the run it brakes to a stop by itself.)
     const braking = want.brake || want.brakeKey || ride.ended;
     if (braking && ride.brake < 0.05) ride.brakeSide = Math.sign(ride.way || ride.lean) || 1;
@@ -3440,7 +3471,7 @@ async function start() {
     // go, their tails sliding out, so that the turn comes round quicker than a carve can, flatter on the snow and less leant, scraping
     // and throwing snow and losing speed as it does.
     ride.skid += (smooth((Math.abs(ask.x) - SKID_FROM) / (0.97 - SKID_FROM)) * (1 - ride.brake) - ride.skid) * ease(dt, 5);
-    const turning = -carveOf(ask.x) * clamp(ride.speed / 9, 0.5, 1.2) * (1 - 0.35 * ride.tuck) * (1 - ride.brake) * (1 + 0.6 * ride.skid);
+    const turning = -carveOf(ask.x) * clamp(ride.speed / 9, 0.5, 1.2) * (1 - 0.35 * ride.tuck) * (1 - ride.brake) * (1 + 0.6 * ride.skid) * Math.max(0.5, 1 + g.turn);
     const pivot = Math.sign(turning) * SKID_TURN * ride.skid;
     // (Steered freely, all the way round, and back up the run the way it came (asked: "allow the player to steer freely, also to go
     // back uphill where they came from"): it was held to within some hundred and ten degrees of straight down the run.)
@@ -3460,7 +3491,8 @@ async function start() {
     // (How steeply a kicker under it rises over the land, from just behind: not across its lip, to its steep back.)
     const into = G / Math.hypot(1, gx, gz), e = 0.3;
     const nose = Math.atan((bumpAt(ride.x, ride.z) - bumpAt(ride.x - go.x * e, ride.z - go.z * e)) / e);
-    const drag = 0.0065 + (0.0037 - 0.0065) * ride.tuck + (0.012 - 0.0065) * ride.tall;
+    // (Skis found that run faster, as much faster at the top as they ask, by less drag: the speed it settles at goes as its root.)
+    const drag = (0.0065 + (0.0037 - 0.0065) * ride.tuck + (0.012 - 0.0065) * ride.tall) / (1 + g.top) ** 2;
     // (A ground 180 under way: what it is doing at this point of it; it ends, half round, switch or back.)
     let g180: ReturnType<typeof shape180> | null = null;
     if (ride.turn180) {
@@ -3474,8 +3506,9 @@ async function start() {
     const push = cartThrust();
     cartPush += ((push ? push / 15 : 0) - cartPush) * ease(dt, 6);
     ride.shove = Math.max(0, ride.shove - dt);
-    const stones = stonesNow(dt), deep = deepNow(dt);
-    const pull = push + shoveNow() + boostNow(dt) + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - (stopping ? 6 * ride.brake : 0) - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
+    // (Skis found that float in deep snow: its hold on them less; that push on from slow; that grate less over the stones.)
+    const stones = stonesNow(dt), deep = deepNow(dt) * (1 - Math.min(0.9, g.powder)), lift = carting || ride.ended ? 0 : g.accel * ACCEL_PUSH * Math.max(0, 1 - ride.speed / 25) * (1 - ride.brake);
+    const pull = lift + push + shoveNow() + boostNow(dt) + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * (1 - Math.min(0.6, g.stones / 30)) * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - (stopping ? 6 * ride.brake : 0) - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
     ride.speed = Math.max(0, ride.speed + pull * dt);
     // (About an arena, its speed run out going up the snow (the pipe's face, or the run back up to the great one): turned round where
     // it stands, to come back down. Elsewhere it stops, as it always did.)
@@ -3578,7 +3611,7 @@ async function start() {
     standAt(stand, normalAt(ride.x, ride.z, 0.5), ride.facing, here, (g180?.pitch ?? 0) + (who === 'person' ? 0 : DEEP.horsePitch * powderNow()));
     if (!quiet) keepJoints(dt);
     // Taken onto the stones too fast, thrown (`STONES`).
-    if (ride.overStones > STONES.catch && ride.speed > STONES.fast && !ride.ended) { ride.overStones = 0; fall('caught an edge on the stones'); }
+    if (ride.overStones > STONES.catch && ride.speed > STONES.fast + g.stones / 3.6 && !ride.ended) { ride.overStones = 0; fall('caught an edge on the stones'); }
     // At the foot of a world's run: brought to a stop there.
     if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); }
     return { down: ride.down, left: ride.left, speed: ride.speed, way: ride.way, ski, skid: Math.max(Math.abs(Math.sin(ski - ride.way)), g180 ? g180.scrape * sideOn : 0), tuck: ride.tuck, brake: ride.brake, deep: ride.deep };
@@ -4015,25 +4048,73 @@ async function start() {
   /** The time in the air the last trick chosen was chosen for (`pickTrick`), for a script to see. */
   let pickedFor = 0;
   let trickPicks = 0;
+  // ---------------------------------------------------------------- riding: how wild the tricks are, earned
+  /**
+   * With *Orcs & weapons* on, how wild the tricks are is earned rather than chosen (asked: "the mild to wild trick level slider is not a
+   * slider but starts from mild and the more tricks the player land and more enemies the player defeats, the higher the trick level goes
+   * on mild to wild scale. When player falls or is hit by enemies, it goes down. lets say 8 blocks? When the meter is at Wild 8/8, the
+   * found loot tome tricks are possible to take place"): eight blocks, empty at first; filled by the tricks landed, the more a trick is
+   * worth the more of a block (`trickPts` points a whole one, and never less than `trick[0]` of one), and by the foes brought down (`foe`
+   * of a block for each of an orc's worth, `great` for a great one besides); emptied by a fall (`fall` blocks) and by a blow taken on
+   * foot (`struck`, a harder blow the more). The trick off a kicker is chosen by how full it is as it was by the slider, and only full,
+   * at 8/8, are the guidebooks' tricks among them. Kept over the runs since the page was opened, as the arms are, and not in the browser.
+   */
+  const WILD = { blocks: 8, trick: [0.3, 1] as const, trickPts: 900, foe: 0.1, great: 1.5, fall: 3, struck: 1 };
+  let wildEarned = 0;
+  const wildMeter = $('wildMeter'), wildBlocks = [...wildMeter.querySelectorAll<HTMLElement>('i')], wildLvl = $('wildLvl');
+  /** How wild the tricks are to be, nothing to one: as earned, with orcs and weapons; else as the slider says. */
+  const wildness = () => (orcsOn ? wildEarned / WILD.blocks : Number(wildInput.value));
+  /** Whether the guidebooks' tricks may be chosen: always without orcs and weapons; with them, only with the meter full. */
+  const wildFull = () => !orcsOn || wildEarned >= WILD.blocks - 1e-6;
+  /** The meter drawn as it is: each block as far filled as it has come; and, `how`, a flash as it rises or falls. */
+  const showWild = (how: 'up' | 'down' | null = null) => {
+    wildBlocks.forEach((b, i) => b.style.setProperty('--f', clamp(wildEarned - i, 0, 1).toFixed(3)));
+    const n = Math.floor(wildEarned + 1e-6);
+    wildLvl.textContent = `${n}/${WILD.blocks}`;
+    wildMeter.setAttribute('aria-valuenow', wildEarned.toFixed(1));
+    wildMeter.classList.toggle('full', n >= WILD.blocks);
+    if (how) { wildMeter.classList.remove('up', 'down'); void wildMeter.offsetWidth; wildMeter.classList.add(how); }
+  };
+  /**
+   * `n` blocks more (or fewer), riding with orcs and weapons (not while the ride is tried out unseen, `quiet`); a block filled or lost
+   * said beside the meter, and the guidebooks opened as it fills.
+   */
+  const earnWild = (n: number) => {
+    if (!orcsOn || mode !== 'ride' || quiet || !n) return;
+    const was = Math.floor(wildEarned + 1e-6);
+    wildEarned = clamp(wildEarned + n, 0, WILD.blocks);
+    const now = Math.floor(wildEarned + 1e-6);
+    showWild(n > 0 ? 'up' : 'down');
+    if (now === was) return;
+    const r = wildMeter.getBoundingClientRect();
+    if (!r.width) return;
+    const words = now >= WILD.blocks ? 'the guidebooks open' : now > was ? 'wilder tricks' : 'milder tricks';
+    popUp([r.left - 52, r.top + r.height * (1 - (now + 0.5) / WILD.blocks)], `${now >= WILD.blocks ? 'Wild' : now > was ? '▲' : '▼'} ${now}/${WILD.blocks}`, now > was ? 'wild' : 'wild lost', words);
+  };
   /** The trick to make off kicker `k`, its lip `tLip` seconds off: one that should come round, by how wild the slider says. */
   const pickTrick = (k: Kicker, tLip: number): DemoTrick => {
     // (Ridden on standing easy, as a trick off the lip but a tucked one is taken, the last moments before it; and, for the tucked ones
     // (a cork, a ski jumper's flight), as the rider holds itself now, tucked or not: ridden on standing easy alone, a rider coming up
     // tucked, as most do, was reckoned to fly a quarter shorter than it did off its corks, and nothing past a 1080 was ever chosen.)
     const easy = (probeAirtime() || airtimeOff(k, ride.speed)) * 0.95, tucked = ask.y > 0.3 ? (probeAirtime(ask.y) || easy / 0.95) * 0.95 : easy;
-    const T = Math.max(easy, tucked), w = Number(wildInput.value), airFor = (t: DemoTrick) => (t.kind === 'flight' || t.cork ? tucked : easy);
+    const T = Math.max(easy, tucked), w = wildness(), airFor = (t: DemoTrick) => (t.kind === 'flight' || t.cork ? tucked : easy);
     pickedFor = T;
     // (A tuck takes a while to sink into, and standing tall for a flip a little less: neither is chosen too late to be stood in.)
     // (A spin of two turns and more turns hard on the ramp's last metres, which costs it some speed and so some of its time in the air.)
-    const can = TRICK_POOL.filter((p) => p.need + (p.t.halves >= 4 ? 0.06 : 0) <= airFor(p.t) && (!(p.t.kind === 'flight' || p.t.cork) || tLip > 1.25) && (p.t.kind !== 'flip' || tLip > 0.8));
+    // (And the tricks the guidebooks found have taught, `slopeLoot.ts`.)
+    const can = [...TRICK_POOL, ...learned().map((p) => ({ ...p, book: true }))].filter((p) => p.need + (p.t.halves >= 4 ? 0.06 : 0) <= airFor(p.t) && (!(p.t.kind === 'flight' || p.t.cork) || tLip > 1.25) && (p.t.kind !== 'flip' || tLip > 0.8));
     if (!can.length) return { kind: 'air', halves: 0 };
-    const weights = can.map((p) => Math.exp(-(((p.wild - w) / 0.16) ** 2)) + 0.002);
+    // (With the meter full, the guidebooks' tricks as likely as the wildest of the rest, whatever their own wildness says: the reward
+    // of filling it is to see them.)
+    const weights = can.map((p) => ('book' in p && orcsOn ? 1 : Math.exp(-(((p.wild - w) / 0.16) ** 2))) + 0.002);
     // (By chance, from where and when it is chosen: another each time a kicker is come up on, as no two runs are ridden alike.)
     const rng = trickRng.fork(`kicker ${k.i} ${ride.down.toFixed(1)} ${ride.time.toFixed(2)} ${trickPicks++}`);
     let r = rng.next() * weights.reduce((a, b) => a + b, 0);
     const i = Math.max(0, weights.findIndex((x) => (r -= x) <= 0));
     return { ...can[i].t, side: rng.chance(0.5) ? 1 : -1 };
   };
+  /** The tricks the guidebooks read teach, riding. */
+  const learned = (): { t: DemoTrick; wild: number; need: number }[] => (pack && mode === 'ride' && !flyingDemo && wildFull() ? pack.tricks() : []);
   /** The trick being made riding, if one is: off which kicker, what, and the time in the air it is made in once off the lip. */
   let rideTrick: { k: Kicker; trick: DemoTrick; air: Air | null } | null = null;
   /** The kicker the skier is coming up on, lined up on it and going its way, within a second and a half: and how far its lip is. */
@@ -4257,6 +4338,8 @@ async function start() {
     // (Where the keys' focus was, seen before the panel goes, which takes it along.)
     const inside = menuEl.contains(document.activeElement);
     menuOpen = open;
+    // (The pack shown afresh: the arm the foes have given may have changed since.)
+    if (open && pack) regear();
     menuEl.hidden = !open;
     // (The pointer goes off to the menu: it lets the skier go, and takes it again only once brought back over it.)
     if (open) letAimGo();
@@ -4372,6 +4455,8 @@ async function start() {
     viewButtons.forEach((b, i) => { b.classList.toggle('on', views[i][1] === view); b.hidden = mode === 'ride' && views[i][1] === 'free'; });
     $('playback').hidden = mode === 'ride';
     $('stick').hidden = $('tricky').hidden = $('restarts').hidden = mode === 'watch';
+    $('tricky').classList.toggle('earned', orcsOn);
+    showWild();
     restartButton.classList.toggle('on', !!crash);
     whoButtons.forEach((b, i) => b.classList.toggle('on', whos[i][1] === who));
     skiButtons.forEach((b, i) => b.classList.toggle('on', skiSets[i][1] === horse.skis));
@@ -4775,7 +4860,7 @@ async function start() {
   // (The sword drawn from the skier's back, and the rider's, is out of its scabbard there: `Outfit_Hilt`, `dressAdventurer`.)
   const hilts = new Map<Rider, Object3D | undefined>([[live, live.model.getObjectByName('Outfit_Hilt')], [jockey, jockey.model.getObjectByName('Outfit_Hilt')]]);
   /** The arm carried now: riding, by how many have been brought down (`slain`); watching the orc hunt, the tommy gun. */
-  const armNow = (): Arm => (mode === 'watch' ? (demoKind === 'show' ? showArm() : LADDER.find((a) => a.kind === 'smg')!) : armAfter(slain).arm);
+  const armNow = (): Arm => (mode === 'watch' ? (demoKind === 'show' ? showArm() : LADDER.find((a) => a.kind === 'smg')!) : carried());
   /**
    * The showcase's arm at the moment watched: each in turn, the sword to the bazooka, for two of the cinematic view's shots each, and
    * round again (asked: "the weapons can change between camera cuts, its fine").
@@ -5351,13 +5436,13 @@ async function start() {
   };
   // (With the orcs on, the sound woken by any click or key, the first that a browser lets wake it: not left to the first shot.)
   const wakeSound = () => { if (orcsOn) gunSound.wake(); };
-  // The bar toward the next arm (`#armBar`), riding with the arms: how far toward it, filled as each orc is brought down; full and
-  // gilt for a moment (`ARM_WON` seconds, the page's own) as an arm is taken up, then empty toward the one after it, or put away when
-  // there is none left to take up.
-  const ARM_WON = 1.6;
-  const armBar = $('armBar'), armBarFill = armBar.querySelector<HTMLElement>('.fill')!, armBarTrack = armBar.querySelector<HTMLElement>('.track')!;
+  // The bar toward the next arm (`#armBar`), riding with the arms, drawn as the tricks' meter is: a block for each `ARM_BLOCK` orcs
+  // toward it, filled as each is brought down; full and gilt for a moment (`ARM_WON` seconds, the page's own) as an arm is taken up,
+  // then empty toward the one after it, or put away when there is none left to take up.
+  const ARM_WON = 1.6, ARM_BLOCK = 5;
+  const armBar = $('armBar'), armBarBlocks = armBar.querySelector<HTMLElement>('.blocks')!;
   const armBarNext = armBar.querySelector<HTMLElement>('.next')!, armBarLeft = armBar.querySelector<HTMLElement>('.left')!;
-  let armBarArm = -1, armWonAt = -Infinity, armBarWon = false, armBarTold = '';
+  let armBarArm = -1, armWonAt = -Infinity, armBarTold = '';
   const armBarUp = (shown: boolean) => {
     const by = armAfter(slain), rung = LADDER.indexOf(by.arm), now = performance.now() / 1000;
     // (Taken up, not set back by the script's `slain`: only a step up the ladder is shown won.)
@@ -5365,14 +5450,13 @@ async function start() {
     const won = now - armWonAt < ARM_WON;
     shown &&= won || by.next !== null;
     if (armBar.hidden === shown) armBar.hidden = !shown;
-    // (Emptied at once as the moment ends, rather than drained.)
-    armBar.classList.toggle('snap', armBarWon && !won);
     armBar.classList.toggle('won', won);
-    armBarWon = won;
     if (!shown) return;
     const need = by.next ? by.next.after : 1, got = won ? need : need - by.left;
-    armBarFill.style.setProperty('--got', (got / need).toFixed(4));
-    armBarTrack.style.setProperty('--notch', `${((5 / need) * 100).toFixed(3)}%`);
+    const n = Math.max(1, Math.ceil(need / ARM_BLOCK));
+    while (armBarBlocks.children.length < n) armBarBlocks.appendChild(document.createElement('i'));
+    while (armBarBlocks.children.length > n) armBarBlocks.lastElementChild!.remove();
+    [...armBarBlocks.children].forEach((b, i) => (b as HTMLElement).style.setProperty('--f', clamp(got / ARM_BLOCK - i, 0, 1).toFixed(3)));
     say(armBarNext, won ? by.arm.name : by.next!.name);
     say(armBarLeft, won ? 'Taken up' : `${by.left} more`);
     const told = won ? `${by.arm.name} taken up` : `${got} of ${need} orcs toward the ${by.next!.name.toLowerCase()}`;
@@ -5414,8 +5498,17 @@ async function start() {
   const struck = (from: Vector3, kind: FoeKind) => {
     const f = foot, cave = caveNow();
     if (!f || !cave || mode !== 'ride') return;
+    // (A barrow ward worn: the blow turned aside, as often as it says.)
+    if (kit().shield && wardRng.chance(kit().shield)) {
+      const s = overPictureAt(rider.position.clone().addScaledVector(UP, 1.8));
+      if (s) popUp(s, 'Warded', 'trick', 'the blow turned aside');
+      wardRing.pulse();
+      gunSound.hear('ring');
+      return;
+    }
     const blow = kind.den?.blow ?? 1, lost = Math.round((200 * blow) / 10) * 10;
     score = Math.max(0, score - lost);
+    earnWild(-WILD.struck * blow);
     scoreEl.textContent = score.toLocaleString('en');
     if (blow > 2) bladeJolt = Math.max(bladeJolt, 0.6);
     const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2 * Math.sqrt(blow)), o = land.group.position;
@@ -5427,7 +5520,109 @@ async function start() {
     tell('Struck!', `${what} came at you`, true, 1.2);
     gunSound.hear('grunt');
   };
+  // ---------------------------------------------------------------- loot
+  /**
+   * What is found (`slopeLoot.ts`; asked: "it should be possible for the player to find loot from the dungeon treasures and killed
+   * bosses"): drawn as the chest at a dungeon's end is opened, or a great one is felled, riding; thrown up glowing where it was found
+   * and drawn to the player, and said on a card as it is taken; put in the pack (kept in the browser, `pack`, made where what is kept
+   * is read), worn at once if nothing is worn in its place, and changed in the menu.
+   */
+  const drops = new Drops(scene), wardRing = new WardRing(scene), lootCard = new LootCard($('loot'));
+  // (Each find drawn afresh, the page's time in its seed: no two sessions find alike.)
+  const lootRng = new Rng(`loot ${Date.now()}`), wardRng = lootRng.fork('wards');
+  let finds = 0;
+  /** Something found at `at`, as `source` gives, said to be `found` so; to wait over the snow, or `floor`. Riding only. */
+  const findLoot = (source: Source, at: Vector3, found: string, floor?: number) => {
+    if (!pack || mode !== 'ride' || flyingDemo) return null;
+    const item = rollLoot(lootRng.fork(`find ${finds++}`), source, pack.read, found);
+    drops.add(item, at, new Vector3(at.x, (floor ?? ground(at.x, at.z)) + 1, at.z));
+    return item;
+  };
+  /** Something found come to the player: put in the pack (worn, or read, if it can be), said, and a chime. */
+  const takeLoot = (item: Item) => {
+    if (!pack) return;
+    const on = pack.add(item);
+    lootCard.show(item, on);
+    gunSound.hear('ring');
+  };
+  giveLeft = () => { for (const it of drops.clear()) takeLoot(it); };
+  /** A frame on: what was found drawn to the player and taken; the card said. */
+  const stepLoot = (dt: number) => {
+    lootCard.step(performance.now() / 1000);
+    if (drops.count) for (const it of drops.step(dt, focus().addScaledVector(UP, 1.1), camera.quaternion)) takeLoot(it);
+  };
+  /** The weapon found and worn, riding: carried in place of the arm the foes brought down have given. */
+  const wornWeapon = (): Item | null => (pack && mode === 'ride' ? pack.wornIn('weapon') : null);
+  const carriedArms = new Map<string, Arm>();
+  /** The arm carried riding: the weapon worn, as its arm is but quicker to fire as it says (and named for it); else the foes' gift. */
+  const carried = (): Arm => {
+    const it = wornWeapon();
+    if (!it?.arm) return armAfter(slain).arm;
+    let a = carriedArms.get(it.id);
+    if (!a) {
+      const of = LADDER.find((x) => x.kind === it.arm)!;
+      a = { ...of, name: it.name, every: of.firing === 'swing' ? of.every : of.every * (1 - (it.mods.haste ?? 0)) };
+      carriedArms.set(it.id, a);
+    }
+    return a;
+  };
+  /**
+   * The ward worn, about the player while it carries arms: its ring on the snow as far out as it reaches, flaring as it acts. An ember
+   * ward burns every foe within its ring, so many blows a second, struck twice a second (each blow staggers what it does not bring
+   * down: struck every frame, they stood still); a storm ward calls a bolt down out of the sky on the nearest foe within its ring every
+   * so many seconds, as hard as the lightning gun's; a barrow ward turns aside blows on foot (`struck`); a magpie's charm only adds to
+   * the points, and has no ring.
+   */
+  let emberClock = 0, stormClock = 0;
+  const EMBER_EVERY = 0.5;
+  const wardStep = (dt: number, on: boolean) => {
+    const g = kit(), it = pack?.wornIn('ward'), kind = on && it?.ward && mode === 'ride' && !cat && !crash ? it.ward : null;
+    const r = kind === 'ember' ? g.emberR : kind === 'storm' ? g.stormR : kind === 'shield' ? 1.3 : 0, at = focus();
+    wardRing.step(dt, at, foot ? UP : normalAt(at.x, at.z, 0.6), r, kind ? WARD_COLOUR[kind] : '#fff');
+    if (!kind || dt <= 0) return;
+    if (kind === 'ember' && (emberClock += dt) >= EMBER_EVERY) {
+      emberClock = 0;
+      let any = false;
+      for (const o of horde.near(at, g.emberR)) {
+        any = true;
+        flames.burn(o.at, 4, 0.3);
+        const struck = horde.strike(o.orc, o.at.clone().sub(at).setY(0).normalize().multiplyScalar(2).addScaledVector(UP, 1.2), g.ember * EMBER_EVERY, false);
+        if (struck?.down) { flames.burn(o.at, 18); gunSound.grunt(); orcDowned(o.at, 'burnt', struck.kind); }
+      }
+      if (any) { wardRing.pulse(); gunSound.hear('flame'); }
+    }
+    if (kind === 'storm' && (stormClock += dt) >= g.storm) {
+      let best: { orc: number; at: Vector3 } | null = null, near = Infinity;
+      for (const o of horde.near(at, g.stormR)) { const d = o.at.distanceTo(at); if (d < near) { near = d; best = o; } }
+      // (None near: ready to strike the first that comes.)
+      if (!best) { stormClock = g.storm; return; }
+      stormClock = 0;
+      const sky = best.at.clone().add(new Vector3(wardRng.range(-3, 3), 18, wardRng.range(-3, 3)));
+      bolts.strike([sky, sky.clone().lerp(best.at, 0.5).add(new Vector3(wardRng.range(-1.5, 1.5), 0, wardRng.range(-1.5, 1.5))), best.at.clone()]);
+      burst(best.at, 2, 6);
+      gunSound.hear('zap');
+      wardRing.pulse();
+      const struck = horde.strike(best.orc, new Vector3(0, 3, 0), 2, false);
+      if (struck?.down) { gunSound.grunt(); orcDowned(best.at, 'zapped', struck.kind); }
+    }
+  };
+  /** What is had with nothing found worn in a slot, as the pack in the menu names it. */
+  const plainIn = (slot: Slot) => slot === 'skis' ? 'The skis you came with' : slot === 'boots' ? 'Your own boots' : slot === 'ward' ? 'No ward' : `${armAfter(slain).arm.name}, given by the foes brought down`;
+  /** What everything worn comes to, worked out again; the pack in the menu shown again. */
+  const regear = () => {
+    if (!pack) return;
+    worn = pack.mods();
+    carriedArms.clear();
+    packView($('pack'), pack, plainIn, () => {});
+    $('packEmpty').hidden = !pack.items.length;
+    const n = pack.items.length;
+    say($('packCount'), n ? `${n} found` : '');
+  };
+  $('packEmpty').addEventListener('click', () => { if (pack && confirm('Let go of everything found, and forget the guidebooks read?')) pack.empty(); });
+
   const armUp = (dt: number, now: Now) => {
+    // (A weapon found strikes harder.)
+    horde.might = 1 + kit().might;
     const on = armed(), human = who === 'person' ? live : who === 'mounted' ? jockey : null, watching = mode === 'watch';
     document.body.classList.toggle('gun', on);
     const arm = armNow(), model = arms.get(arm.kind)!, touch = !document.body.classList.contains('mouse');
@@ -5612,12 +5807,13 @@ async function start() {
     if (foot && cave) horde.within(going, den(cave), { at: rider.position, down: now.down, left: now.left, v, reach: 0.9 }, struck);
     else ranDown = horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
     for (const r of ranDown) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run', r.kind);
+    wardStep(going, !watching);
     showBosses(horde.bosses(rider.position));
     arenaOn(going);
     launchStep(going);
     say($('orcs'), String(horde.downed));
     // (Riding, what is carried: how many more until the next, the bar beside the picture says.)
-    say($('armSay'), watching ? '' : ` · ${armAfter(slain).arm.name}`);
+    say($('armSay'), watching ? '' : ` · ${arm.name}`);
   };
 
   // The view, following the skier. It keeps pace with the skier exactly down the slope, and eases only what the view does about it: how
@@ -5829,6 +6025,8 @@ async function start() {
       const s = overPictureAt(new Vector3(chest.x + o.x, chest.y + 1, chest.z + o.z));
       if (s) popUp(s, '+5,000', 'trick', 'treasure');
       tell('Treasure!', `the gold of ${cave.title.name.replace(/^The [A-Za-z]+ of /, '')} · 5,000 points`, false, 4);
+      // (And something more in it: `slopeLoot.ts`.)
+      findLoot('chest', new Vector3(chest.x + o.x, chest.y + 0.6, chest.z + o.z), `found in ${cave.title.name.replace(/^The /, 'the ')}`, chest.y);
     }
     if (!cave.inCamp(nx, nz, 1.2) && !cave.inside(nx, nz)) skisOn();
     // (Its way against the run's, as riding has it, for what it carries to be aimed from.)
@@ -6453,6 +6651,10 @@ async function start() {
   // Hiding the menus and the text, `H` too; the distance of the views from the skier. (Kept in this browser for next time, where it may.)
   const keep = (k: string, v: string) => { try { localStorage.setItem(`slope.${k}`, v); } catch { /* (not kept) */ } };
   const kept = (k: string) => { try { return localStorage.getItem(`slope.${k}`); } catch { return null; } };
+  // (What was found, had again as the page opens; `?pack=0` begins with nothing, not forgetting what is kept.)
+  pack = new Pack((json) => { if (query.get('pack') !== '0') keep('pack', json); }, query.get('pack') === '0' ? null : kept('pack'));
+  pack.onChange = regear;
+  regear();
   const distanceInput = $<HTMLInputElement>('distance');
   const setDistance = (d: number) => { distance = clamp(d, 0.5, 3); distanceInput.value = String(distance); $('distanceOut').textContent = `${distance.toFixed(1)}×`; keep('distance', String(distance)); };
   distanceInput.addEventListener('input', () => setDistance(Number(distanceInput.value)));
@@ -6679,6 +6881,7 @@ async function start() {
     }
     // (The tommy gun in the hands of whoever carries it, after the pose it was put in, and fired; or put away.)
     armUp(dt, at);
+    stepLoot(mode === 'ride' && playing && !menuOpen ? dt : 0);
     // (Where the skier is: on its skis, lain in the snow, or in the arm's hands or thrown.)
     const where = cat ? cat.at.clone() : focus();
     land.keepAbout(where.x, where.z);
@@ -6728,7 +6931,9 @@ async function start() {
     // (Steering by tilting: whether it steers now, and what it asks, from how the device was held as the run began.)
     tilt: () => ({ on: tilting(), x: +tilt.x.toFixed(2), y: +tilt.y.toFixed(2), calm: +tilt.calm.toFixed(1), ask: { x: +ask.x.toFixed(2), y: +ask.y.toFixed(2) } }),
     // (Riding: how wild the tricks are, and the trick being made, if one is.)
-    wild: (w: number) => { wildInput.value = String(w); }, trick: () => (rideTrick ? demoName(rideTrick.trick) : null),
+    // (With orcs and weapons, the meter filled so far, nothing to one; `meter`, how full it is.)
+    wild: (w: number) => { if (orcsOn) { wildEarned = clamp(w, 0, 1) * WILD.blocks; showWild(); } else wildInput.value = String(w); },
+    meter: () => ({ earned: +wildEarned.toFixed(2), of: WILD.blocks, full: wildFull(), wildness: +wildness().toFixed(3) }), trick: () => (rideTrick ? demoName(rideTrick.trick) : null),
     // (How long the `i`th kicker that stands is reckoned to keep a skier going at `speed` in the air.)
     airtime: (i: number, speed: number) => { const all = Array.from({ length: 60 }, (_, n) => kickerOf(n)).filter((k): k is Kicker => !!k && k.s < land.length); return airtimeOff(all[i] ?? all[0], speed); },
     // (Where the skier's hips are in the picture: -1 to 1 across and up it, 0 its middle.)
@@ -6921,8 +7126,8 @@ async function start() {
     // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
     cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), knoll: !!c.site.knoll, camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
-    // the gate, before the chest, or in room `back` (by its number).)
-    goCave: (where: 'ride' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' = 'camp', back = 50) => {
+    // the gate, before the chest, or in room `back` (by its number); or, `chest`, a step from the chest, to open it.)
+    goCave: (where: 'ride' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'chest' = 'camp', back = 50) => {
       const c = caveNow();
       if (!c) return false;
       if (mode !== 'ride') setMode('ride');
@@ -6930,12 +7135,30 @@ async function start() {
       // (`cart`: stopped `back` metres down the run from the camp, its end the rocket cart, to be driven back up into it.)
       if (where === 'cart') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s + back, f.left); placeKickers(ride.down); Object.assign(ride, { way: 0, speed: 0, ended: true }); ending = 'cart'; return true; }
       if (where === 'ride') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s - back, f.left); placeKickers(ride.down); ride.way = 0; ride.speed = 8; placed = false; return true; }
-      const sp = c.spot(where, back);
+      const sp = where === 'chest' ? { x: c.chest.at.x + 1.2, z: c.chest.at.z, heading: -Math.PI / 2 } : c.spot(where, back);
       if (!foot) { const f = land.frame(sp.x + o.x, sp.z + o.z); putAt(f.s, f.left); ride.speed = 0; skisOff(); }
       Object.assign(foot!, { x: sp.x + o.x, z: sp.z + o.z, y: c.floorUnder(sp.x, sp.z) ?? land.height(sp.x + o.x, sp.z + o.z), heading: sp.heading, speed: 0, room: -1 });
       placed = false;
       return true;
     },
+    // (Loot, `slopeLoot.ts`: something found, as a chest or a great one gives it, thrown up some metres ahead of the player and drawn to
+    // it (riding); or, given a slot, the first such find drawn for that slot (of `rarity`, if given). What is in the pack and worn, and
+    // what it comes to; something in it worn by its place in the pack (or nothing, `-1`); the pack emptied.)
+    loot: (what: Source | Slot = 'boss', rarity?: Item['rarity']) => {
+      if (!pack || mode !== 'ride') return null;
+      const at = focus().add(along(ride.way, here).multiplyScalar(6)).addScaledVector(UP, 1);
+      if (what === 'chest' || what === 'boss') return findLoot(what, at, 'given by a script')?.name ?? null;
+      for (let n = 0; n < 2000; n++) {
+        const it = rollLoot(lootRng.fork(`script ${finds++}`), n % 2 ? 'boss' : 'chest', pack.read, 'given by a script');
+        if (it.slot === what && (!rarity || it.rarity === rarity)) { drops.add(it, at, at); return it.name; }
+      }
+      return null;
+    },
+    pack: () => pack && { items: pack.items.map((i) => ({ name: i.name, slot: i.slot, rarity: i.rarity, mods: i.mods, worn: pack!.worn[i.slot] === i.id })), read: [...pack.read], kit: { ...worn }, carried: carried().name, drops: drops.count },
+    wear: (slot: Slot, n: number) => { if (!pack) return; const of = pack.items.filter((i) => i.slot === slot); pack.wear(slot, n < 0 ? null : of[n]?.id ?? null); },
+    emptyPack: () => pack?.empty(),
+    // (The tricks a kicker may be given now, by how long in the air: the guidebooks' among them.)
+    learned: () => learned().map((p) => demoName(p.t)),
     // (The demo run as flown for the skier now: how long, its parts, the tricks it landed, how many times each kicker was flown again.)
     // (Every kicker standing on the run: which, how far down, across, how big.)
     kickers: () => Array.from({ length: 60 }, (_, i) => kickerOf(i)).filter((k): k is Kicker => !!k && k.s < land.length).map((k) => ({ i: k.i, s: +k.s.toFixed(1), left: +k.left.toFixed(1), size: k.size })),
