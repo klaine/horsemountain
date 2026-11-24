@@ -110,8 +110,9 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   the info; each shot, burnt or struck down a hundred points and a white cross where a round struck, each run down or cut down a
   hundred and fifty, and a double, a triple, for each downed hard on the last.
 
-**The cave on Silent Warden.** Halfway down the run, where a bank rises beside the piste's left edge, a cave opens in a face of rock
-under a mound of snow, two torches at its mouth and a camp before it: a fire in a ring of stones smoking, logs to sit on, a rack, wood
+**The caves.** Halfway down every run, a cave opens beside the piste in a face of rock under a mound of snow: in a bank that rises
+beside it where there is one (Silent Warden, Warden's Spur, Balestead), elsewhere in a knoll raised for it near the edge of the run's
+snow, the piste drawn in beside it so that the knoll and its camp stand off the run. Two torches at its mouth and a camp before it: a fire in a ring of stones smoking, logs to sit on, a rack, wood
 stacked. Ride into the camp and the skier brakes to a stop and takes its skis off, leaving them (and the poles) on the rack; the horse's
 rider gets down and leaves the horse standing by the rack. On foot (W or the up arrow to go, A and D or the arrows to turn, S back,
 Shift only walking; the pointer above the middle, or the stick), into the mouth and down a tunnel of rough rock to a gate of dressed

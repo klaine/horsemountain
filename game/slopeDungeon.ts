@@ -66,7 +66,18 @@ export interface CaveSite {
   camp: { x: number; z: number };
   /** How long the tunnel is, from the mouth to the gate; and how far in the hole in the snow reaches. */
   length: number; holeTo: number;
+  /** Where no bank beside the piste would take a cave, the knoll raised for it (`Knoll`). */
+  knoll?: Knoll;
 }
+/** A hill raised in the run's snow: its middle, its long way (along the cave's way in), how far it reaches along that and across it, and how high. */
+export interface Knoll { x: number; z: number; ax: number; az: number; along: number; across: number; high: number }
+/** How much a knoll raises the snow at a point: most at its middle, none at its rim, smoothly. */
+export const knollAt = (k: Knoll, x: number, z: number) => {
+  const rx = x - k.x, rz = z - k.z, a = (rx * k.ax + rz * k.az) / k.along, b = (rx * k.az - rz * k.ax) / k.across, e = Math.hypot(a, b);
+  return e >= 1 ? 0 : k.high * Math.cos((Math.PI / 2) * e) ** 2;
+};
+/** A knoll's measures: long along the way in, so that the tunnel is under it soon and stays under it while it goes down. */
+const KNOLL = { along: 22, across: 13, high: 8.5 };
 
 /** A point `t` in along the cave's way from its mouth and `lat` to the left of its line. */
 export const sitePoint = (c: CaveSite, t: number, lat: number) => ({ x: c.mouth.x + c.ax * t + c.az * lat, z: c.mouth.z + c.az * t - c.ax * lat });
@@ -113,62 +124,124 @@ function sliceFrame(slice: SkiSlice) {
 /**
  * Where on `slice`'s run the cave is to be: of the places along the middle fifth of the run, on either side, the way in square to
  * the run or turned up to forty degrees from it, where the camp and the hole fit on the run's own snow, the bank closes over the
- * tunnel soonest, the camp wants the least levelling and the tunnel the least depth; and nearest the run's middle. None if none will do.
+ * tunnel soonest, the camp wants the least levelling and the tunnel the least depth; and nearest the run's middle. Where no bank will
+ * take one (on most runs the piste is as broad as the snow at a metre, and the land beside it falls away), a knoll is raised for it
+ * (asked: "for other runs find suitable spots to add a mound or adjust land shape to accomodate the entrance to the dungeeon"): in the
+ * run's snow near the edge of its band, its long way the way in (turned up to sixty degrees, the more up the run the sooner the tunnel
+ * is under the land), the mouth in its flank facing the piste, and the piste's edge drawn in to the camp's middle about it. None if
+ * neither will do.
  */
-export function findSite(slice: SkiSlice): CaveSite | null {
-  const F = sliceFrame(slice), L = F.length, H = F.height;
+export function findSite(slice: SkiSlice, kickers: KickerZone[] = []): CaveSite | null {
+  return searchSites(slice, false, kickers) ?? searchSites(slice, true, kickers);
+}
+/** Where a kicker stands on a run (along it and across), and how far along from there it and the snow it lands on reach. */
+export interface KickerZone { s: number; left: number; reach: number }
+/** Whether a cave at `site` keeps clear of a kicker and its landing, across its breadth, as `Cave.keepsClear` keeps kickers clear of it. */
+function keptClear(site: CaveSite, k: KickerZone, F: ReturnType<typeof sliceFrame>): boolean {
+  const c = site.camp, k_ = site.knoll;
+  for (let u = k.s; u <= k.s + k.reach; u += 3) for (const l of [k.left - 6, k.left, k.left + 6]) {
+    const p = F.at(u, l), [t, lat] = siteLocal(site, p.x, p.z);
+    if (Math.hypot(p.x - c.x, p.z - c.z) < CAVE.campR + CAVE.campBlend + 3) return false;
+    if (t > -1.5 && t < site.holeTo + 5 && Math.abs(lat) < MOUND_HALF + 2) return false;
+    if (k_ && knollAt({ ...k_, along: k_.along + 3, across: k_.across + 3 }, p.x, p.z) > 0) return false;
+  }
+  return true;
+}
+/**
+ * The run as a cave's site is looked for on it, before its land is made: how long, its piste's edges, a point along and across it, and
+ * where a kicker may stand (`Land.kickable`, as `sliceLand` has it), for where the kickers will stand to be found (`kickerZones` in `slope.ts`).
+ */
+export function sliceGround(slice: SkiSlice) {
+  const F = sliceFrame(slice), h = (u: number, l: number) => { const p = F.at(u, l); return F.height(p.x, p.z); };
+  return {
+    length: F.length, edges: F.edges,
+    kickable: (s: number, left: number, kick: number) => {
+      if (s + kick + 40 > F.length - 30) return false;
+      const fallAfter = (h(s + kick + 4, left) - h(s + kick + 30, left)) / 26, fallOn = (h(s, left) - h(s + kick, left)) / kick, tilt = Math.abs(h(s + kick / 2, left - 3) - h(s + kick / 2, left + 3)) / 6;
+      return fallAfter > Math.tan((13 * Math.PI) / 180) && fallOn < Math.tan((30 * Math.PI) / 180) && fallOn > Math.tan((5 * Math.PI) / 180) && tilt < 0.2;
+    },
+  };
+}
+function searchSites(slice: SkiSlice, raise: boolean, kickers: KickerZone[]): CaveSite | null {
+  const F = sliceFrame(slice), L = F.length;
   let best: { site: CaveSite; score: number } | null = null;
-  for (let s = 0.4 * L; s <= 0.6 * L; s += 5) {
+  for (let s = 0.4 * L; s <= 0.6 * L; s += raise ? 8 : 5) {
     const [lo, hi] = F.edges(s);
     for (const side of [1, -1]) {
-      const edge = side > 0 ? hi : lo, f = F.at(s, 0), lx = f.dz * side, lz = -f.dx * side;
-      for (const turn of [-40, -20, 0, 20, 40]) {
+      const edge = side > 0 ? hi : lo, other = side > 0 ? lo : hi, f = F.at(s, 0), lx = f.dz * side, lz = -f.dx * side;
+      for (const turn of raise ? [-60, -40, -20, 0, 20, 40, 60] : [-40, -20, 0, 20, 40]) {
         const a = (turn * Math.PI) / 180, ax = lx * Math.cos(a) + f.dx * Math.sin(a), az = lz * Math.cos(a) + f.dz * Math.sin(a);
-        const m = F.at(s, edge + side * 2.5), mouth = { x: m.x, z: m.z };
-        const site: CaveSite = { s, side, mouth, ax, az, y0: 0, deep: 0, camp: { x: 0, z: 0 }, length: 20, holeTo: 0 };
-        const P = (t: number, lat: number) => sitePoint(site, t, lat), Hs = (t: number, lat: number) => { const p = P(t, lat); return H(p.x, p.z); };
-        const c = P(-(CAVE.campR - 0.5), 0);
-        site.camp = { x: c.x, z: c.z };
-        // (The camp and the land about the mouth on the run's own snow, within its band.)
-        let fits = true, sum = 0, n = 0;
-        const heights: number[] = [];
-        for (let u = -CAVE.campR - 3; u <= CAVE.campR + 3 && fits; u += 1.5) for (let v = -CAVE.campR - 3; v <= CAVE.campR + 3 && fits; v += 1.5) {
-          const x = c.x + u, z = c.z + v;
-          if (!F.onSnow(x, z)) fits = false;
-          else if (u * u + v * v <= CAVE.campR * CAVE.campR) heights.push(H(x, z));
+        for (const inset of raise ? [4, 9] : [0]) {
+          let mouth: { x: number; z: number }, knoll: Knoll | undefined;
+          if (raise) {
+            // (The knoll as far out in the band as it fits, with `inset` metres to spare; the mouth on its flank, a little over halfway out.)
+            const k = F.at(s, side * (slice.half - inset - KNOLL.across)), along = KNOLL.along;
+            knoll = { x: k.x, z: k.z, ax, az, ...KNOLL };
+            let fits = true;
+            for (let i = 0; i < 24 && fits; i++) {
+              const w = (i / 24) * Math.PI * 2, px = k.x + (ax * Math.cos(w) * along + az * Math.sin(w) * KNOLL.across) * 1.05, pz = k.z + (az * Math.cos(w) * along - ax * Math.sin(w) * KNOLL.across) * 1.05;
+              if (!F.onSnow(px, pz)) fits = false;
+            }
+            if (!fits) continue;
+            mouth = { x: k.x - ax * along * 0.62, z: k.z - az * along * 0.62 };
+          } else { const m = F.at(s, edge + side * 2.5); mouth = { x: m.x, z: m.z }; }
+          const H = knoll ? (x: number, z: number) => F.height(x, z) + knollAt(knoll!, x, z) : F.height;
+          const site: CaveSite = { s, side, mouth, ax, az, y0: 0, deep: 0, camp: { x: 0, z: 0 }, length: 20, holeTo: 0, knoll };
+          const tried = trySite(F, site, H);
+          if (!tried) continue;
+          // (Clear of every kicker and the snow it lands on.)
+          if (kickers.some((k) => !keptClear(site, k, F))) continue;
+          const score = tried - 25 * Math.abs(s / L - 0.5) - 0.02 * Math.abs(turn);
+          if (!best || score > best.score) best = { site: { ...site, mouth: { ...site.mouth }, camp: { ...site.camp } }, score };
         }
-        if (!fits) continue;
-        heights.sort((p, q) => p - q);
-        site.y0 = heights[heights.length >> 1];
-        for (const h of heights) { sum += Math.abs(h - site.y0); n++; }
-        const levelling = sum / n;
-        // (How deep the dungeon lies, and so how long the tunnel down to it is: found again as the tunnel's length moves the dungeon.)
-        for (let k = 0; k < 5; k++) {
-          let least = Infinity;
-          for (let t = site.length; t <= site.length + CAVE.rows * CAVE.cell; t += 2) for (let lat = -CAVE.cols * CAVE.cell / 2; lat <= CAVE.cols * CAVE.cell / 2; lat += 2) least = Math.min(least, Hs(t, lat));
-          site.deep = Math.min(site.y0 - 2.5, least - CAVE.room - CAVE.cover);
-          site.length = CAVE.levelIn + (site.y0 - site.deep) / CAVE.grade + CAVE.levelOut;
-        }
-        if (site.y0 - site.deep > 20) continue;
-        // (How far in the tunnel comes under the snow, with the snow's hanging edge clear of its roof: from there on all the way.)
-        const clear = (t: number) => {
-          const roof = floorAt(site, t) + CAVE.tall + CAVE.rough + CAVE.tunnelCover;
-          for (const lat of [-HOLE_HALF - 1, -HOLE_HALF / 2, 0, HOLE_HALF / 2, HOLE_HALF + 1]) if (Hs(t, lat) < roof) return false;
-          return true;
-        };
-        let holeTo = site.length;
-        for (let t = site.length; t >= CAVE.holeFrom; t -= 0.5) { if (!clear(t)) break; holeTo = t; }
-        if (holeTo >= site.length - 1 || holeTo > 16) continue;
-        site.holeTo = Math.max(CAVE.holeFrom + 1, holeTo + 1);
-        // (The hole, the mound over it and its border on the run's snow.)
-        for (let t = -2; t <= site.holeTo + 4 && fits; t += 1) for (let lat = -MOUND_HALF - 2; lat <= MOUND_HALF + 2 && fits; lat += 1) { const p = P(t, lat); if (!F.onSnow(p.x, p.z)) fits = false; }
-        if (!fits) continue;
-        const score = -3 * levelling - 0.8 * site.holeTo - 0.25 * (site.y0 - site.deep) - 25 * Math.abs(s / L - 0.5) - 0.02 * Math.abs(turn);
-        if (!best || score > best.score) best = { site: { ...site, mouth: { ...site.mouth }, camp: { ...site.camp } }, score };
       }
     }
   }
   return best?.site ?? null;
+}
+/**
+ * Whether a cave will go at `site` (its mouth and its way in given) over the land `H`: the camp before the mouth and the land about the
+ * mouth on the run's own snow, the tunnel under the land a few metres in and all the way after, and the dungeon not too deep; its camp's
+ * height, how deep the dungeon is and how far in the hole reaches, set on it. Gives back how well it goes (more, better), or none.
+ */
+function trySite(F: ReturnType<typeof sliceFrame>, site: CaveSite, H: (x: number, z: number) => number): number | null {
+  const P = (t: number, lat: number) => sitePoint(site, t, lat), Hs = (t: number, lat: number) => { const p = P(t, lat); return H(p.x, p.z); };
+  const c = P(-(CAVE.campR - 0.5), 0);
+  site.camp = { x: c.x, z: c.z };
+  // (The camp and the land about the mouth on the run's own snow, within its band.)
+  let sum = 0;
+  const heights: number[] = [];
+  for (let u = -CAVE.campR - 3; u <= CAVE.campR + 3; u += 1.5) for (let v = -CAVE.campR - 3; v <= CAVE.campR + 3; v += 1.5) {
+    const x = c.x + u, z = c.z + v;
+    if (!F.onSnow(x, z)) return null;
+    if (u * u + v * v <= CAVE.campR * CAVE.campR) heights.push(H(x, z));
+  }
+  heights.sort((p, q) => p - q);
+  site.y0 = heights[heights.length >> 1];
+  for (const h of heights) sum += Math.abs(h - site.y0);
+  const levelling = sum / heights.length;
+  // (The hole, the mound over it and its border on the run's snow: looked at first, being quickest.)
+  for (let t = -2; t <= 10; t += 1) for (let lat = -MOUND_HALF - 2; lat <= MOUND_HALF + 2; lat += 1) { const p = P(t, lat); if (!F.onSnow(p.x, p.z)) return null; }
+  // (How deep the dungeon lies, and so how long the tunnel down to it is: found again as the tunnel's length moves the dungeon.)
+  for (let k = 0; k < 5; k++) {
+    let least = Infinity;
+    for (let t = site.length; t <= site.length + CAVE.rows * CAVE.cell; t += 2) for (let lat = -CAVE.cols * CAVE.cell / 2; lat <= CAVE.cols * CAVE.cell / 2; lat += 2) least = Math.min(least, Hs(t, lat));
+    site.deep = Math.min(site.y0 - 2.5, least - CAVE.room - CAVE.cover);
+    site.length = CAVE.levelIn + (site.y0 - site.deep) / CAVE.grade + CAVE.levelOut;
+  }
+  if (site.y0 - site.deep > 20) return null;
+  // (How far in the tunnel comes under the snow, with the snow's hanging edge clear of its roof: from there on all the way.)
+  const clear = (t: number) => {
+    const roof = floorAt(site, t) + CAVE.tall + CAVE.rough + CAVE.tunnelCover;
+    for (const lat of [-HOLE_HALF - 1, -HOLE_HALF / 2, 0, HOLE_HALF / 2, HOLE_HALF + 1]) if (Hs(t, lat) < roof) return false;
+    return true;
+  };
+  let holeTo = site.length;
+  for (let t = site.length; t >= CAVE.holeFrom; t -= 0.5) { if (!clear(t)) break; holeTo = t; }
+  if (holeTo >= site.length - 1 || holeTo > 16) return null;
+  site.holeTo = Math.max(CAVE.holeFrom + 1, holeTo + 1);
+  for (let t = 10; t <= site.holeTo + 4; t += 1) for (let lat = -MOUND_HALF - 2; lat <= MOUND_HALF + 2; lat += 1) { const p = P(t, lat); if (!F.onSnow(p.x, p.z)) return null; }
+  return -3 * levelling - 0.8 * site.holeTo - 0.25 * (site.y0 - site.deep);
 }
 
 // ------------------------------------------------------------------------------------------------------- the snow levelled and cut
@@ -184,6 +257,17 @@ export type BaseHeight = (x: number, z: number) => number;
  */
 export function carve(slice: SkiSlice, site: CaveSite): BaseHeight {
   const F = sliceFrame(slice), { snow, near, far } = F;
+  // (A raised knoll first, into the snow at a metre and the land at four under it; and the piste's edge drawn in to the camp about it,
+  // eased over eighty metres either way.)
+  const k = site.knoll;
+  if (k) {
+    for (const g of [snow, near]) for (let j = 0; j < g.nz; j++) for (let i = 0; i < g.nx; i++) {
+      const x = g.x0 + i * g.cell, z = g.z0 + j * g.cell;
+      if (Math.abs(x - k.x) > k.along + 2 || Math.abs(z - k.z) > k.along + 2) continue;
+      const n = j * g.nx + i;
+      if (!Number.isNaN(g.data[n])) g.data[n] += knollAt(k, x, z);
+    }
+  }
   const level = (g: Grid, k: number, x: number, z: number) => {
     const [t, lat] = siteLocal(site, x, z), dc = Math.hypot(x - site.camp.x, z - site.camp.z);
     const camp = 1 - smooth((dc - CAVE.campR) / CAVE.campBlend);
@@ -1426,7 +1510,10 @@ export class Cave {
   /** Whether a kicker may stand at a point: well clear of the camp and the mound. */
   keepsClear(x: number, z: number): boolean {
     const [t, lat] = siteLocal(this.site, x, z);
-    return Math.hypot(x - this.site.camp.x, z - this.site.camp.z) > CAVE.campR + 12 && !(t > -CAVE.campR * 2 - 6 && t < this.site.holeTo + 6 && Math.abs(lat) < MOUND_HALF + 8);
+    // (Off the camp and its levelled edge, the mound, and the knoll, with a few metres to spare: kickers are where they were wherever
+    // they kept clear of these, and the demo runs fly as they did.)
+    const k = this.site.knoll;
+    return Math.hypot(x - this.site.camp.x, z - this.site.camp.z) > CAVE.campR + CAVE.campBlend + 2 && !(t > -1.5 && t < this.site.holeTo + 5 && Math.abs(lat) < MOUND_HALF + 2) && !(k && knollAt({ ...k, along: k.along + 3, across: k.across + 3 }, x, z) > 0);
   }
   /** How many torches burn in it, and rooms it has (for a script). */
   get counts() { return { seed: this.seed, tags: Object.values(this.layout.tags).join(','), name: this.layout.name, torches: this.torches.length, rooms: this.layout.rooms.map((r) => `${r.kind}${r.level < 0 ? ' (below)' : ''}`), doors: this.layout.doors.map((d) => d.kind), length: +this.site.length.toFixed(1), deep: +(this.site.y0 - this.site.deep).toFixed(1) }; }

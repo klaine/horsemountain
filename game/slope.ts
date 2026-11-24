@@ -72,7 +72,7 @@ import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
-import { carve, Cave, findSite } from './slopeDungeon';
+import { carve, Cave, findSite, sliceGround } from './slopeDungeon';
 import { horseCadence, horseWalk, Walker } from './slopeFoot';
 import { MiniMap } from './slopeMini';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
@@ -129,6 +129,30 @@ interface KickDims { size: number; L: number; H: number; B: number; half: number
 const kickDims = (size: number): KickDims => ({ size, L: KICK.length * size, H: KICK.height * size ** 1.4, B: KICK.back * size, half: KICK.half * (0.8 + 0.2 * size), side: KICK.side * size });
 const kickLefts = new Map<number, number>();
 const kickerLeft = (i: number, most = 14) => { let v = kickLefts.get(i); if (v === undefined) { v = new Rng(`kicker ${i}`).range(-1, 1); kickLefts.set(i, v); } return v * most; };
+/**
+ * Where the `i`th kicker stands on a land, as a kicker of size 1 would (how big it is built is found after, `kickSize`), and how much
+ * room it has either side to be built broader; none if none may stand there. Across the skiable path at its own place, in from either
+ * edge further than the band where the skier is turned back towards the middle, there and all along the sixty metres before it where it
+ * is lined up on: one within it, there or where the path is narrower on the way to it, could not be lined up on. (Its own function, so
+ * that where the kickers will stand is known before a run's land is made, for the cave to keep out of their way: `kickerZones`.)
+ */
+const kickerSpot = (l: { length: number; edges(s: number): [number, number]; kickable(s: number, left: number, length: number): boolean }, i: number): { s: number; left: number; spare: number } | null => {
+  const one = kickDims(1);
+  for (let shift = 0; shift <= (l.length === Infinity ? 0 : KICK.shift); shift += 6) {
+    const s = KICK.first + i * KICK.every + shift, [lo, hi] = l.edges(s);
+    let room = 14;
+    for (let u = s - 60; u <= s; u += 6) { const [a, b] = l.edges(u), mid = (lo + hi) / 2; room = Math.min(room, Math.min(mid - a, b - mid) - Math.min(8, (b - a) / 4) - one.half - one.side - 1); }
+    const off = kickerLeft(i, clamp(room, 0, 14)), left = (lo + hi) / 2 + off;
+    if (l.kickable(s, left, one.L + one.B)) return { s, left, spare: room - Math.abs(off) };
+  }
+  return null;
+};
+/** Where every kicker will stand on a run, and how far it and the snow it lands on reach along it: what a cave keeps out of the way of. */
+const kickerZones = (l: { length: number; edges(s: number): [number, number]; kickable(s: number, left: number, length: number): boolean }) => {
+  const out: { s: number; left: number; reach: number }[] = [];
+  for (let i = 0; i < 60; i++) { const k = kickerSpot(l, i); if (k && k.s < l.length) out.push({ s: k.s, left: k.left, reach: kickDims(KICK_SIZES[0]).L + kickDims(KICK_SIZES[0]).B + 50 }); }
+  return out;
+};
 /** A kicker's height `u` along it from its foot, and how steeply it rises there. */
 const rise = (d: KickDims, u: number): [number, number] => {
   const { L, H, B } = d, P = KICK.power;
@@ -304,9 +328,10 @@ async function start() {
   // each somewhere the others are not; then, asked "can we add the remaining 4 other runs to make it 8 total?", the second, fourteenth,
   // seventeenth and twenty-fifth, each again somewhere the others are not: the rest came down the same spurs as these, or were too flat
   // for a kicker.)
-  // (And a cave halfway down one of them, with a dungeon in it, `slopeDungeon.ts` (asked: "could we have a run have dungeon?"): Silent
-  // Warden's, where a bank rises beside the piste, and the run the page opens on.)
-  const runs: { id: string; label: string; where?: string; title: string; detail: string; cave?: boolean }[] = [
+  // (And a cave halfway down each, with a dungeon in it, `slopeDungeon.ts` (asked: "could we have a run have dungeon?"; then "add the
+  // caves to warden's spur and balestead; and for other runs find suitable spots to add a mound or adjust land shape"): in a bank
+  // beside the piste where there is one, Silent Warden's, Warden's Spur's and Balestead's; elsewhere in a knoll raised for it.)
+  const runs: { id: string; label: string; where?: string; title: string; detail: string; cave?: boolean }[] = ([
     { id: 'w2', label: 'Silent Warden', where: 'below The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side; halfway down, a cave in the bank beside the piste, a camp before it and a tomb under the mountain', detail: '1.02 km along a crest, from beside the highest summit; a cave halfway down', cave: true },
     { id: 'w2-3', label: 'Pale Crown', where: 'below The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay', detail: '1.43 km down a spur into wooded foothills above a bay' },
     { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge', detail: '0.80 km, the steepest, under rock walls to a lake' },
@@ -315,7 +340,7 @@ async function start() {
     { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end to the lake below Ashbridge that Ashbridge comes down to, its kickers big', detail: '1.47 km, broad above and steep below, big kickers, to the lake' },
     { id: 'w2-17', label: 'Balestead', where: 'near Balestead', title: 'In among the mountains, down a crest to the glen below Balestead', detail: '0.77 km down a crest inside the range' },
     { id: 'w2-25', label: 'Arford', where: 'above Arford', title: 'Long, gentle and broad, out of the foothills down to the shore above Arford', detail: '1.02 km, gentle and broad, to the shore' },
-  ];
+  ]).map((r) => ({ ...r, cave: true, title: r.title.includes('cave') ? r.title : `${r.title}; halfway down, a cave beside the piste, a camp before it and a dungeon under the mountain`, detail: r.detail.includes('cave') ? r.detail : `${r.detail}; a cave halfway down` }));
   const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
   if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
   // (A land is a run, by its slice's name, or the groomed slope.)
@@ -524,7 +549,12 @@ async function start() {
     made.group.add(cave.group);
     (made as CaveLand).cave = cave;
     const kickable = made.kickable;
-    made.kickable = (s, left, length) => { const a = made.at(s, left), b = made.at(s + length + 30, left); return kickable(s, left, length) && cave.keepsClear(a.x, a.z) && cave.keepsClear(b.x, b.z); };
+    // (Its ramp and the snow it lands on, across its breadth, each clear.)
+    made.kickable = (s, left, length) => {
+      if (!kickable(s, left, length)) return false;
+      for (let u = s; u <= s + length + 22; u += 3) for (const l of [left - 4, left, left + 4]) { const p = made.at(u, l); if (!cave.keepsClear(p.x, p.z)) return false; }
+      return true;
+    };
     const poles = made.group.getObjectByName('poles') as InstancedMesh | undefined, m = new Matrix4(), p = new Vector3();
     if (poles) {
       for (let i = 0; i < poles.count; i++) { poles.getMatrixAt(i, m); p.setFromMatrixPosition(m); if (cave.inCamp(p.x, p.z, 1.5) || cave.skiTop(p.x, p.z) !== null) poles.setMatrixAt(i, m.makeScale(0, 0, 0)); }
@@ -548,7 +578,8 @@ async function start() {
       // (Without its slice, the groomed slope.)
       const slice = sliceText ? readSlice(sliceText) : null, where = runs.find((r) => r.id === kind)?.where;
       // (The cave's camp levelled and the hole behind its mouth cut in the slice, before its land is made from it.)
-      const site = slice && runs.find((r) => r.id === kind)?.cave ? findSite(slice) : null, base = site && slice ? carve(slice, site) : null;
+      // (`?cave=0`: none, the runs as they were before them.)
+      const site = slice && runs.find((r) => r.id === kind)?.cave && query.get('cave') !== '0' ? findSite(slice, kickerZones(sliceGround(slice))) : null, base = site && slice ? carve(slice, site) : null;
       made = slice ? sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined) : await landOf('groomed');
       // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
       if (slice && where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
@@ -583,18 +614,7 @@ async function start() {
   const kickerAt = new Map<number, Kicker | null>();
   const kickerOf = (i: number): Kicker | null => {
     if (kickerAt.has(i)) return kickerAt.get(i)!;
-    let k: Kicker | null = null;
-    const one = kickDims(1);
-    for (let shift = 0; shift <= (land.length === Infinity ? 0 : KICK.shift) && !k; shift += 6) {
-      // (Across the skiable path at its own place, in from either edge further than the band where the skier is turned back towards
-      // the middle, there and all along the sixty metres before it where it is lined up on: one within it, there or where the path is
-      // narrower on the way to it, could not be lined up on.) (Where it stands, as a kicker of size 1 would; then how big it is.)
-      const s = KICK.first + i * KICK.every + shift, [lo, hi] = land.edges(s);
-      let room = 14;
-      for (let u = s - 60; u <= s; u += 6) { const [a, b] = land.edges(u), mid = (lo + hi) / 2; room = Math.min(room, Math.min(mid - a, b - mid) - Math.min(8, (b - a) / 4) - one.half - one.side - 1); }
-      const off = kickerLeft(i, clamp(room, 0, 14)), left = (lo + hi) / 2 + off;
-      if (land.kickable(s, left, one.L + one.B)) { const p = land.at(s, left); k = { i, s, left, ...p, ...kickSize(i, s, left, p, room - Math.abs(off)) }; }
-    }
+    const at = kickerSpot(land, i), p = at && land.at(at.s, at.left), k: Kicker | null = at && p ? { i, s: at.s, left: at.left, ...p, ...kickSize(i, at.s, at.left, p, at.spare) } : null;
     kickerAt.set(i, k);
     return k;
   };
@@ -6299,7 +6319,7 @@ async function start() {
     // (On foot, turned to face a point, for a script.)
     faceTo: (x: number, z: number) => { if (foot) { foot.heading = Math.atan2(x - foot.x, z - foot.z); placed = false; } return !!foot; },
     // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
-    cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
+    cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), knoll: !!c.site.knoll, camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
     // the gate, before the chest, or in room `back` (by its number).)
     goCave: (where: 'ride' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' = 'camp', back = 50) => {
@@ -6315,6 +6335,8 @@ async function start() {
       return true;
     },
     // (The demo run as flown for the skier now: how long, its parts, the tricks it landed, how many times each kicker was flown again.)
+    // (Where the demo run is `t` seconds in: how far down, across, how fast.)
+    demoAt: (at: number) => { const w = watchPose(at); return { down: +w.down.toFixed(2), left: +w.left.toFixed(2), speed: +w.speed.toFixed(2) }; },
     demo: () => ({ length: demo.length, parts: demo.parts, landed: demo.landed, tries: demo.tries, fell: demo.fell, flown: demo.flown }),
   };
   requestAnimationFrame(frame);
