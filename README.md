@@ -94,7 +94,7 @@ ride on), and then one of the ways that carry you through the air (the one you k
   one by chance) takes you to its top where it lies in the world, kilometres off, over the country between; the old run is let go of
   once you are down. The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
-  Enter, a click, or on a phone a tap, begins the next run at once. Riding wins points, thrown up over the picture where
+  Enter, a click, or on a phone *Next run* on the sheet at the foot (a tap on the picture is a thumb steering), begins the next run at once. Riding wins points, thrown up over the picture where
   they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the
   longer in the air, and its length; the most won in one run on each slope is kept in the browser, and shown beside them. With *Orcs & weapons* on in the menu (off at first), the skier alone or the
   horse's rider carries a weapon in place of its poles, and takes up a better one as it brings orcs down, counted over every run

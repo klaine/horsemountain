@@ -5169,7 +5169,10 @@ async function start() {
   canvas.addEventListener('pointerdown', (e) => {
     // (By touch, a tap on the picture while the run's end is at its work begins the next run at once, as a click does and Enter: a
     // phone has no Enter. Not in its first moment, where a finger may still be coming off the picture.)
-    if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && cat && cat.t > 0.4) { restart(); return; }
+    // (Not on a phone or a tablet with its strip, whose thumbs are on the picture now, the stick coming to the left one (asked, of runs
+    // begun again by themselves: "I had the instant reset still happen on silent warden ending"): a thumb steering as the run ended
+    // threw the whole way back away. There *Next run*, on the sheet at the foot, begins it at once.)
+    if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && cat && cat.t > 0.4 && !touchHud) { restart(); return; }
     // (On foot, the mouse its own: the left button attacking (or, with nothing carried, walking after the pointer), the right walking
     // after it; a tap with nothing carried walks to where it is.)
     if (footMouse(e)) {
