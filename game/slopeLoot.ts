@@ -384,23 +384,24 @@ export const WARD_COLOUR: Record<WardKind, string> = { ember: '#ff7a3a', storm: 
  * and whether it was put on (or read) or put in the pack. One at a time, each for some seconds; those found together after each other.
  */
 export class LootCard {
-  private readonly queue: { item: Item; on: boolean }[] = [];
+  private readonly queue: { item: Item; on: boolean; note?: string }[] = [];
   private until = 0;
   constructor(private readonly el: HTMLElement) {}
-  show(item: Item, on: boolean): void { this.queue.push({ item, on }); }
+  /** Said as found; `note`, said in place of whether it was put on. */
+  show(item: Item, on: boolean, note?: string): void { this.queue.push({ item, on, note }); }
   step(now: number): void {
     if (now < this.until) return;
     if (this.el.classList.contains('on')) { this.el.classList.remove('on'); this.until = now + 0.45; return; }
     const next = this.queue.shift();
     if (!next) return;
-    const { item, on } = next, el = this.el;
+    const { item, on, note } = next, el = this.el;
     el.style.setProperty('--rarity', RARITY[item.rarity].colour);
     el.querySelector('.kind')!.textContent = kindOf(item);
     el.querySelector('.name')!.textContent = item.name;
     const lines = el.querySelector('.lines')!;
     // (A book's last line, what it looks like, set apart from what it teaches.)
     lines.replaceChildren(...linesOf(item).map((t, i, all) => Object.assign(document.createElement('li'), { textContent: t, className: item.book && i === all.length - 1 ? 'about' : '' })));
-    el.querySelector('.where')!.textContent = `${item.found} · ${item.book ? 'read, and learned for good' : on ? 'put on' : 'in your pack (Menu)'}`;
+    el.querySelector('.where')!.textContent = `${item.found} · ${note ?? (item.book ? 'read, and learned for good' : on ? 'put on' : 'in your pack (Menu)')}`;
     void el.offsetWidth;
     el.classList.add('on');
     this.until = now + (item.book ? 6 : 4.6);
@@ -411,7 +412,7 @@ export class LootCard {
  * The pack in the menu (`#pack`): for each slot, what is worn and what else is in the pack, each a card to put it on by; and the books
  * read. `plain` names what is had with nothing worn in a slot (the skis the skier came with; the arm the foes have given).
  */
-export function packView(el: HTMLElement, pack: Pack, plain: (slot: Slot) => string, onWear: (slot: Slot) => void): void {
+export function packView(el: HTMLElement, pack: Pack, plain: (slot: Slot) => string, onWear: (slot: Slot) => void, note: (slot: Slot) => string = () => ''): void {
   const parts: HTMLElement[] = [];
   const card = (title: string, lines: string[], on: boolean, colour: string | null, click: (() => void) | null) => {
     const b = document.createElement(click ? 'button' : 'div');
@@ -425,6 +426,9 @@ export function packView(el: HTMLElement, pack: Pack, plain: (slot: Slot) => str
     const of = pack.items.filter((i) => i.slot === slot), worn = pack.wornIn(slot);
     const h = document.createElement('div'); h.className = 'slot'; h.textContent = SLOT_NAME[slot];
     parts.push(h);
+    // (What holds the slot back, if anything: found weapons until the bazooka is taken up.)
+    const said = note(slot);
+    if (said) parts.push(Object.assign(document.createElement('p'), { className: 'note held', textContent: said }));
     parts.push(card(plain(slot), [], !worn, null, of.length ? () => { pack.wear(slot, null); onWear(slot); } : null));
     for (const it of [...of].reverse()) parts.push(card(it.name, [kindOf(it), ...linesOf(it)], it === worn, RARITY[it.rarity].colour, () => { pack.wear(slot, it.id); onWear(slot); }));
   }

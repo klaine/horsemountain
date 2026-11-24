@@ -1730,6 +1730,8 @@ async function start() {
       slain++;
       const now = armAfter(slain).arm;
       if (now !== was && at) popUp([at[0], at[1] - 40], now.name, 'trick', `${slain} down`);
+      // (The bazooka taken up: a weapon found and worn is carried from now on, said so.)
+      if (now !== was && weaponsFree() && wornWeapon()) tell(`${wornWeapon()!.name}!`, 'the weapon you found, carried now that the bazooka is yours', false, 3.5);
       // (A great one leaves something behind it.)
       if (foe.titles) findLoot('boss', p, `left by ${horde.lastGreat || 'a great one'}`);
       earnWild(WILD.foe * foe.worth + (foe.titles ? WILD.great : 0));
@@ -5712,7 +5714,7 @@ async function start() {
   const takeLoot = (item: Item) => {
     if (!pack) return;
     const on = pack.add(item);
-    lootCard.show(item, on);
+    lootCard.show(item, on, item.slot === 'weapon' && !weaponsFree() ? `in your pack · ${HELD_BACK.toLowerCase()}` : undefined);
     gunSound.hear('ring');
   };
   giveLeft = () => { for (const it of drops.clear()) takeLoot(it); };
@@ -5721,8 +5723,15 @@ async function start() {
     lootCard.step(performance.now() / 1000);
     if (drops.count) for (const it of drops.step(dt, focus().addScaledVector(UP, 1.1), camera.quaternion)) takeLoot(it);
   };
-  /** The weapon found and worn, riding: carried in place of the arm the foes brought down have given. */
-  const wornWeapon = (): Item | null => (pack && mode === 'ride' ? pack.wornIn('weapon') : null);
+  /**
+   * Whether a weapon found may be carried (asked: "also disable looted weapons until the weapons progression is at bazooka level"):
+   * only once the foes brought down have given the last of their arms, the bazooka. Until then, found weapons are kept in the pack,
+   * worn there, but the foes' arm is carried, and the weapon's might is not had.
+   */
+  const weaponsFree = () => armAfter(slain).next === null;
+  const HELD_BACK = 'Carried once the bazooka is taken up';
+  /** The weapon found and worn, riding, once it may be carried: carried in place of the arm the foes brought down have given. */
+  const wornWeapon = (): Item | null => (pack && mode === 'ride' && weaponsFree() ? pack.wornIn('weapon') : null);
   const carriedArms = new Map<string, Arm>();
   /** The arm carried riding: the weapon worn, as its arm is but quicker to fire as it says (and named for it); else the foes' gift. */
   const carried = (): Arm => {
@@ -5783,7 +5792,7 @@ async function start() {
     if (!pack) return;
     worn = pack.mods();
     carriedArms.clear();
-    packView($('pack'), pack, plainIn, () => {});
+    packView($('pack'), pack, plainIn, () => {}, (slot) => (slot === 'weapon' && !weaponsFree() && pack!.items.some((i) => i.slot === 'weapon') ? `${HELD_BACK}: until then, the foes' arm is carried.` : ''));
     $('packEmpty').hidden = !pack.items.length;
     const n = pack.items.length;
     say($('packCount'), n ? `${n} found` : '');
@@ -5792,7 +5801,7 @@ async function start() {
 
   const armUp = (dt: number, now: Now) => {
     // (A weapon found strikes harder.)
-    horde.might = 1 + kit().might;
+    horde.might = 1 + (wornWeapon() ? kit().might : 0);
     const on = armed(), human = who === 'person' ? live : who === 'mounted' ? jockey : null, watching = mode === 'watch';
     document.body.classList.toggle('gun', on);
     const arm = armNow(), model = arms.get(arm.kind)!, touch = !document.body.classList.contains('mouse');

@@ -182,7 +182,8 @@ air), masters' boots land a spin or a flip come up some degrees short, hobnailed
 landing. *Wards*, about you while you carry arms, a ring on the snow as far as each reaches, flaring as it acts: an ember ward burns
 every foe within it, a storm ward calls lightning down out of the sky on the nearest every couple of seconds, a barrow ward turns
 aside the blows of the orcs in the dungeon, a magpie's charm adds to the points won for tricks and foes. *Weapons*: an arm of the foes' ladder made
-better, striking harder and (what fires) firing quicker, carried in place of the arm the foes have given while it is worn. And
+better, striking harder and (what fires) firing quicker, carried in place of the arm the foes have given while it is worn, but only
+once the foes have given the last of theirs, the bazooka: until then it waits in the pack, said so there and as it is found. And
 *guidebooks*, read as they are found and learned for good: *The Rodeo Scrolls* (a rodeo 540 and 900), *The Barrelwright's Almanac*
 (the double barrel roll), the *Codex of the Three Turnings* (the triple backflip) and the *Treatise on the Triple Cork* (triple corks
 of 1440 and 1800), the trick chosen off a kicker then sometimes theirs, when the air it gives is long enough and the slider wild
