@@ -382,7 +382,13 @@ async function start() {
   const safe: { level: number; why: string } = (() => {
     const asked = query.get('safe');
     if (asked !== null) { try { localStorage.removeItem(SAFE.key); } catch { /* (not kept) */ } return { level: clamp(Number(asked) || 0, 0, SAFE.most), why: 'asked for in the address' }; }
-    try { const k = JSON.parse(localStorage.getItem(SAFE.key) ?? 'null'); if (k && typeof k.level === 'number') return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') }; } catch { /* (none kept) */ }
+    try {
+      const k = JSON.parse(localStorage.getItem(SAFE.key) ?? 'null');
+      // (Fallen back for WebGPU on an iPhone or an iPad, which now draws by WebGL 2 from the first: forgotten.)
+      const apple = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 0);
+      if (k && apple && !k.gl && !query.has('webgpu')) { localStorage.removeItem(SAFE.key); return { level: 0, why: '' }; }
+      if (k && typeof k.level === 'number') return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') };
+    } catch { /* (none kept) */ }
     return { level: 0, why: '' };
   })();
   await loading.stage('start', safe.level ? 'Waking the graphics, drawn simply for this device' : undefined);
@@ -392,7 +398,13 @@ async function start() {
   // floating-point number tells apart alike near and far (asked: "i see flickering materials along the edges of the near and far land
   // types"): kept the usual way, from a tenth of a metre out to five kilometres, two surfaces less than half a metre apart a kilometre
   // off could not be told apart, and the land at its three grains, where one lies over another, flickered through each other.)
-  const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl') || safe.level >= 2, reversedDepthBuffer: true });
+  // (On an iPhone or an iPad, by WebGL 2 from the first, whatever the browser, all of which draw there as Safari does (asked, of the
+  // picture gone black on an iPad, riding: "it went black first, then reloaded"): its WebGPU stopped drawing now and then, after a while
+  // riding or the land turned inside out, the page going on under a black picture, and the device never said lost. `?webgpu` asks for
+  // it all the same. An iPad says it is a Mac, but one with a touch screen.)
+  const appleTouch = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 0);
+  const webglFirst = appleTouch && !query.has('webgpu');
+  const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl') || safe.level >= 2 || webglFirst, reversedDepthBuffer: true });
   await renderer.init();
   /** When the page was opened, to the moment: what fails while it opens, or in the seconds after, is the device's; later, it is let be. */
   let openedAt = Infinity, fallingBack = false;
@@ -407,7 +419,7 @@ async function start() {
   };
   const fallBack = (why: string, late = false) => {
     if (fallingBack || (!late && performance.now() > openedAt + SAFE.within)) return;
-    const webglAlready = query.has('webgl') || safe.level >= 2, next = safe.level + 1;
+    const webglAlready = query.has('webgl') || safe.level >= 2 || webglFirst, next = safe.level + 1;
     if (late) noteLost(why);
     // (Already as simple as it is drawn: nothing more to fall back on; once open, opened again all the same, rather than left black.)
     if (late && (next > SAFE.most || (next === 2 && webglAlready && snowLook === 'plain'))) { fallingBack = true; loading.fail('The graphics failed: opening again…'); setTimeout(() => location.reload(), 1200); return; }
@@ -415,7 +427,8 @@ async function start() {
     fallingBack = true;
     console.warn(`Grand Horse Mountain will draw more simply here (${next}): ${why}`);
     let kept = false;
-    try { localStorage.setItem(SAFE.key, JSON.stringify({ level: next, why })); kept = localStorage.getItem(SAFE.key) !== null; } catch { /* (not kept) */ }
+    // (And whether it was drawing by WebGL 2 when it failed: `gl`.)
+    try { localStorage.setItem(SAFE.key, JSON.stringify({ level: next, why, gl: !(renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend })); kept = localStorage.getItem(SAFE.key) !== null; } catch { /* (not kept) */ }
     loading.fail('This device could not draw everything: opening again, drawn more simply…');
     // (Opened again: by its address, where this browser keeps nothing, so that it cannot come back to the same.)
     setTimeout(() => {
@@ -7752,6 +7765,7 @@ async function start() {
     // once as it is drawn: made so, the page stood frozen for the four seconds they took, the loading screen's bar with it, and they
     // took a second and more longer. With WebGPU only: with WebGL 2, made this way they took twice as long, ten seconds for five.)
     // (And everything else there is with it: `warmSoon`. Opening, drawn this frame behind the loading screen; later, only made ready.)
+    keepSane();
     let unwarm: (() => void) | null = null;
     // (Not while shaders given up on are still being made: asked for again once they are.)
     if (warmWanted && !warming) {
@@ -7777,7 +7791,9 @@ async function start() {
       uShutter.value = clamp(1 / 60 / Math.max(realDt, 1e-3), 0.005, 3) * blurLevel;
       uBlur.value = blurLevel;
       // (The land turning over in focus as it does, rather than the skier, small in the middle of it.)
-      uFocus.value = Math.max(3, camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position));
+      // (A number gone bad here blackens the whole picture, every point of it blurred by it: kept to a sane one.)
+      const focusAt = camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position);
+      uFocus.value = Number.isFinite(focusAt) ? Math.max(3, focusAt) : 10;
       pipeline.render();
     } else sharp.render();
     unwarm?.();
@@ -7791,6 +7807,29 @@ async function start() {
    * on this page (so that a browser that gives back nothing of its picture is never taken for a black one), black or empty three times
    * over, outdoors, where nothing is ever black, and the graphics are taken to have failed: the page opened again, drawn more simply.
    */
+  /** What was so as the picture came out black, for what is kept of it (`noteLost`): the eye and the rider sane or not, and the run's state. */
+  const pictureState = () => {
+    const ok = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    return [`eye ${ok(camera.position) ? 'ok' : 'bad'}`, `rider ${ok(rider.position) ? 'ok' : 'bad'}`, `view ${view}`, ride.ended ? 'ended' : '', asking ? 'asking' : '', crash ? 'fallen' : '', cat ? `way ${cat.by}` : '', inside ? 'inside out' : '', foot ? 'on foot' : '', `blur ${blurLevel}`].filter(Boolean).join(', ');
+  };
+  /**
+   * The eye and the rider kept sane each frame: a place gone to no number (as from a length of nothing made one), drawn, blackens the
+   * picture for good. Seen so, the run begun again from its top (the ride's own numbers gone bad), or the eye put back behind the rider;
+   * and said, the first time.
+   */
+  let insaneSaid = false;
+  const keepSane = () => {
+    const ok = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    const rideOk = [ride.x, ride.y, ride.z, ride.speed, ride.way, ride.down, ride.left].every(Number.isFinite);
+    if (rideOk && ok(rider.position) && ok(camera.position)) return;
+    const what = `${rideOk ? '' : 'the ride '}${ok(rider.position) ? '' : 'the rider '}${ok(camera.position) ? '' : 'the eye'}`.trim();
+    console.warn(`Grand Horse Mountain: ${what} went to no number (${pictureState()})`);
+    if (!insaneSaid) { insaneSaid = true; tell('Something went wrong', `${what} went to no number: set right`, true, 6); }
+    if (!rideOk || !ok(rider.position)) { restart(); return; }
+    camera.position.copy(rider.position).add(new Vector3(0, 4, -8));
+    camera.lookAt(rider.position);
+    placed = false;
+  };
   const probe = document.createElement('canvas');
   probe.width = probe.height = 8;
   const probeCtx = probe.getContext('2d', { willReadFrequently: true });
@@ -7811,7 +7850,7 @@ async function start() {
       if (!probeSeen) return;
       blackFor++;
       console.warn(`Grand Horse Mountain: the picture came out black (${blackFor})`);
-      if (blackFor >= 3) fallBack('the picture went black', true);
+      if (blackFor >= 3) fallBack(`the picture went black (${pictureState()})`, true);
     }).catch(() => { /* (not to be told) */ }).finally(() => { probing = false; });
   };
   const __look = (off: Vector3) => { heldLook = null; view = 'free'; controls.enabled = true; const at = focus(); camera.position.copy(at).add(off); controls.target.copy(at).addScaledVector(UP, 0.9); controls.update(); lastRider.copy(at); placed = true; };
@@ -8076,6 +8115,8 @@ async function start() {
     },
     // (Whether the picture has been seen drawn, and how many times over since it came out black: `probeBlack`.)
     blackProbe: () => ({ seen: probeSeen, black: blackFor }),
+    // (What it draws by, WebGPU or WebGL 2, and how simply.)
+    graphics: () => ({ webgpu, safe: safe.level }),
     pack: () => pack && { items: pack.items.map((i) => ({ name: i.name, slot: i.slot, rarity: i.rarity, mods: i.mods, worn: pack!.worn[i.slot] === i.id })), read: [...pack.read], kit: { ...worn }, carried: carried().name, drops: drops.count },
     wear: (slot: Slot, n: number) => { if (!pack) return; const of = pack.items.filter((i) => i.slot === slot); pack.wear(slot, n < 0 ? null : of[n]?.id ?? null); },
     emptyPack: () => pack?.empty(),
