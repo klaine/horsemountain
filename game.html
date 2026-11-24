@@ -112,7 +112,45 @@
     #menu .wide.map { margin: 0 0 8px; }
     #menu .keys { margin: 20px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-dim); }
     #menu .keys.more { margin-top: 6px; }
-    #menu h2 #packCount { font: 600 10.5px/1 var(--sans); letter-spacing: .04em; text-transform: none; color: var(--ink-dim); }
+    /* (Asked: "redo the menu also for usability in mind for the player, similar style": what is ridden and the way back to it first, a
+       card at its head (*Resume*, *Restart run*, *Map of the runs*); then four parts, one shown at a time, chosen by tabs, the last
+       chosen kept: *Play*, *Pack*, *Skier & view*, *Settings*.) */
+    #menu .now { display: grid; gap: 10px; margin: 12px 14px 0; padding: 12px; border-radius: 14px; background: rgba(232, 226, 214, .06); }
+    #menu .now .here { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+    #menu .now .run { min-width: 0; font: 700 12px/1.2 "Cinzel", var(--serif); letter-spacing: .14em; text-transform: uppercase; color: var(--brass); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #menu .now .doing { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+    #menu .now .acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    #menu .now .acts .go { grid-column: 1 / -1; }
+    #menu .now #restarts[hidden] + .map { grid-column: 1 / -1; }
+    #menu .now .acts button { min-height: 46px; padding: 0 8px; border-radius: 12px; background: transparent; border-color: var(--edge); font-weight: 650; font-size: 13.5px; }
+    #menu .now .acts button.go { background: var(--brass); color: var(--on-brass); border-color: var(--brass); font-weight: 700; }
+    #restarts { display: contents; }
+    #restarts[hidden] { display: none; }
+    #menu .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; margin: 12px 14px 4px; padding: 3px; border-radius: 12px;
+      background: rgba(232, 226, 214, .06); border: 1px solid var(--rule); }
+    #menu .tabs button { min-height: 40px; padding: 0 4px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-dim); font-weight: 650; font-size: 12.5px; white-space: nowrap; }
+    #menu .tabs button:hover:not([aria-selected="true"]) { color: var(--ink); background: var(--band); }
+    #menu .tabs button[aria-selected="true"] { background: var(--brass); color: var(--on-brass); }
+    #menu .tabs #packCount:not(:empty) { margin-left: 5px; padding: 1px 6px; border-radius: 8px; font-size: 10.5px; background: rgba(232, 226, 214, .16); }
+    #menu .tabs button[aria-selected="true"] #packCount { background: rgba(26, 20, 8, .18); }
+    #menu section.tab > :first-child { margin-top: 10px; }
+    #menu section.tab > h2:first-child { margin-top: 14px; }
+    /* (Held sideways, the picture short: the run and its buttons in one row, the tabs slimmer, so that most of the panel is its part.) */
+    @media (max-height: 500px) and (orientation: landscape) {
+      #menu .head { padding-top: 4px; padding-bottom: 4px; }
+      #menu .now { gap: 7px; margin-top: 8px; padding: 8px 10px; }
+      #menu .now .acts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+      #menu .now .acts .go { grid-column: auto; }
+      #menu .now #restarts[hidden] + .map { grid-column: auto; }
+      #menu .now .acts button { min-height: 38px; padding: 0 10px; font-size: 12.5px; }
+      #menu .tabs { margin-top: 8px; }
+      #menu .tabs button { min-height: 34px !important; font-size: 12px !important; }
+    }
+    @media (pointer: coarse) {
+      #menu .seg button { min-height: 44px; }
+      #menu .tabs button { min-height: 44px; font-size: 13px; }
+      #menu .cards button { padding: 12px 14px 13px; }
+    }
     #menu .pack-note { margin-top: 0; }
     #menu .pack { display: grid; gap: 5px; margin-top: 8px; }
     #menu .pack .slot { margin: 8px 0 1px; font: 600 12px/1.2 var(--sans); color: var(--ink-dim); }
@@ -131,7 +169,7 @@
     @media (pointer: coarse) { #menu .keys { display: none; } }
     /* (A phone held upright: a sheet from the foot, over the lower part of the picture, the skier still seen above it.) */
     @media (max-width: 600px) and (orientation: portrait) {
-      #menu { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 62vh; max-height: 62dvh; border-radius: 18px 18px 0 0; border-bottom: 0;
+      #menu { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 78vh; max-height: 78dvh; border-radius: 18px 18px 0 0; border-bottom: 0;
         padding-bottom: env(safe-area-inset-bottom, 0px); animation-name: sheetUp; }
       #menu .head { padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
       #menu .scroll { padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px)); }
@@ -435,7 +473,7 @@
     /* (Riding, the run begun again the first thing in the menu (asked: "make restart run the top menu item in menu if a run is
        ongoing"), over *Play*; watching, not there.) */
     #restart { font-weight: 600; }
-    #restarts #restart { margin-top: 14px; }
+
 
     /* What has just happened: a landing named, or a fall, over the upper middle of the picture. */
     #told { position: fixed; left: 50%; top: calc(16% + env(safe-area-inset-top, 0px)); transform: translate(-50%, -6px); padding: 8px 18px 9px; text-align: center;
@@ -560,6 +598,20 @@
        tapped for the minimap; the bottom left to the thumbs alone, the stick with its words inside its ring and the skate and the 180
        as two round buttons at the lower right; the run's end a sheet at the foot. (`body.touchhud`: no mouse, as the page opened.) */
     #rail, #runEnd, #armBar .now, #armBar .to { display: none; }
+    /* Another run being made, riding (asked: "it froze for a while after selecting the new location, it didnt show that it is loading the
+       other run"): the ride held, and a card saying where to and what is being done, its wheel turning even while the page works. */
+    #making { position: fixed; left: 50%; top: calc(22% + env(safe-area-inset-top, 0px)); translate: -50% 0; z-index: 4; display: flex; align-items: center; gap: 13px;
+      box-sizing: border-box; min-width: min(260px, calc(100vw - 32px)); max-width: calc(100vw - 32px); padding: 12px 16px 13px; border-radius: 14px;
+      background: var(--sheet); border: 1px solid var(--rule); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); pointer-events: none; }
+    #making[hidden] { display: none; }
+    #making .spin { flex: none; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 2.5px solid rgba(232, 226, 214, .22); border-top-color: var(--brass); animation: spin .9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #making .say { display: grid; gap: 3px; min-width: 0; flex: 1; }
+    #making b { font: 700 15px/1.2 var(--sans); color: var(--ink); }
+    #making span { font-size: 12px; color: var(--ink-dim); }
+    #making .bar { position: relative; height: 3px; margin-top: 5px; border-radius: 2px; overflow: hidden; background: var(--band-strong); }
+    #making .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--k, 0) * 100%); background: var(--brass); transition: width .3s ease-out; }
+    body.choosing #making, body.menu-open #making { display: none; }
     body.touchhud { --strip: 44px; --stripTop: calc(12px + env(safe-area-inset-top, 0px)); --under: calc(var(--stripTop) + var(--strip) + 8px); --wildW: 150px; --menuW: 44px; }
     body.touchhud #menuButton { top: var(--stripTop); width: var(--menuW); height: var(--strip); min-height: 0; padding: 0; border-radius: 12px; justify-content: center; font-size: 0; gap: 0; }
     body.touchhud #armBar, body.touchhud #tricky .wild { position: fixed; top: var(--stripTop); height: var(--strip); box-sizing: border-box; border-radius: 12px; border-color: transparent;
@@ -737,45 +789,66 @@
   </div>
   <div id="menu" hidden role="dialog" aria-label="Menu" tabindex="-1">
     <div class="head"><span class="what">Grand Horse Mountain</span><button id="menuClose" class="close" type="button" title="Close the menu (H)" aria-label="Close the menu">✕</button></div>
-    <div class="scroll">
-      <div id="restarts" hidden><button id="restart" class="wide" type="button" title="Start the run again from the top (Enter)">Restart run</button></div>
-      <h2>Play</h2>
-      <div class="seg big" id="modes"></div>
-      <div class="field" id="pisteField"><span class="label">Off piste</span><div class="seg" id="pisteSeg" role="group" aria-label="Off piste"></div></div>
-      <div class="field" id="orcsField"><span class="label">Orcs &amp; weapons</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and weapons"></div></div>
-      <div class="field" id="tiltField" hidden><span class="label">Steering</span><div class="seg" id="tiltSeg" role="group" aria-label="Steering"></div></div>
-      <div class="field" id="waysField"><span class="label">Back to the top</span><div class="seg rows" id="waysSeg" role="group" aria-label="How to get back to the top as a run ends"></div></div>
-      <div id="playback">
-        <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
-        <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
+    <div class="now">
+      <div class="here"><span class="run" id="menuRun">Silent Warden</span><span class="doing" id="menuDoing">Riding</span></div>
+      <div class="acts">
+        <button id="menuResume" class="go" type="button" title="Back to it (H, or Escape)">Resume</button>
+        <div id="restarts" hidden><button id="restart" type="button" title="Start the run again from the top (Enter)">Restart run</button></div>
+        <button id="openMap" class="map" type="button" title="The map of the runs, to choose one to ride (M)">Map of the runs</button>
       </div>
-      <h2>Pack <span id="packCount"></span></h2>
-      <p class="note pack-note">Found in the chests at the ends of the dungeons and on the great ones felled, kept in this browser. Click one to wear it; weapons and wards act with <i>Orcs &amp; weapons</i> on.</p>
-      <div class="pack" id="pack" role="group" aria-label="What has been found"></div>
-      <button id="packEmpty" class="wide quiet" type="button" hidden>Empty the pack</button>
-      <h2>Slope</h2>
-      <button id="openMap" class="wide map" type="button" title="The map of the runs, to choose one to ride (M)">Map of the runs</button>
-      <div class="cards" id="lands" role="group" aria-label="Slope"></div>
-      <h2>Skier</h2>
-      <div class="seg" id="skiers" role="group" aria-label="Skier"></div>
-      <div class="field" id="skisets" hidden><span class="label">Skis</span><div class="seg" role="group" aria-label="Skis"></div></div>
-      <h2>Camera</h2>
-      <div class="seg" id="views" role="group" aria-label="View"></div>
-      <div class="field" id="slowmoField"><span class="label">Jumps in slow motion</span><div class="seg" id="slowmoSeg" role="group" aria-label="Jumps off the kickers in slow motion, in the cinematic view"></div></div>
-      <label class="row slider"><span class="label">Distance</span><input id="distance" type="range" min="0.5" max="3" step="0.05" value="1" aria-label="How far the view is from the skier"><output id="distanceOut">1.0×</output></label>
-      <h2>Picture</h2>
-      <div class="field" id="snows"><span class="label">Snow</span><div class="seg" role="group" aria-label="Snow"></div></div>
-      <div class="field" id="infoField"><span class="label">Info at the top left</span><div class="seg" id="infoSeg" role="group" aria-label="What the skier is doing and how fast, at the top left"></div></div>
-      <div class="field" id="miniField"><span class="label">Minimap</span><div class="seg" id="miniSeg" role="group" aria-label="Minimap"></div></div>
-      <div class="field"><span class="label">Resolution</span><div class="seg" id="resolutions" role="group" aria-label="Resolution"></div></div>
-      <p class="note" id="safeNote" hidden><span></span> <button type="button">Try full detail</button></p>
-      <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
-      <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
-      <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
-      <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Z</kbd> (held) skate · <kbd>Enter</kbd> next run</p>
-      <p class="keys more"><b>Tommy gun</b> hold to fire at the mark · <kbd>Shift</kbd> brakes</p>
+    </div>
+    <div class="tabs" id="menuTabs" role="tablist" aria-label="The menu's parts">
+      <button type="button" role="tab" data-tab="play" aria-controls="tabPlay">Play</button>
+      <button type="button" role="tab" data-tab="pack" aria-controls="tabPack">Pack<span id="packCount"></span></button>
+      <button type="button" role="tab" data-tab="view" aria-controls="tabView">Skier &amp; view</button>
+      <button type="button" role="tab" data-tab="settings" aria-controls="tabSettings">Settings</button>
+    </div>
+    <div class="scroll">
+      <section class="tab" id="tabPlay" data-tab="play" role="tabpanel" aria-label="Play">
+        <div class="seg big" id="modes"></div>
+        <div id="playback">
+          <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
+          <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
+        </div>
+        <h2>Riding</h2>
+        <div class="field" id="orcsField"><span class="label">Orcs &amp; weapons</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and weapons"></div></div>
+        <div class="field" id="pisteField"><span class="label">Off piste</span><div class="seg" id="pisteSeg" role="group" aria-label="Off piste"></div></div>
+        <div class="field" id="tiltField" hidden><span class="label">Steering</span><div class="seg" id="tiltSeg" role="group" aria-label="Steering"></div></div>
+        <div class="field" id="waysField"><span class="label">Back to the top</span><div class="seg rows" id="waysSeg" role="group" aria-label="How to get back to the top as a run ends"></div></div>
+        <h2>Runs</h2>
+        <div class="cards" id="lands" role="group" aria-label="Slope"></div>
+      </section>
+      <section class="tab" id="tabPack" data-tab="pack" role="tabpanel" aria-label="Pack" hidden>
+        <p class="note pack-note">Found in the chests at the ends of the dungeons and on the great ones felled, kept in this browser. Tap one to wear it; weapons and wards act with <i>Orcs &amp; weapons</i> on.</p>
+        <div class="pack" id="pack" role="group" aria-label="What has been found"></div>
+        <button id="packEmpty" class="wide quiet" type="button" hidden>Empty the pack</button>
+      </section>
+      <section class="tab" id="tabView" data-tab="view" role="tabpanel" aria-label="Skier and view" hidden>
+        <h2>Skier</h2>
+        <div class="seg" id="skiers" role="group" aria-label="Skier"></div>
+        <div class="field" id="skisets" hidden><span class="label">Skis</span><div class="seg" role="group" aria-label="Skis"></div></div>
+        <h2>Camera</h2>
+        <div class="seg" id="views" role="group" aria-label="View"></div>
+        <label class="row slider"><span class="label">Distance</span><input id="distance" type="range" min="0.5" max="3" step="0.05" value="1" aria-label="How far the view is from the skier"><output id="distanceOut">1.0×</output></label>
+        <div class="field" id="slowmoField"><span class="label">Jumps in slow motion</span><div class="seg" id="slowmoSeg" role="group" aria-label="Jumps off the kickers in slow motion, in the cinematic view"></div></div>
+      </section>
+      <section class="tab" id="tabSettings" data-tab="settings" role="tabpanel" aria-label="Settings" hidden>
+        <h2>On the screen</h2>
+        <div class="field" id="miniField"><span class="label">Minimap</span><div class="seg" id="miniSeg" role="group" aria-label="Minimap"></div></div>
+        <div class="field" id="infoField"><span class="label">Info at the top left</span><div class="seg" id="infoSeg" role="group" aria-label="What the skier is doing and how fast, at the top left"></div></div>
+        <h2>Picture</h2>
+        <div class="field" id="snows"><span class="label">Snow</span><div class="seg" role="group" aria-label="Snow"></div></div>
+        <div class="field"><span class="label">Resolution</span><div class="seg" id="resolutions" role="group" aria-label="Resolution"></div></div>
+        <p class="note" id="safeNote" hidden><span></span> <button type="button">Try full detail</button></p>
+        <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
+        <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
+        <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
+        <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Z</kbd> (held) skate · <kbd>Enter</kbd> next run</p>
+        <p class="keys more"><b>Tommy gun</b> hold to fire at the mark · <kbd>Shift</kbd> brakes</p>
+      </section>
     </div>
   </div>
+  <div id="making" hidden role="status" aria-live="polite"><i class="spin" aria-hidden="true"></i><div class="say"><b id="makingWhat">Off to the next run</b><span id="makingStep">Making the mountain ready</span><div class="bar"><i></i></div></div></div>
   <div id="status" class="waiting" role="progressbar" aria-label="Loading Grand Horse Mountain" aria-valuemin="0" aria-valuemax="100">
     <span class="horse">GRAND HORSE</span><span class="mountain">Mountain</span>
     <div class="bar"><div class="fill"></div></div>

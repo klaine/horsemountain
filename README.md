@@ -88,7 +88,9 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   jump's in-run of ice and snow falling from its top toward the top of the run; you drop in, crouched as a ski jumper is, take off
   from its table and fly all the way back as a ski jumper flies, laid out over your skis, and your parachute lets you down at the top.
   And choosing another run while you ride one (on the map, `M`), you are taken there the same way: the new run is made while you ride
-  on, *Off to* it said over the picture, and then one of the ways that carry you through the air (the one you keep, if it is one, or
+  on, *Off to* it said over the picture (on a phone, where making it holds the page for seconds, the ride is held meanwhile under a card
+with a turning wheel, saying what is being done, until the new run and its shaders are ready; on a computer the card is said as you
+ride on), and then one of the ways that carry you through the air (the one you keep, if it is one, or
   one by chance) takes you to its top where it lies in the world, kilometres off, over the country between; the old run is let go of
   once you are down. The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
@@ -199,8 +201,11 @@ sideways): what became of it, its points, how far down and how long, the tricks 
 the runs* or *Next run*. On a computer, all as it was.
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
-the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, riding, *Restart run* first, at its
-top; then *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;
+the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. At its head a card names the run and
+what you are doing, with *Resume*, *Restart run* (riding) and *Map of the runs*; under it four tabs, one part shown at a time and the
+last chosen kept: *Play* (the demos or riding, the orcs and weapons, off piste, steering, the way back, the runs), *Pack*, *Skier & view*
+(the skier, the skis, the camera, slow motion) and *Settings* (the minimap, the info, the snow, resolution and blur, the keys). In
+more detail: *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;
 riding is held while the menu is open), *Slope* (*Map of the runs*, the map the game opens on, or `M`; eight runs down the mountain: *Silent Warden* from beside its highest summit along a crest; *Pale
 Crown*, longer, down a spur into the wooded foothills above a bay; *Ashbridge*, short and steep, along the foot of the range
 under its rock walls to a lake in a glen; *Carndale*, long and gentle, down a wooded spur in the west to a lake; *Warden's Spur*, from

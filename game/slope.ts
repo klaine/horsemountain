@@ -225,9 +225,9 @@ const loading = (() => {
   const paint = () => new Promise<void>((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 80); });
   /** Work after opening (a slope, a demo run): the screen over the picture while it is done, the bar sweeping. */
   /** Made quietly, the screen not shown (`hush`): a run made while the rider rides on to it. */
-  let hushed = false;
+  let hushed = false, hushSaid: ((text: string) => void) | null = null;
   const busy = (text: string): Promise<void> => {
-    if (hushed) return paint();
+    if (hushed) { hushSaid?.(text); return paint(); }
     if (opening) { say.textContent = text; return paint(); }
     box.hidden = false; box.classList.remove('gone', 'failed'); box.classList.add('waiting'); say.textContent = text;
     fill.style.transform = 'scaleX(0)';
@@ -236,7 +236,10 @@ const loading = (() => {
   };
   return {
     busy,
-    hush(on: boolean) { hushed = on; },
+    /** Quiet, or not; and, quiet, told what is being done (the card a run made while riding is said on: `travelTo`). */
+    hush(on: boolean, said: ((text: string) => void) | null = null) { hushed = on; hushSaid = on ? said : null; },
+    /** A moment for what has changed on the page to be shown, before work that holds it. */
+    paint,
     /** The stage of opening now begun, said, and a moment for it to be shown; after opening, said as other work is. */
     stage(name: Stage, text?: string): Promise<void> {
       const i = STAGES.findIndex(([n]) => n === name), now = performance.now();
@@ -2056,14 +2059,19 @@ async function start() {
     const rng = endRng.fork(`trip ${kind} ${ride.time.toFixed(2)}`), flying = ENDINGS.filter(carries);
     const way: Ending = backBy !== 'ask' && backBy !== 'random' && carries(backBy) ? backBy : rng.pick(flying);
     const mine = (trip = { kind, land: null, base: null, from, way, top: new Vector3(), downhill: new Vector3(), started: false, swapped: false, start: new Vector3() });
-    tell(`Off to ${label}`, 'making the mountain ready', false, 60);
-    loading.hush(true);
+    // (Held while it is made, and said so, the card's wheel turning (asked: "it froze for a while after selecting the new location, it
+    // didnt show that it is loading the other run"): made on a phone, each of its steps held the page for a second or more, the ride
+    // jerking on between them, and the shaders made ready after them held it for seconds more, with nothing said.)
+    makingFor(label);
+    await loading.paint();
+    loading.hush(true, (text) => makingStep(text));
     let base: Land;
-    try { base = await landOf(kind); } finally { loading.hush(false); }
+    try { base = await landOf(kind); } catch (e) { makingDone(); throw e; } finally { loading.hush(false); }
     // (Broken off while it was made, by another run chosen, or watching: let be.)
-    if (trip !== mine) return;
+    if (trip !== mine) { makingDone(); return; }
+    makingStep('Making its shaders ready', 0.85);
     const fromTop = landTop, toTop = topOf.get(base);
-    if (!fromTop || !toTop || land !== from) { trip = null; void setLand(kind); return; }
+    if (!fromTop || !toTop || land !== from) { makingDone(); trip = null; void setLand(kind); return; }
     // (Stood where it lies from the land ridden, as that one is stood.)
     const off = landShift.clone().add(toTop.clone().sub(fromTop)), stood = shiftedLand(base, off), top = stood.at(0, 0);
     stood.group.visible = false;
@@ -2071,6 +2079,40 @@ async function start() {
     Object.assign(trip, { land: stood, base, top: new Vector3(top.x, stood.height(top.x, top.z), top.z), downhill: runDir(stood.frame(top.x, top.z, 0)) });
     warmWith.add(stood.group);
     warmSoon();
+  };
+  /**
+   * The card said while another run is made riding (`#making`): where to, what is being done and how far it has got; the ride held
+   * meanwhile (and let go again only if it was going), until its land is made and its shaders ready (`stepMaking`).
+   */
+  const makingEl = $('making'), makingBar = makingEl.querySelector('.bar') as HTMLElement;
+  let making: { held: boolean; k: number } | null = null;
+  const makingFor = (label: string) => {
+    if (making) makingDone();
+    // (Held on a phone or a tablet, where it is slow to make; on a computer, ridden on as before, the card said all the same.)
+    making = { held: touchHud && mode === 'ride' && playing, k: 0.08 };
+    if (making.held) { playing = false; reflect(); }
+    say($('makingWhat'), `Off to ${label}`);
+    makingStep('Fetching the mountain', 0.08);
+    makingEl.hidden = false;
+  };
+  const makingStep = (text: string, k?: number) => {
+    if (!making) return;
+    making.k = k ?? Math.min(0.75, making.k + 0.22);
+    say($('makingStep'), text);
+    makingBar.style.setProperty('--k', making.k.toFixed(3));
+  };
+  const makingDone = () => {
+    if (!making) return;
+    const held = making.held;
+    making = null;
+    makingEl.hidden = true;
+    if (held && mode === 'ride' && !playing) { playing = true; reflect(); }
+  };
+  /** Each frame: once the run made is ready to be shown (its shaders made, or given up on), the card put away and the ride let go. */
+  const stepMaking = () => {
+    if (!making) return;
+    if (!trip || mode !== 'ride') { makingDone(); return; }
+    if (trip.land && !warmWanted && !warming) makingDone();
   };
   /**
    * Riding off to another run, a step on: once its land is made, and the rider is on the snow (or fallen), taken by the way chosen;
@@ -4543,6 +4585,7 @@ async function start() {
     menuOpen = open;
     // (The pack shown afresh: the arm the foes have given may have changed since.)
     if (open && pack) regear();
+    if (open) showNow();
     menuEl.hidden = !open;
     // (The pointer goes off to the menu: it lets the skier go, and takes it again only once brought back over it.)
     if (open) letAimGo();
@@ -4554,6 +4597,31 @@ async function start() {
   };
   menuButton.onclick = () => setMenu(true);
   $('menuClose').onclick = () => setMenu(false);
+  $('menuResume').onclick = () => setMenu(false);
+  /** The card at the menu's head: the run, and whether it is ridden, watched (which demo) or walked in its cave. */
+  const showNow = () => {
+    say($('menuRun'), runs.find((r) => r.id === landKind)?.label ?? 'The groomed slope');
+    say($('menuDoing'), mode === 'ride' ? (foot ? 'On foot at the cave' : 'Riding') : demoKind === 'show' ? 'Watching the showcase' : demoKind === 'orcs' ? 'Watching the orc hunt' : 'Watching the demo run');
+    say($('menuResume'), mode === 'ride' ? 'Resume' : 'Watch on');
+  };
+  /** The menu's parts, one shown at a time, chosen by its tabs; the last chosen kept in this browser. */
+  const tabButtons = [...$('menuTabs').querySelectorAll<HTMLButtonElement>('button[data-tab]')];
+  const showTab = (k: string) => {
+    if (!tabButtons.some((b) => b.dataset.tab === k)) k = 'play';
+    for (const b of tabButtons) { const on = b.dataset.tab === k; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }
+    for (const sec of menuEl.querySelectorAll<HTMLElement>('section.tab')) sec.hidden = sec.dataset.tab !== k;
+    (menuEl.querySelector('.scroll') as HTMLElement).scrollTop = 0;
+    try { localStorage.setItem('slope.menuTab', k); } catch { /* (not kept) */ }
+  };
+  for (const b of tabButtons) b.addEventListener('click', () => showTab(b.dataset.tab!));
+  // (The arrow keys along the tabs, as tabs go.)
+  $('menuTabs').addEventListener('keydown', (e) => {
+    const i = tabButtons.findIndex((b) => b === document.activeElement), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (i < 0 || !d) return;
+    const next = tabButtons[(i + d + tabButtons.length) % tabButtons.length];
+    showTab(next.dataset.tab!); next.focus(); e.preventDefault(); e.stopPropagation();
+  });
+  showTab((() => { try { return localStorage.getItem('slope.menuTab') ?? 'play'; } catch { return 'play'; } })());
   const whos: [string, Who][] = [['Horse & rider', 'mounted'], ['Horse', 'horse'], ['Person', 'person']];
   const skiSets: [string, HorseSkis, string][] = [['Two long', 'pair', 'A long ski under each side, the fore and hind hooves bound to it'], ['Four short', 'four', 'A short ski under each hoof']];
   const whoButtons = whos.map(([label, w]) => button('skiers', label, () => setSkier(w)));
@@ -5847,7 +5915,7 @@ async function start() {
     packView($('pack'), pack, plainIn, () => {}, (slot) => (slot === 'weapon' && !weaponsFree() && pack!.items.some((i) => i.slot === 'weapon') ? `${HELD_BACK}: until then, the foes' arm is carried.` : ''));
     $('packEmpty').hidden = !pack.items.length;
     const n = pack.items.length;
-    say($('packCount'), n ? `${n} found` : '');
+    say($('packCount'), n ? String(n) : '');
   };
   $('packEmpty').addEventListener('click', () => { if (pack && confirm('Let go of everything found, and forget the guidebooks read?')) pack.empty(); });
 
@@ -7234,6 +7302,7 @@ async function start() {
     // (The tommy gun in the hands of whoever carries it, after the pose it was put in, and fired; or put away.)
     armUp(dt, at);
     stepLoot(mode === 'ride' && playing && !menuOpen ? dt : 0);
+    stepMaking();
     stepRunEnd();
     // (Where the skier is: on its skis, lain in the snow, or in the arm's hands or thrown.)
     const where = cat ? cat.at.clone() : focus();
