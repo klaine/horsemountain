@@ -110,6 +110,20 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   the info; each shot, burnt or struck down a hundred points and a white cross where a round struck, each run down or cut down a
   hundred and fifty, and a double, a triple, for each downed hard on the last.
 
+**The cave on Silent Warden.** Halfway down the run, where a bank rises beside the piste's left edge, a cave opens in a face of rock
+under a mound of snow, two torches at its mouth and a camp before it: a fire in a ring of stones smoking, logs to sit on, a rack, wood
+stacked. Ride into the camp and the skier brakes to a stop and takes its skis off, leaving them (and the poles) on the rack; on foot
+(the pointer above the middle, the up arrow or the stick up to walk, further or held to run, Shift only walking; down to step back; to
+either side to turn), into the mouth and down a tunnel of rough rock to a gate of dressed stone, the day's light fading behind and the
+picture taking to the dark. Behind the gate, a dungeon made afresh each time the page is opened (the same while it stays open; its seed is in
+`__slope.cave()`, and `?dungeon=` a given one brings it back), as watabou's One Page Dungeon makes a small one
+(*tomb*, *multi-level*, *small*): five to seven rooms grown out from an antechamber, each down a short corridor from an earlier one,
+doorways open arches, doors standing open or portcullises drawn up; a stair down to a level below; a hall of pillars, crypts of stone
+coffins, an ossuary, a shrine with candles burning on its altar and a statue, a store; and furthest from the gate the tomb itself, its
+great coffin on a dais between statues and a chest of gold before it (5,000 points, once a run). It is lit by its torches and the light
+carried in. The place is named as you come in at the gate, and each room said as you come into it. The horse walks in too (and trots),
+on its bare hooves, its rider in the saddle. Walk out of the camp, and the skis go back on and you ride on down from there.
+
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
 the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, riding, *Restart run* first, at its
 top; then *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;
@@ -135,7 +149,7 @@ further out than it shows. Light to draw: the run is drawn once for each run, an
 the groomed slope, which has no foot.)
 
 In the address: `?nointro` (no title, no map), `?offpiste=0` (kept between the poles), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run; `#w2-8`, `#w2-10`, `#w2-2`, `#w2-14`, `#w2-17`, `#w2-25`, the third to the eighth), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
-`?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
+`?dungeon=` (the cave's dungeon from a given seed, rather than a new one), `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
 frames come), `?webgl` (WebGL 2 rather than WebGPU). Where the graphics report that they could not draw something as the page opens, it opens
 again drawn more simply (the plain snow; then by WebGL 2) and keeps to it in that browser, said in the menu under *Picture* with a way
 to try the full picture again; `?safe=0` forgets it, `?safe=1` or `?safe=2` asks for it.
@@ -194,7 +208,7 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, `game/slopePlane.ts`, the airplane, `game/slopeIce.ts`, the ice jump, and
   `game/slopeInvert.ts`, the land turned inside out, and `game/slopeCart.ts`, the rocket cart, the run's other ends; `game/slopeGun.ts`, the tommy gun, its
   tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the orcs coming up the run;
-  `game/slopeSplatter.ts`, their blood on the snow; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.
+  `game/slopeSplatter.ts`, their blood on the snow; `game/slopeDungeon.ts`, the cave on Silent Warden, its camp and the dungeon in it (where it is, the snow levelled and cut for it, the rooms grown, the torches' light worked out); `game/slopeFoot.ts`, on foot there, the person by the packs' walk and jog and the horse's walk and trot made here; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.
 - `src/maps/inkWorld.ts`: the world's ink map, as klaine/dungeons draws it (the map of the runs is a stretch of it).
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
   (`horse.ts`, made in code on a skeleton of its own; `horseBody.ts`, `horseSculpt.ts`, how it looks; `horseCoat.ts`, its coat as hair, on a computer), the adventurer's clothes and

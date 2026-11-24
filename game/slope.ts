@@ -72,6 +72,9 @@ import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
+import { carve, Cave, findSite } from './slopeDungeon';
+import { horseCadence, horseWalk, Walker } from './slopeFoot';
+import { clone as cloneRigged } from 'three/addons/utils/SkeletonUtils.js';
 import { MiniMap } from './slopeMini';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
 import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowLiesAt, snowUniforms } from '../src/render/siteMaterial';
@@ -302,8 +305,10 @@ async function start() {
   // each somewhere the others are not; then, asked "can we add the remaining 4 other runs to make it 8 total?", the second, fourteenth,
   // seventeenth and twenty-fifth, each again somewhere the others are not: the rest came down the same spurs as these, or were too flat
   // for a kicker.)
-  const runs: { id: string; label: string; where?: string; title: string; detail: string }[] = [
-    { id: 'w2', label: 'Silent Warden', where: 'below The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side', detail: '1.02 km along a crest, from beside the highest summit' },
+  // (And a cave halfway down one of them, with a dungeon in it, `slopeDungeon.ts` (asked: "could we have a run have dungeon?"): Silent
+  // Warden's, where a bank rises beside the piste, and the run the page opens on.)
+  const runs: { id: string; label: string; where?: string; title: string; detail: string; cave?: boolean }[] = [
+    { id: 'w2', label: 'Silent Warden', where: 'below The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side; halfway down, a cave in the bank beside the piste, a camp before it and a tomb under the mountain', detail: '1.02 km along a crest, from beside the highest summit; a cave halfway down', cave: true },
     { id: 'w2-3', label: 'Pale Crown', where: 'below The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay', detail: '1.43 km down a spur into wooded foothills above a bay' },
     { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge', detail: '0.80 km, the steepest, under rock walls to a lake' },
     { id: 'w2-10', label: 'Carndale', where: 'above Carndale', title: 'Long and gentle, straight down a wooded spur in the west of the range to a lake above Carndale', detail: '1.32 km, gentle, down a wooded spur to a lake' },
@@ -316,6 +321,15 @@ async function start() {
   if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
   // (A land is a run, by its slice's name, or the groomed slope.)
   type LandKind = string;
+  /**
+   * The dungeon's seed: a new one each time the page is opened (asked: "would it be expensive to regenerate the dungeon layout every
+   * session?": laying it out is nothing, building and lighting it some part of a second as its run is laid), the same while it stays
+   * open, so that the cave is the same each time the run is come back to; `?dungeon=` a given one, to find it again.
+   */
+  const dungeonSeed = query.get('dungeon') ?? Math.floor(Math.random() * 36 ** 6).toString(36);
+  let caveMade = 0;
+  /** A land, and the cave in it, if it has one. */
+  type CaveLand = Land & { cave?: Cave };
   const hashed = location.hash.slice(1);
   // (Opened on what the address asks for: after a choice on the page, its end, `#groomed` or `#w2-3`, which the page sets.)
   const opensOn = query.get('land') === 'groomed' ? 'groomed' : asked ?? runs[0].id;
@@ -502,6 +516,21 @@ async function start() {
     gameLook = { snow: makeSnowMaterial(turf, scree), far, sky: skyLight, snowAt: (up, x, z) => snowLiesAt(up, x, z, turf) };
     return gameLook;
   };
+  /**
+   * The cave made part of a run's land (`slopeDungeon.ts`): drawn with it, and kept by it (`CaveLand`); no kicker built in its camp or
+   * over its mound, and none of the piste's poles standing in them.
+   */
+  const dig = (made: Land, cave: Cave) => {
+    made.group.add(cave.group);
+    (made as CaveLand).cave = cave;
+    const kickable = made.kickable;
+    made.kickable = (s, left, length) => { const a = made.at(s, left), b = made.at(s + length + 30, left); return kickable(s, left, length) && cave.keepsClear(a.x, a.z) && cave.keepsClear(b.x, b.z); };
+    const poles = made.group.getObjectByName('poles') as InstancedMesh | undefined, m = new Matrix4(), p = new Vector3();
+    if (poles) {
+      for (let i = 0; i < poles.count; i++) { poles.getMatrixAt(i, m); p.setFromMatrixPosition(m); if (cave.inCamp(p.x, p.z, 1.5) || cave.skiTop(p.x, p.z) !== null) poles.setMatrixAt(i, m.makeScale(0, 0, 0)); }
+      poles.instanceMatrix.needsUpdate = true;
+    }
+  };
   const sliceTexts = new Map<string, string | null>();
   const landOf = async (kind: LandKind): Promise<Land> => {
     const key = kind !== 'groomed' ? `${kind}:${snowLook}` : kind;
@@ -518,11 +547,14 @@ async function start() {
       }
       // (Without its slice, the groomed slope.)
       const slice = sliceText ? readSlice(sliceText) : null, where = runs.find((r) => r.id === kind)?.where;
+      // (The cave's camp levelled and the hole behind its mouth cut in the slice, before its land is made from it.)
+      const site = slice && runs.find((r) => r.id === kind)?.cave ? findSite(slice) : null, base = site && slice ? carve(slice, site) : null;
       made = slice ? sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined) : await landOf('groomed');
       // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
       if (slice && where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
       // (Where its top lies in the world: each run's land is laid with its own top at the middle of the scene.)
       if (slice) topOf.set(made, new Vector3(slice.run.points[0][0], 0, slice.run.points[0][1]));
+      if (site && base) { const t0 = performance.now(); dig(made, new Cave(site, base, dungeonSeed)); caveMade = performance.now() - t0; }
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
     lands.set(key, made);
     return made;
@@ -630,7 +662,15 @@ async function start() {
     return share;
   };
   /** The snow's height at a point, and how it rises east and south there (over `e` metres); and which way is up from it. */
-  const ground = (x: number, z: number) => land.height(x, z) + bumpAt(x, z);
+  /** The cave in the land now, if it has one (none while the land is turned inside out); and where the land is stood. */
+  const caveNow = (): Cave | null => (land as CaveLand).cave ?? null;
+  const toCave = <T extends { x: number; z: number; y?: number }>(p: T) => { const o = land.group.position; return { x: p.x - o.x, y: p.y ?? 0, z: p.z - o.z }; };
+  // (Over the cave's mound, its rock: the snow under it is cut away there.)
+  const ground = (x: number, z: number) => {
+    const cave = caveNow();
+    if (cave) { const o = land.group.position, top = cave.skiTop(x - o.x, z - o.z); if (top !== null) return top + bumpAt(x, z); }
+    return land.height(x, z) + bumpAt(x, z);
+  };
   const slopeAt = (x: number, z: number, e = 0.3): [number, number] => [(ground(x + e, z) - ground(x - e, z)) / (2 * e), (ground(x, z + e) - ground(x, z - e)) / (2 * e)];
   const normalAt = (x: number, z: number, e = 0.3) => { const [gx, gz] = slopeAt(x, z, e); return new Vector3(-gx, 1, -gz).normalize(); };
   /** The ground under a point anywhere, for a body gone limp: how far over it the point is, and which way is up from it. */
@@ -870,6 +910,9 @@ async function start() {
     horse.mesh.material = coat;
   }
   for (const o of [model, horse.model, jockey.model]) rimAll(o);
+  // (The adventurer on foot, by the packs' clips (`slopeFoot.ts`): made while the page opens, for when the skis come off at the cave.)
+  let walker: Walker | null = null;
+  void library.body(bodyId).then((b) => { const m = cloneRigged(source); shade(m); rimAll(m); walker = new Walker(m, b.moves, b.scale); }).catch((e) => console.warn(e));
   // (The horse and its rider unless another is asked for (asked: "also make the horse & rider the default mode"): `?skier=person` or
   // `?skier=horse`.)
   let who: Who = (['person', 'horse', 'mounted'] as Who[]).find((w) => w === query.get('skier')) ?? 'mounted', skier = skiers[who];
@@ -1093,6 +1136,15 @@ async function start() {
    * the skier pushes off with both poles, a push dying away over them.
    */
   const SHOVE = { long: 1.6, most: 3.5 };
+  /**
+   * On foot, the skis off (asked: "when player enters that entrance area outside of the cavern, they unmount the skis so they can then
+   * continue to explore the cavern by foot. If they exit the entrance area, the skis get back on"): where, which way it faces (radians,
+   * as the world's: forward is along (sin, cos)), how fast it goes (backwards, less than nothing) and how hard it turns, how far through
+   * a horse's stride, which of the dungeon's rooms it was last in, and whether it has been told where it is. Riding into the cave's
+   * camp, the skier brakes to a stop (`stopping`), and the skis come off.
+   */
+  let foot: { x: number; y: number; z: number; heading: number; speed: number; turn: number; phase: number; room: number; told: boolean } | null = null;
+  let stopping = false;
   let flyingDemo = false;
   const shoveNow = () => (carting || ride.ended || ride.brake > 0.3 ? 0 : SHOVE.most * smooth(ride.shove / SHOVE.long));
   /**
@@ -1205,6 +1257,22 @@ async function start() {
     if (into <= 0) return false;
     if (ride.speed * into > TREE.hard) { fall('ran into a tree'); return true; }
     const slide = go.clone().setY(0).addScaledVector(n, into), share = slide.length();
+    ride.speed *= share;
+    if (share > 1e-3) ride.way = Math.atan2(slide.dot(runLeft(here)), slide.dot(runDir(here)));
+    return false;
+  };
+  /** Into the cave's rock face, or what stands in its camp, as into a tree (`intoTree`): kept out of it, slowed, or thrown. */
+  const intoRock = (go: Vector3): boolean => {
+    const cave = caveNow();
+    if (!cave || mode !== 'ride' || flyingDemo) return false;
+    const o = land.group.position, w = cave.skiWall(ride.x - o.x, ride.z - o.z, treeBody());
+    if (!w) return false;
+    ride.x += w.nx * w.into; ride.z += w.nz * w.into;
+    const into = -(go.x * w.nx + go.z * w.nz);
+    if (into <= 0) return false;
+    // (The rock face thrown into; what stands in the camp only bumped against, slowing.)
+    if (ride.speed * into > TREE.hard && w.what === 'ran into the rock') { fall(w.what); return true; }
+    const slide = go.clone().setY(0).addScaledVector(new Vector3(w.nx, 0, w.nz), into), share = slide.length();
     ride.speed *= share;
     if (share > 1e-3) ride.way = Math.atan2(slide.dot(runLeft(here)), slide.dot(runDir(here)));
     return false;
@@ -1332,7 +1400,7 @@ async function start() {
    */
   let backOnto: { s: number; left: number } | null = null;
   const stepOffPiste = (dt: number) => {
-    const [lo, hi] = land.edges(ride.down), out = offPisteOk() && !crash && !cat && !ride.ended && (ride.left < lo || ride.left > hi);
+    const [lo, hi] = land.edges(ride.down), out = offPisteOk() && !foot && !stopping && !crash && !cat && !ride.ended && (ride.left < lo || ride.left > hi);
     offPisteFor = out ? offPisteFor + dt : 0;
     const left = OFF_PISTE.most - offPisteFor, late = out && left <= OFF_PISTE.warn;
     if (offPisteEl.hidden === out) offPisteEl.hidden = !out;
@@ -1512,6 +1580,7 @@ async function start() {
   let next180 = 0;
   /** Begins the next ground 180, if it can be done now: on the snow and going, not on a kicker, not braking, not in one already. */
   const start180 = (dir?: number) => {
+    if (foot) return false;
     if (air || crash || ride.turn180 || ride.speed < 3 || ride.brake > 0.3 || ride.out > 0.02) return false;
     const kind = GROUND_180[next180++ % GROUND_180.length];
     ride.turn180 = { kind, t: 0, dir: dir ?? (Math.abs(ask.x) > 0.2 ? -Math.sign(ask.x) : next180 % 2 ? 1 : -1) };
@@ -1664,6 +1733,7 @@ async function start() {
   };
   /** The skier back at the top, going a little. */
   const resetRide = () => {
+    leaveFoot();
     offPisteFor = 0; backOnto = null;
     Object.assign(ride, { shove: 0, way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null, stones: 0, overStones: 0, bare: 0, deep: 0 });
     here = land.frame(0, 0);
@@ -1681,6 +1751,7 @@ async function start() {
   let clearGun: (() => void) | null = null;
   /** The run again from the top, going a little. */
   const restart = () => {
+    caveNow()?.shutChest();
     // (Come down at another run's top: that the run now, the old let go of.)
     if (trip?.swapped) arrive();
     // (The land as it lies first: the ride begins again at its top.)
@@ -1760,7 +1831,7 @@ async function start() {
   const stepTravel = () => {
     const t = trip;
     if (!t?.land || mode !== 'ride') return;
-    if (!t.started && !cat && !air && !carting && !inside) {
+    if (!t.started && !cat && !air && !carting && !inside && !foot && !stopping) {
       t.started = true; backOnto = null; ending = t.way;
       if (asking) hideAsk();
       told.until = 0;
@@ -2882,8 +2953,8 @@ async function start() {
    * other way about, from its foot to its top, so that riding it back goes as riding down any run does. No kickers stand on it, and
    * none of what is drawn of the land as it lies is seen (`folding` draws it).
    */
-  const foldedLand = (base: Land): Land => ({
-    ...base,
+  const foldedLand = (base: Land): CaveLand => ({
+    ...base, cave: undefined,
     height: (x, z) => (fold ? heightIn(fold, base.height(x, z), x, z) : base.height(x, z)),
     frame: (x, z, hint) => {
       if (!inside?.reversed) return base.frame(x, z, hint);
@@ -3132,8 +3203,10 @@ async function start() {
     const g = whirl.group.visible ? whirl.strength * (1 - smooth((camera.position.distanceTo(whirl.base) - 150) / 350)) : 0;
     thump *= Math.exp(-dt / 0.15);
     const flash = Math.max(blast.group.visible ? blast.flash : 0, thump);
-    sun.intensity = SUN * (1 - 0.5 * g) * (1 + 2.5 * flash);
-    sky.intensity = land.sky * (1 - 0.3 * g) * (1 + 1.5 * flash);
+    // (Into the cave, the sun and the sky's light left outside, and the picture drawn brighter, as the eye takes to the dark.)
+    sun.intensity = SUN * (1 - 0.5 * g) * (1 + 2.5 * flash) * (1 - caveDark);
+    sky.intensity = land.sky * (1 - 0.3 * g) * (1 + 1.5 * flash) * (1 - 0.94 * caveDark);
+    renderer.toneMappingExposure = 0.92 * (1 + 0.3 * caveDark);
     uGloom.value = g;
   };
   /** The spent parachute, a step on: sinking down behind where it came down, flattening out on the snow, and gone. */
@@ -3311,11 +3384,11 @@ async function start() {
     cartPush += ((push ? push / 15 : 0) - cartPush) * ease(dt, 6);
     ride.shove = Math.max(0, ride.shove - dt);
     const stones = stonesNow(dt), deep = deepNow(dt);
-    const pull = push + shoveNow() + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
+    const pull = push + shoveNow() + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - (stopping ? 6 * ride.brake : 0) - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
     ride.speed = Math.max(0, ride.speed + pull * dt);
     ride.x += go.x * ride.speed * level * dt; ride.z += go.z * ride.speed * level * dt;
     ride.time += dt;
-    if (intoTree(go)) return stepFallen(dt);
+    if (intoTree(go) || intoRock(go)) return stepFallen(dt);
     // On the snow as high as the snow is where it went; unless the snow falls away faster than the skier's weight can bring it down
     // after it (by more than the snow gives underfoot), and the skier leaves it, rising as it was over its last step (up a kicker's
     // ramp, off its lip). (Judged where it went, before it is kept on the path: moved back in from an edge, onto snow higher or lower,
@@ -3416,9 +3489,16 @@ async function start() {
     if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); }
     return { down: ride.down, left: ride.left, speed: ride.speed, way: ride.way, ski, skid: Math.max(Math.abs(Math.sin(ski - ride.way)), g180 ? g180.scrape * sideOn : 0), tuck: ride.tuck, brake: ride.brake, deep: ride.deep };
   };
+  /** On foot, what it is doing, in words: in the camp, in the tunnel, or in which of the dungeon's rooms. */
+  const footDoing = () => {
+    const cave = caveNow(), f = foot!, o = land.group.position, x = f.x - o.x, z = f.z - o.z, room = cave?.roomAt(x, z);
+    const going = Math.abs(f.speed) < 0.2 ? 'Standing' : f.speed < 0 ? 'Stepping back' : f.speed > (who === 'person' ? FOOT.walk : FOOT.horseWalk) + 0.3 ? (who === 'person' ? 'Running' : 'Trotting') : 'Walking';
+    return `${going} ${room ? `in the ${room.kind === 'gate' ? 'antechamber' : room.kind}` : cave?.inside(x, z) ? 'in the cave' : 'in the camp'}`;
+  };
   /** What the ridden skier is doing, in words. */
   const doingNow = () => { const d = doing_(); return ride.switch && !air && !crash && !cat ? `${d}, switch` : d; };
   const doing_ = () => {
+    if (foot && playing && !menuOpen) return footDoing();
     // (Held, and said so: Space pressed by chance while riding stopped everything with nothing to say why.)
     if (!playing) return document.body.classList.contains('mouse') ? 'Paused · Space to go on' : 'Paused';
     if (menuOpen) return 'Paused · menu open';
@@ -3939,7 +4019,7 @@ async function start() {
     // (Too fast for the kicker ahead: braked down to it, and no trick chosen off it until it is slow enough.)
     const checking = !quiet && tooFast();
     if (checking && checkingFor && checkingFor !== toldFor) { toldFor = checkingFor; tell('Speed check', 'too fast for the kicker ahead', false, 1.2); }
-    if (checking) want.brake = true;
+    if (checking || stopping) want.brake = true;
     if (crash) { rideTrick = null; return; }
     if (air) {
       if (rideTrick && !rideTrick.air) rideTrick.air = air;
@@ -4098,6 +4178,7 @@ async function start() {
   const snowButtons = snowLooks.map(([label, k, title]) => button('snows', label, () => { if (k !== snowLook) { snowLook = k; if (landKind !== 'groomed') void setLand(landKind, true); else reflect(); } }, title));
   const setLand = async (kind: LandKind, again = false) => {
     abortTrip();
+    leaveFoot();
     if (kind === landKind && !again) return;
     await loading.busy(kind !== 'groomed' ? `Laying the snow ${whereOf(kind)}` : 'Laying the groomed slope');
     const next = await landOf(kind);
@@ -4214,6 +4295,7 @@ async function start() {
     if (!quietly) { $('choose').hidden = true; $('intro').hidden = true; document.body.classList.remove('choosing'); }
     showEnding = false; showBack = 0;
     if (m === mode) return;
+    leaveFoot();
     abortTrip();
     offPisteFor = 0; $('offPiste').hidden = true;
     endCatapult();
@@ -4270,6 +4352,7 @@ async function start() {
    */
   const setSkier = (w: Who, skis: HorseSkis = horse.skis) => {
     if (w === who && skis === horse.skis) return;
+    leaveFoot();
     skier.object.removeFromParent();
     if (skis !== horse.skis) { horse.setSkis(skis); rimAll(horse.model); }
     who = w;
@@ -4588,7 +4671,7 @@ async function start() {
   const poleSets: [Who, Object3D[]][] = [['person', gear.filter((p) => p.parent?.name.startsWith('hand_'))], ['mounted', jockeyGear]];
   /** Whether the gun is carried: riding, on a computer, by a human (the skier alone, or the horse's rider). */
   // (The showcase shows them whether or not they are on: it is there to show what the game has.)
-  const armed = () => ((orcsOn && (mode === 'ride' || (mode === 'watch' && demoKind === 'orcs'))) || (mode === 'watch' && demoKind === 'show')) && who !== 'horse';
+  const armed = () => ((orcsOn && (mode === 'ride' || (mode === 'watch' && demoKind === 'orcs'))) || (mode === 'watch' && demoKind === 'show')) && who !== 'horse' && !foot;
   const ray = new Raycaster(), ndc = new Vector2(), toLook = new Matrix4(), ZERO = new Vector3(), Y = new Vector3(0, 1, 0);
   /** Where a line from `from` along `dir` (of length one) first meets the snow, within `most` metres; none, beyond. */
   const snowAlong = (from: Vector3, dir: Vector3, most: number): number => {
@@ -4835,7 +4918,7 @@ async function start() {
       armSaid = arm.kind;
       tell(arm.kind === 'sword' ? 'Sword' : `${arm.name}!`, touch ? arm.hint.replace('click or tap', 'tap').replace('a click', 'a tap').replace('hold to', 'hold a finger on the picture to') : arm.hint, false, 3.5);
     }
-    for (const [w, poles] of poleSets) for (const p of poles) p.visible = !(on && w === who);
+    for (const [w, poles] of poleSets) for (const p of poles) p.visible = !((on || foot) && w === who);
     $('tally').hidden = !on;
     armBarUp(on && !!human && !watching);
     for (const [k, g] of arms) if (g.visible && (k !== arm.kind || !on || !human)) g.visible = false;
@@ -4999,6 +5082,155 @@ async function start() {
   const over = (p: Vector3, up: number) => p.setY(ground(p.x, p.z) + up);
   /** Which way the skier goes, level, eased: what the beside view leaves room ahead of and the cinematic shots look along. */
   const travel = new Vector3(0, 0, 1);
+
+  // ---------------------------------------------------------------- on foot, at the cave
+  /** How fast one goes on foot, walking and running (a horse a little faster, trotting), backwards; how quickly it turns; how broad it is. */
+  const FOOT = { walk: 1.45, run: 3.2, horseWalk: 1.7, horseRun: 3.4, back: 0.9, turn: 2.3, person: 0.35, horse: 0.62 };
+  /** Into the cave's camp, riding: braked to a stop, and the skis off. Out of it on foot: the skis on again, and away. */
+  const stepCamp = () => {
+    const cave = caveNow();
+    if (!cave || foot || mode !== 'ride' || air || crash || cat || carting || inside || flyingDemo || trip?.started) { stopping = false; return; }
+    // (Braking from as far back as it takes to stop in the camp, if the way it goes leads into it: not riding on past beside it.)
+    const p = toCave(ride), was = stopping, go = along(ride.way, here), reach = 3 + ride.speed ** 2 / 14;
+    // (Aimed a few metres inside its edge, and kept up once begun, near it: so that it stops in it, not short of it.)
+    stopping = cave.inCamp(p.x, p.z) || (was && cave.inCamp(p.x, p.z, 3));
+    for (let d = 1; d <= reach && !stopping; d += 1) stopping = cave.inCamp(p.x + go.x * d, p.z + go.z * d, -3);
+    if (stopping && !was) tell('The camp', 'skis off here, and on foot into the cave', false, 2.5);
+    if (stopping && ride.speed < 1.4 && cave.inCamp(p.x, p.z, 0.8) && (who !== 'person' || walker)) skisOff();
+  };
+  /** The skis taken off where the skier has stopped, and left on the rack by the fire. */
+  const skisOff = () => {
+    const cave = caveNow()!, go = along(ride.way, here);
+    stopping = false;
+    foot = { x: ride.x, y: ride.y, z: ride.z, heading: Math.atan2(go.x, go.z), speed: 0, turn: 0, phase: 0, room: -1, told: false };
+    Object.assign(ride, { speed: 0, brake: 0, tuck: 0, tall: 0, skating: false, skate: 0, turn180: null, switch: false, back: 0 });
+    if (who === 'person' && walker) { skier.object.removeFromParent(); rider.add(walker.model); }
+    cave.rackSkis(who === 'person' ? 'person' : horse.skis, who === 'person' ? 1.18 : who === 'mounted' ? 2.3 : 0);
+    const mouse = document.body.classList.contains('mouse');
+    tell('Skis off', mouse ? 'on foot: the pointer above or the up arrow to walk, to either side to turn' : 'on foot: push the stick up to walk, to either side to turn', false, 3.5);
+    placed = false;
+  };
+  /** On foot no more, quietly: the skier back as it was on its skis, the rack bare. */
+  const leaveFoot = () => {
+    if (!foot) return;
+    foot = null; stopping = false;
+    if (who === 'person' && walker) { walker.model.removeFromParent(); rider.add(skier.object); }
+    caveNow()?.rackSkis(null, 0);
+    placed = false;
+  };
+  /** The skis on again where it has walked out of the camp, and on down the run the way it was walking, pushing off. */
+  const skisOn = () => {
+    const f = foot!;
+    leaveFoot();
+    ride.x = f.x; ride.z = f.z;
+    here = land.frame(f.x, f.z, ride.down);
+    ride.down = here.s; ride.left = here.left;
+    ride.y = ground(f.x, f.z);
+    const dir = new Vector3(Math.sin(f.heading), 0, Math.cos(f.heading));
+    ride.way = Math.atan2(dir.dot(runLeft(here)), dir.dot(runDir(here)));
+    ride.facing = skier.facing * ride.way;
+    ride.speed = 2.5; ride.vy = risingHere();
+    pushOff();
+    tell('Skis on', 'and away', false, 1.8);
+  };
+  /** Which way to go on foot, from the pointer, the stick or the tilt, and the keys, as riding asks it (`easeAsk`). */
+  const askFoot = () => {
+    const by = aim.on ? aim : stickHeld === null && tilting() ? tilt : stick;
+    want.auto = false; want.x = by.x; want.y = by.y; want.brake = aim.brake;
+  };
+  /**
+   * On foot a moment on: up to walk (further up, or held, to run; Shift or the button held, only walking), down to step back, to
+   * either side to turn; kept off the walls and what stands about (`Cave.walk`), on the floor where it is (the tunnel's, the stairs').
+   * Out of the camp, the skis back on; into a room, what it is said; at the chest, opened.
+   */
+  const stepFoot = (dt: number): Now => {
+    const f = foot!, cave = caveNow()!, person = who === 'person';
+    askFoot();
+    easeAsk(dt);
+    const walk = person ? FOOT.walk : FOOT.horseWalk, run = want.brakeKey || want.brake ? walk : person ? FOOT.run : FOOT.horseRun, y = ask.y;
+    const goal = y > 0.08 ? (y < 0.75 ? walk * (0.3 + 0.7 * smooth((y - 0.08) / 0.67)) : walk + (run - walk) * smooth((y - 0.75) / 0.2)) : y < -0.25 ? -FOOT.back * smooth((-y - 0.25) / 0.5) : 0;
+    f.speed += (goal - f.speed) * ease(dt, 5);
+    f.turn += (-ask.x - f.turn) * ease(dt, 8);
+    f.heading = wrapAngle(f.heading + f.turn * FOOT.turn * dt * (1 - 0.35 * smooth(Math.abs(f.speed) / run)));
+    const o = land.group.position, r = person ? FOOT.person : FOOT.horse;
+    const [nx, nz] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + Math.sin(f.heading) * f.speed * dt, f.z - o.z + Math.cos(f.heading) * f.speed * dt, r);
+    f.x = nx + o.x; f.z = nz + o.z;
+    const floor = cave.floorUnder(nx, nz) ?? land.height(f.x, f.z);
+    f.y = Math.abs(floor - f.y) > 1 ? floor : f.y + (floor - f.y) * ease(dt, 18);
+    // (Its body: the person by the clips, the horse by its gait, its rider sat easy in the saddle, the poles put away.)
+    if (person) walker?.update(dt, f.speed);
+    else {
+      f.phase = (f.phase + horseCadence(f.speed) * dt) % 1;
+      horse.pose(horseWalk(f.phase, f.speed, f.turn, ride.time));
+      if (who === 'mounted') jockey.posePose(saddlePose({ s: -0.15 * f.turn, ski: 0, tuck: 0, brake: 0, tall: 0.25, flickL: 0, flickR: 0, life: ride.time }));
+    }
+    rider.position.set(f.x, f.y, f.z);
+    rider.quaternion.setFromAxisAngle(UP, f.heading);
+    rider.updateMatrixWorld(true);
+    ride.x = f.x; ride.y = f.y; ride.z = f.z; ride.time += dt;
+    here = land.frame(f.x, f.z, ride.down);
+    ride.down = here.s; ride.left = here.left;
+    // (Where it is, said: the place named as it comes in at the gate, and each room as it comes into it; the chest opened.)
+    const room = cave.roomAt(nx, nz);
+    if (room && room.i !== f.room) {
+      f.room = room.i;
+      if (!f.told) { f.told = true; tell(cave.title.name, `${cave.title.about}. ${room.note}`, false, 4.5); } else tell(room.note, '', false, 3);
+    }
+    const chest = cave.chest.at;
+    if (!cave.chest.opened && Math.hypot(nx - chest.x, nz - chest.z) < 1.7 && Math.abs(f.y - chest.y) < 1.5) {
+      cave.openChest();
+      addScore(5000);
+      const s = overPictureAt(new Vector3(chest.x + o.x, chest.y + 1, chest.z + o.z));
+      if (s) popUp(s, '+5,000', 'trick', 'treasure');
+      tell('Treasure!', `the gold of ${cave.title.name.replace(/^The [A-Za-z]+ of /, '')} · 5,000 points`, false, 4);
+    }
+    if (!cave.inCamp(nx, nz, 1.2) && !cave.inside(nx, nz)) skisOn();
+    return { down: here.s, left: here.left, speed: Math.abs(f.speed), way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
+  };
+  /** How far down the view is drawn in, and which way it looks round, on foot. */
+  const footView = { reach: 4, heading: 0 };
+  /**
+   * The view on foot, whatever view is chosen: behind and a little above the head, turned round after the way it faces; drawn in along
+   * the line to the head wherever a wall, the roof, the rock or the snow would come between (`Cave.clear`), and let out again slowly.
+   */
+  const placeFootView = (dt: number) => {
+    const f = foot!, cave = caveNow(), o = land.group.position, person = who === 'person';
+    const target = new Vector3(f.x, f.y + (person ? 1.5 : who === 'horse' ? 1.9 : 2.45), f.z);
+    footView.heading = placed ? footView.heading + wrapAngle(f.heading - footView.heading) * ease(dt, 3) : f.heading;
+    const back = new Vector3(-Math.sin(footView.heading), 0, -Math.cos(footView.heading));
+    const most = (person ? 3.6 : 5.4) * distance, want = target.clone().addScaledVector(back, most).addScaledVector(UP, person ? 0.6 : 0.9);
+    // (Under the snow, inside, only the cave knows what is clear.)
+    const clear = (q: Vector3) => (cave ? cave.clear(new Vector3(q.x - o.x, q.y, q.z - o.z)) : q.y > land.height(q.x, q.z) + 0.3);
+    let reach = 0;
+    for (let i = 1; i <= 40; i++) { if (!clear(target.clone().lerp(want, i / 40))) break; reach = i / 40; }
+    footView.reach = placed ? Math.min(reach, footView.reach + dt * 0.8) : reach;
+    camera.position.copy(target).lerp(want, Math.max(0.05, footView.reach - 0.04));
+    camera.lookAt(target.clone().addScaledVector(back, -2).addScaledVector(UP, -0.35));
+    if (Math.abs(camera.fov - FOV) > 0.01) { camera.fov = fovNow = FOV; camera.updateProjectionMatrix(); }
+    lastRider.copy(target);
+    placed = true;
+    sun.position.copy(target).addScaledVector(sunFrom, 50);
+    sun.target.position.copy(target);
+  };
+  /** On foot or not, shown: the guide's and the stick's up and down said as walking and stepping back, and the skis' own buttons put away. */
+  let footShown = false;
+  const showFoot = () => {
+    const on = !!foot && mode === 'ride';
+    if (on === footShown) return;
+    footShown = on;
+    document.body.classList.toggle('onfoot', on);
+    for (const el of document.querySelectorAll<HTMLElement>('#aim .say.up, #stick .say.up')) el.textContent = on ? 'Walk' : 'Tuck';
+    for (const el of document.querySelectorAll<HTMLElement>('#aim .say.down, #stick .say.down')) el.textContent = on ? 'Back' : 'Straight';
+  };
+  /** How far into the cave's dark the eye is (0 to 1): the sun and the sky dimmed by as much, and the picture drawn brighter. */
+  let caveDark = 0;
+  const stepCave = (dt: number, seconds: number) => {
+    const cave = caveNow();
+    if (!cave) { caveDark = 0; return; }
+    const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
+    caveDark = cave.darkness(eye);
+    cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0);
+  };
 
   // ---------------------------------------------------------------- the cinematic camera
   /**
@@ -5735,7 +5967,9 @@ async function start() {
       const p = focus(), f = land.frame(p.x, p.z, ride.down);
       at = { down: f.s, left: f.left, speed: crash ? 0 : ride.speed, way: ride.way, ski: ride.way, skid: 0, tuck: ride.tuck, brake: ride.brake };
       // (Until the arm has it in its claw, the ride goes on: lain in the snow, or stood at the foot of the run.)
-      if (!cat?.held) for (let i = 0; i < steps; i++) { askRide(); at = stepRide(dt / steps); }
+      if (foot) at = stepFoot(playing && !menuOpen ? dt : 0);
+      else if (!cat?.held) for (let i = 0; i < steps; i++) { askRide(); at = stepRide(dt / steps); }
+      if (playing && !menuOpen) stepCamp();
       // (A run over: fallen and lain still, or stopped at the foot of the run; and the arm comes for it.)
       // (Or, the run to end in the whirlwind, ridden into it.)
       if (playing && !cat && !trip && ((crash && atRest()) || (ride.ended && ride.speed < 0.5) || riddenInto())) beginEnding();
@@ -5746,7 +5980,7 @@ async function start() {
       stepFold(playing && !menuOpen ? dt : 0);
       stepCart(playing && !menuOpen ? dt : 0);
       stepOffPiste(playing && !menuOpen ? dt : 0);
-      const onSnow = !air && !crash && !cat;
+      const onSnow = !air && !crash && !cat && !foot;
       if (playing && onSnow) layRide(at);
       stepSpray(playing && !menuOpen ? dt : 0, playing && onSnow ? at : null, !!air);
       const doing = doingNow();
@@ -5761,13 +5995,15 @@ async function start() {
     // (Where the skier is: on its skis, lain in the snow, or in the arm's hands or thrown.)
     const where = cat ? cat.at.clone() : focus();
     land.keepAbout(where.x, where.z);
+    stepCave(dt, now / 1000);
     gloom(dt);
     land.lod?.(camera.position.x, camera.position.z);
     land.trees?.(camera.position, now / 1000);
     if (kickersOn) { placeKickers(at.down); flutter(now / 1000); }
-    if (mode === 'ride' && cat) placeCatapultView(dt); else placeView(at, dt);
+    if (mode === 'ride' && cat) placeCatapultView(dt); else if (mode === 'ride' && foot) placeFootView(dt); else placeView(at, dt);
     shiftView(dt);
     reinsNow();
+    showFoot();
     showTold();
     say(speedEl, (at.speed * 3.6).toFixed(0));
     // (How far down, as height come down from the top: vertical metres, as the world's heights have it.)
@@ -5984,6 +6220,22 @@ async function start() {
     trees: () => (land.group.getObjectByName('woods')?.userData.trees ?? []) as { x: number; z: number; kind: string; tall: number }[],
     // (How long each stage of opening took, in milliseconds.)
     loadTimes: () => loading.times,
+    // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
+    cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
+    // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
+    // the gate, or before the chest.)
+    goCave: (where: 'ride' | 'camp' | 'gate' | 'tomb' = 'camp', back = 50) => {
+      const c = caveNow();
+      if (!c) return false;
+      if (mode !== 'ride') setMode('ride');
+      const o = land.group.position;
+      if (where === 'ride') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s - back, f.left); placeKickers(ride.down); ride.way = 0; ride.speed = 8; placed = false; return true; }
+      const sp = c.spot(where);
+      if (!foot) { const f = land.frame(sp.x + o.x, sp.z + o.z); putAt(f.s, f.left); ride.speed = 0; skisOff(); }
+      Object.assign(foot!, { x: sp.x + o.x, z: sp.z + o.z, y: c.floorUnder(sp.x, sp.z) ?? land.height(sp.x + o.x, sp.z + o.z), heading: sp.heading, speed: 0, room: -1 });
+      placed = false;
+      return true;
+    },
     // (The demo run as flown for the skier now: how long, its parts, the tricks it landed, how many times each kicker was flown again.)
     demo: () => ({ length: demo.length, parts: demo.parts, landed: demo.landed, tries: demo.tries, fell: demo.fell, flown: demo.flown }),
   };
