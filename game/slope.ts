@@ -61,7 +61,7 @@ import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sweep } from './slopeArms';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
-import { type FoeKind, Horde } from './slopeOrcs';
+import { type Boss, type FoeKind, Horde } from './slopeOrcs';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
 import { Tornado } from './slopeStorm';
@@ -1538,16 +1538,16 @@ async function start() {
    * browser, and not the orc hunt's.
    */
   let slain = 0;
-  /** How an orc was brought down: shot, run down, cut down with the sword, burnt, struck by lightning, or blown up by a rocket. */
-  type Downed = 'shot' | 'run' | 'slain' | 'burnt' | 'zapped' | 'blown';
+  /** How an orc was brought down: shot, run down, cut down with the sword (or cleft, by a cut held and let go full), burnt, struck by lightning, or blown up by a rocket. */
+  type Downed = 'shot' | 'run' | 'slain' | 'cleaved' | 'burnt' | 'zapped' | 'blown';
   const orcDowned = (p: Vector3, how: Downed, foe: FoeKind) => {
     const clock = mode === 'ride' ? ride.time : t;
     downedRun = clock < downedUntil ? downedRun + 1 : 1;
     downedUntil = clock + 1.5;
     // (Up close, run down or cut down, worth half as much again as at a distance.)
     // (A foe harder to bring down worth more: a yeti five times an orc, `FOES`.)
-    const close = how === 'run' || how === 'slain', pts = Math.round(((close ? 150 : 100) * downedRun * foe.worth) / 10) * 10, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
-    const said = { run: 'run down', slain: 'cut down', burnt: 'burnt', zapped: 'struck down', blown: 'blown up', shot: '' }[how];
+    const close = how === 'run' || how === 'slain' || how === 'cleaved', pts = Math.round(((how === 'cleaved' ? 200 : close ? 150 : 100) * downedRun * foe.worth) / 10) * 10, at = overPictureAt(p), named = ['', '', 'double', 'triple', 'quad'][downedRun] ?? `${downedRun} in a row`;
+    const said = { run: 'run down', slain: 'cut down', cleaved: 'cleaved', burnt: 'burnt', zapped: 'struck down', blown: 'blown up', shot: '' }[how];
     if (at) { if (how === 'shot') hitMark(at); popUp(at, `+${pts}`, close ? 'run' : 'shot', [foe.name, said, named].filter(Boolean).join(' · ')); }
     addScore(pts);
     // Riding, counted towards the next arm; and the next taken up, thrown up over the picture (and said, `armUp`).
@@ -4673,7 +4673,13 @@ async function start() {
    * at most, and only if asked near when it can; how long until the arm can fire again; the sword's swing, while it swings (how far
    * through, to which side, which orcs it has cut down); how long each orc has been in the flamethrower's fire; the arm last said.
    */
-  let pulls = 0, ready = 0, swing: { t: number; side: number; struck: Set<number> } | null = null, lastSide = -1, flameSaid = 0, armSaid: ArmKind | null = null;
+  /**
+   * A swing of the sword: how far through its pose (`Rider.slash`), at which side, which it has struck; whether the button that began
+   * it is still held (it waits drawn up), how much force it has gathered so (0 to 1); whether its cut has begun; whether it has drawn
+   * blood.
+   */
+  type Swing = { k: number; side: number; struck: Set<number>; held: boolean; charge: number; cut: boolean; blood: boolean };
+  let pulls = 0, ready = 0, swing: Swing | null = null, lastSide = -1, flameSaid = 0, armSaid: ArmKind | null = null;
   const heat = new Map<number, number>();
   // (The sword's swing so long that a click made in the last half of one is kept for the next.)
   const pull = () => { if (ready < (armNow().firing === 'swing' ? 0.75 : 0.25)) pulls = 1; };
@@ -4849,33 +4855,108 @@ async function start() {
   };
   /**
    * The sword's swing (asked: "proper slashing alternating on right and left side of the horse flanks"; "slower to swing, like
-   * 1.5sec/swing"): a second and a half, the most of it in drawing a heavy blade up and bringing it back, the cut itself quick; drawn up
-   * over a shoulder, cut down past that side and carried through low along it, and back (`Rider.slash`; `SLASH_MARKS`). Each at the
-   * side the orcs within reach are on, if they are on one side only; else at the other side from the last, right and left in turn.
-   * Every orc on that side within reach as the blade goes down past it (more from the saddle, which is higher and further out over
-   * them), ahead of the skier or not far behind, cut down and thrown out that way. `right`, the skier's right in the scene.
+   * 1.5sec/swing"; then "improve the sword play"): a second and a half from one swing to the next, drawn up over a shoulder, cut down
+   * past that side and carried through low along it, and back (`Rider.slash`; `SLASH_MARKS`). Most of that second and a half is in
+   * bringing the heavy blade back: it is drawn up in a fifth of a second and cut through in a quarter, so that the cut comes hard on the
+   * click (it had come two thirds of a second after it, and the orc it was meant for was gone by). Held (the button, or a finger, kept
+   * down), the blade is held drawn up, gathering the cut's force (`charge`, whole in `SLASH.charge` seconds, said by a ring about the
+   * guide's mark and a ring of steel) until it is let go: a whole one reaches near half as far again, strikes three times as hard (a
+   * yeti cleft at a blow) and throws them further. Each cut is at the side those within reach will be on as the blade comes down (the
+   * skier gone on some way by then), the side with more; else at the other side from the last, right and left in turn. Every one on
+   * that side within reach as the blade goes down past it (more from the saddle, which is higher and further out over them), ahead of
+   * the skier or not far behind, struck and thrown out that way and on along the skier's way; each struck felt, a chop and the view
+   * jolted, and the blade's sweep reddened.
    */
-  const SLASH_T = 1.5;
+  const SLASH = { every: 1.5, up: 0.2, cut: 0.1, through: 0.14, charge: 0.8 };
   const slashReach = () => (who === 'mounted' ? 3.6 : 3);
-  const slashSide = (right: Vector3) => {
-    let r = false, l = false;
-    for (const o of horde.near(rider.position, slashReach() + 1.5)) { if (o.at.clone().sub(rider.position).dot(right) >= 0) r = true; else l = true; }
-    return (lastSide = r !== l ? (r ? 1 : -1) : -lastSide);
+  /** How fast a swing goes through its pose at `k` (of it a second): quick up, quicker through, slow back. */
+  const slashRate = (k: number) => {
+    const m = SLASH_MARKS, back = SLASH.every - SLASH.up - SLASH.cut - SLASH.through;
+    return k < m.up ? m.up / SLASH.up : k < m.cut ? (m.cut - m.up) / SLASH.cut : k < m.through ? (m.through - m.cut) / SLASH.through : (1 - m.through) / back;
   };
-  const swingOn = (dt: number, right: Vector3, ahead: Vector3) => {
+  /** A swing begun at `side`, `k` of the way through; `held`, while the button that began it is down. */
+  const newSwing = (side: number, held: boolean, k = 0): Swing => ({ k, side, struck: new Set(), held, charge: 0, cut: k >= SLASH_MARKS.up, blood: false });
+  /** Which side to cut at, the skier going at `vel`: where each within reach will be as the blade comes down. */
+  const slashSide = (right: Vector3, vel: Vector3) => {
+    const soon = SLASH.up + SLASH.cut, reach = slashReach() + 0.8;
+    let r = 0, l = 0;
+    for (const o of horde.near(rider.position, reach + vel.length() * soon + 1)) {
+      const d = o.at.clone().sub(rider.position).addScaledVector(vel, -soon).setY(0);
+      if (d.length() > reach) continue;
+      if (d.dot(right) >= 0) r++; else l++;
+    }
+    return (lastSide = r !== l ? (r > l ? 1 : -1) : -lastSide);
+  };
+  const swingOn = (dt: number, right: Vector3, ahead: Vector3, vel: Vector3) => {
     if (!swing) return;
-    swing.t += dt;
-    const k = swing.t / SLASH_T, reach = slashReach(), out = right.clone().multiplyScalar(swing.side);
-    if (k > SLASH_MARKS.up + 0.04 && k < SLASH_MARKS.through + 0.02) {
+    // (Held drawn up while the button is down, gathering force; let go, it cuts.)
+    if (swing.held && !firing) swing.held = false;
+    if (swing.held && swing.k >= SLASH_MARKS.up) {
+      const was = swing.charge;
+      swing.k = SLASH_MARKS.up;
+      swing.charge = Math.min(1, swing.charge + dt / SLASH.charge);
+      if (was < 1 && swing.charge >= 1) gunSound.hear('ring');
+    } else swing.k = Math.min(1, swing.k + slashRate(swing.k) * dt);
+    const k = swing.k, power = swing.charge, reach = slashReach() * (1 + 0.45 * power), out = right.clone().multiplyScalar(swing.side);
+    if (!swing.cut && k > SLASH_MARKS.up) { swing.cut = true; gunSound.hear('swish'); }
+    if (k > SLASH_MARKS.up + 0.01 && k < SLASH_MARKS.through + 0.04) {
       for (const o of horde.near(rider.position, reach + 0.6)) {
         const d = o.at.clone().sub(rider.position).setY(0), far = d.length();
         if (swing.struck.has(o.orc) || far > reach || d.dot(out) < -0.2 || d.dot(ahead) < -1.2) continue;
         swing.struck.add(o.orc);
-        const struck = horde.strike(o.orc, out.clone().multiplyScalar(5).addScaledVector(ahead, 1.5).addScaledVector(UP, 2.5), 3);
-        if (struck?.down) { gunSound.grunt(); orcDowned(o.at, 'slain', struck.kind); }
+        const push = out.clone().multiplyScalar(5 * (1 + 1.2 * power)).addScaledVector(ahead, 1.5).addScaledVector(vel, 0.35).addScaledVector(UP, 2.5 + 2 * power);
+        const struck = horde.strike(o.orc, push, 3 + 6 * power);
+        if (!struck) continue;
+        swing.blood = true;
+        gunSound.hear('chop');
+        bladeJolt = Math.max(bladeJolt, 0.25 + 0.45 * power);
+        if (struck.down) { gunSound.grunt(); orcDowned(o.at, power > 0.95 ? 'cleaved' : 'slain', struck.kind); }
+        else { const on = overPictureAt(o.at); if (on) hitMark(on); }
       }
     }
     if (k >= 1) swing = null;
+  };
+  /**
+   * The great ones met (asked: "Show soulslike health bar when engaged in combat with the Yeti"): each, as the skier comes within
+   * some fifty metres of it or strikes it, its name over a long thin bar across the foot of the picture, the bar shrinking as it is
+   * struck, what a blow took left pale a moment and draining after; two at the most, the nearest. Brought down, its name gilt, a banner
+   * across the picture (*Felled*, and its name), and the bar gone; gone by, or no longer carried, the bar fades away.
+   */
+  const bossesEl = $('bosses'), felledEl = $('felled');
+  const bossShown = new Map<string, { el: HTMLElement; bar: HTMLElement; hp: number; felled: boolean }>();
+  const showBosses = (list: Boss[]) => {
+    const now = new Set(list.map((b) => b.id));
+    for (const b of list) {
+      let e = bossShown.get(b.id);
+      if (!e) {
+        const el = document.createElement('div'), name = document.createElement('div'), bar = document.createElement('div');
+        el.className = 'boss'; name.className = 'name'; name.textContent = b.title; bar.className = 'bar';
+        bar.innerHTML = '<i class="lag"></i><i class="fill"></i>';
+        bar.setAttribute('role', 'meter'); bar.setAttribute('aria-label', b.title); bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', String(b.most));
+        el.append(name, bar);
+        bossesEl.appendChild(el);
+        e = { el, bar, hp: -1, felled: false };
+        bossShown.set(b.id, e);
+      }
+      if (b.hp !== e.hp) {
+        // (The red at once; the pale behind it, which the sheet lets follow after a moment.)
+        e.hp = b.hp;
+        e.bar.style.setProperty('--hp', String(b.hp / b.most));
+        e.bar.style.setProperty('--was', String(b.hp / b.most));
+        e.bar.setAttribute('aria-valuenow', String(Math.ceil(b.hp)));
+      }
+      if (b.down && !e.felled) {
+        e.felled = true;
+        e.el.classList.add('felled');
+        (felledEl.querySelector('small') as HTMLElement).textContent = b.title;
+        felledEl.classList.remove('on'); void felledEl.offsetWidth; felledEl.classList.add('on');
+      }
+    }
+    for (const [id, e] of bossShown) {
+      if (now.has(id) || e.el.classList.contains('gone')) continue;
+      e.el.classList.add('gone');
+      e.el.addEventListener('animationend', () => { e.el.remove(); bossShown.delete(id); }, { once: true });
+    }
   };
   clearGun = () => {
     horde.clear(); gunfire.clear(); splatter.clear(); flames.clear(); bolts.clear(); heat.clear(); sweep.clear(); rockets.clear();
@@ -4943,6 +5024,7 @@ async function start() {
     // (The sword out of its scabbard on the back while it is in the hand.)
     for (const [r, h] of hilts) if (h) h.visible = !(on && r === human && arm.kind === 'sword');
     if (!on || !human) {
+      if (bossShown.size) showBosses([]);
       if (horde.about) clearGun!();
       firing = false;
       return;
@@ -5037,13 +5119,18 @@ async function start() {
     // (The pistol held out at arm's length along the aim, `Rider.point`, the arms thrown up a little by each shot, after it has gone,
     // and coming down again.)
     const flung = arm.out && holding ? d.clone().addScaledVector(Y, 0.22 * kick).normalize() : d;
-    const held = swing && holding ? human.slash(swing.t / SLASH_T, swing.side, d, arm.fore) : arm.out && holding ? human.point(flung) : human.hold(holding ? d : null, arm.fore, arm.stance);
+    const held = swing && holding ? human.slash(swing.k, swing.side, d, arm.fore) : arm.out && holding ? human.point(flung) : human.hold(holding ? d : null, arm.fore, arm.stance);
     model.position.copy(held.grip).addScaledVector(held.dir, -0.02 * kick * arm.kick);
     model.quaternion.setFromRotationMatrix(toLook.lookAt(held.dir, ZERO, Y)).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.09 * kick * arm.kick));
     if (swing && holding && going > 0) {
-      const k = swing.t / SLASH_T;
-      if (k > SLASH_MARKS.up - 0.04 && k < SLASH_MARKS.through + 0.06) { model.updateMatrixWorld(true); sweep.add(model.localToWorld(new Vector3(0, 0, 0.25)), model.localToWorld(arm.muzzle.clone())); }
+      const k = swing.k;
+      if (k > SLASH_MARKS.up - 0.04 && k < SLASH_MARKS.through + 0.06) { model.updateMatrixWorld(true); sweep.add(model.localToWorld(new Vector3(0, 0, 0.25)), model.localToWorld(arm.muzzle.clone()), 1 + swing.charge); }
+      sweep.redden(swing.blood);
     }
+    // (The force gathered in a held cut, a ring filling about the guide's mark.)
+    const charging = swing?.held && swing.k >= SLASH_MARKS.up ? Math.round(swing.charge * 50) / 50 : -1;
+    if (charging !== shownCharge) { shownCharge = charging; aimEl.style.setProperty('--charge', String(Math.max(0, charging))); aimEl.classList.toggle('charging', charging >= 0); aimEl.classList.toggle('charged', charging >= 1); }
+    bladeJolt *= Math.exp(-dt * 14);
     // Fired on the snow, each arm as it is fired: the tommy gun while the button is held (or an orc is in its sights, watching), the
     // first round as it is pressed; the pistol and the shotgun a round, or a blast, a click; the flamethrower pouring fire while held;
     // the lightning gun a bolt every third of a second while held; the sword a swing a click.
@@ -5055,12 +5142,12 @@ async function start() {
       else if (arm.firing === 'bolt') { if (firing && ready <= 0) { ready = arm.every; zap(arm); } }
       else if (pulls && ready <= 0 && !swing) {
         pulls = 0; ready = arm.every;
-        swing = { t: 0, side: slashSide(right), struck: new Set() };
-        gunSound.hear('swish');
+        // (Watching, never held: the demo's rider cuts at once.)
+        swing = newSwing(slashSide(right, go.clone().multiplyScalar(now.speed)), !watching && firing);
       }
     }
     if (arm.firing !== 'single' && arm.firing !== 'swing') pulls = 0;
-    swingOn(going, right, ahead);
+    swingOn(going, right, ahead, go.clone().multiplyScalar(now.speed));
     kick *= Math.exp(-dt * 18);
     gunfire.step(going, camera.quaternion);
     flames.step(going, camera.quaternion);
@@ -5079,6 +5166,7 @@ async function start() {
     // (Any downed as the orcs come on, the skier ran down: the rounds' are counted as they strike.)
     const ranDown = horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
     for (const r of ranDown) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run', r.kind);
+    showBosses(horde.bosses(rider.position));
     say($('orcs'), String(horde.downed));
     // (Riding, what is carried: how many more until the next, the bar beside the picture says.)
     say($('armSay'), watching ? '' : ` · ${armAfter(slain).arm.name}`);
@@ -5091,6 +5179,8 @@ async function start() {
   // and above look most of the way along the way it goes.
   let placed = false, distance = 1;
   const eyeOff = new Vector3(), lookOff = new Vector3(), lastRider = new Vector3(), ahead = new Vector3(0, 0, 1);
+  /** How hard the view is jolted by a blow of the sword struck home, dying away (`swingOn`); the charge last shown about the guide's mark. */
+  let bladeJolt = 0, shownCharge = -1;
   /** What the free view is held looking at, for a picture of what is not the skier (`__slope.lookAt`); none, the skier. */
   let heldLook: Vector3 | null = null;
   let across = 0;
@@ -5465,6 +5555,12 @@ async function start() {
       // (Never under the snow, whatever the easing has done.)
       camera.position.y = Math.max(camera.position.y, ground(camera.position.x, camera.position.z) + 0.6);
       camera.lookAt(at.clone().add(lookOff));
+      // (A blow of the sword struck home felt: the view jolted a moment, the more the harder the blow.)
+      if (bladeJolt > 0.003) {
+        const w = performance.now() / 1000, j = 0.09 * bladeJolt;
+        camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j));
+        camera.rotateZ(Math.sin(w * 53) * 0.02 * bladeJolt);
+      }
     }
     if (view !== 'free') keepInPicture(at);
     lastRider.copy(at);
@@ -6174,7 +6270,7 @@ async function start() {
       }
       return null;
     },
-    swingAt: (k: number, side: number) => { swing = { t: k * SLASH_T, side, struck: new Set() }; },
+    swingAt: (k: number, side: number, charge = 0) => { swing = { ...newSwing(side, false, k), charge }; },
     kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, safe: +(safeOff(k) * 3.6).toFixed(0), height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
     put: (o: Partial<typeof ride>) => { Object.assign(ride, o); if (o.down !== undefined || o.left !== undefined) { putAt(ride.down, ride.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); } placed = false; },
     land: () => ({ name: land.name, length: land.length, half: land.half, about: land.about }),

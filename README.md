@@ -97,8 +97,10 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   longer in the air, and its length; the most won in one run on each slope is kept in the browser, and shown beside them. With *Orcs & weapons* on in the menu (off at first), the skier alone or the
   horse's rider carries a weapon in place of its poles, and takes up a better one as it brings orcs down, counted over every run
   until the page is opened again: first the sword, a long one for both hands drawn from its back (its scabbard left empty there),
-  a cut at a click (or a tap), a second and a half to each, drawn up slowly over a shoulder and down past that side quickly (the side the orcs within reach are on, else the right and
-  the left in turn), and you can ride them down too; ten more down, a pistol, held out in both hands on straight arms, a shot a click; fifteen more, a shotgun, put to the shoulder, a spread
+  a cut at a click (or a tap), a second and a half to each, drawn up quickly over a shoulder and down past that side at once (the side the orcs within reach will be on as it
+  comes down, else the right and the left in turn), then brought back slowly; held, the blade waits drawn up, a ring filling about the guide's mark, and cuts as it is let
+  go, a whole one (0.8 seconds) reaching near half as far again and three times as hard, a yeti cleft at a blow (200 points, *cleaved*); each blow struck home felt, a chop,
+  the view jolted, the blade's sweep turned red; and you can ride them down too; ten more down, a pistol, held out in both hands on straight arms, a shot a click; fifteen more, a shotgun, put to the shoulder, a spread
   of shot a click; twenty more, a flamethrower, held, a jet of burning fuel thrown some twenty metres that splashes over the snow and
   leaves it burning; twenty-five more, the tommy gun, put to the shoulder, held to fire; thirty more, a lightning gun, held, a bolt every
   0.45 seconds, which leaps from orc to orc, four at the most; thirty-five more, a bazooka, laid on the shoulder, a rocket a click, which blows up all within seven metres of where it strikes, the run's end's

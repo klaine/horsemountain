@@ -52,6 +52,11 @@ export interface FoeKind {
   bloody: boolean; lies: number;
   /** Its body, made once (it takes some part of a second), and a maker of copies of it. */
   body: (library: FigureLibrary) => Promise<Maker>;
+  /**
+   * The names one may go by, for a foe met as a great one, its strength shown in a bar across the foot of the picture as the skier
+   * comes to it (`Horde.bosses`).
+   */
+  titles?: string[];
 }
 
 /** A standing body's balls: its trunk and its head. */
@@ -81,6 +86,10 @@ export const FOES: FoeKind[] = [
     name: 'yeti', size: [1.9, 2.25], pace: [1.4, 1.9], pack: [1, 2], hp: 8, worth: 5, chance: 1, from: 0.18, share: 0.1, spread: 6, hunt: 0.8,
     mid: 1.0, balls: [[0, 0.95, 0.48], [0, 1.55, 0.3]], bloody: true, lies: 5,
     body: (library) => rigged(library, yetiBody, { walk: 'Walk_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }, 1.14),
+    titles: [
+      'Skarn, Who Walks the Cornice', 'The Old Man of the Drifts', 'Hrimmal, the White Hunger', 'Mother of Whiteouts',
+      'Ymmar, Frost Under the Pass', 'Grey Maw of the Upper Snows', 'Ulvgard the Avalanche-Born', 'The Hermit of the Col',
+    ],
   },
 ];
 

@@ -46,11 +46,19 @@ interface Foe {
   reel: number; bumped: number;
   /** Whether its meshes are drawn into the sun's shadows now: only near the skier, about which those are kept. */
   casts: boolean;
+  /** For a great one: the name it goes by this time it comes; whether the skier has come to it (`bosses`); how many times it has come. */
+  title: string; met: boolean; comes: number;
 }
+/** A great one the skier has come to: which (the same while it comes), its name, how strong it is still, and whether it has fallen. */
+export interface Boss { id: string; title: string; kind: FoeName; hp: number; most: number; down: boolean }
+/** How near a great one comes before the skier is reckoned to have come to it; how long its bar stays once it has fallen. */
+const MEET = 55, FELLED = 2.6;
 
 export class Horde {
   private readonly foes: Foe[] = [];
   private readonly rng = new Rng('orcs');
+  /** (The great ones' names drawn apart: drawn from `rng`, every horde after the first yeti came somewhere else.) */
+  private readonly naming = this.rng.fork('titles');
   private making = false;
   private readonly scratch = new Vector3();
   private readonly ball = new Vector3();
@@ -96,7 +104,7 @@ export class Horde {
     this.dress(gait.model);
     gait.model.visible = false;
     this.scene.add(gait.model);
-    this.foes.push({ kind, gait, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, hp: kind.hp, state: 'gone', since: 0, v: new Vector3(), reel: 0, bumped: 0, casts: true });
+    this.foes.push({ kind, gait, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, hp: kind.hp, state: 'gone', since: 0, v: new Vector3(), reel: 0, bumped: 0, casts: true, title: '', met: false, comes: 0 });
   }
   /** The kind fewest of which have been made, against how many there may be; none, when there are enough of each. */
   private wanting(): FoeKind | null {
@@ -132,7 +140,8 @@ export class Horde {
         const waiting = free(kind), [lo, hi] = g.edges(s0), mid = this.rng.range(lo + 3, hi - 3), n = Math.min(waiting.length, room, this.rng.int(...kind.pack));
         for (let k = 0; k < n; k++) {
           const b = waiting[k], s = s0 + this.rng.range(-kind.spread, kind.spread), left = mid + this.rng.range(-0.8, 0.8) * kind.spread;
-          Object.assign(b, { s, left, state: 'come', since: 0, pace: this.rng.range(...kind.pace), hp: kind.hp, reel: 0, bumped: 0 });
+          Object.assign(b, { s, left, state: 'come', since: 0, pace: this.rng.range(...kind.pace), hp: kind.hp, reel: 0, bumped: 0, met: false, comes: b.comes + 1 });
+          if (kind.titles) b.title = this.naming.pick(kind.titles);
           b.gait.go(b.pace, this.rng.next());
           b.gait.model.visible = true;
         }
@@ -153,6 +162,7 @@ export class Horde {
         b.p.set(at.x, g.ground(at.x, at.z) - Math.max(0, 1 - b.since / 0.9) * 1.9 * b.size, at.z);
         // (Gone by: let go of. Run down: thrown on along the skier's way and up.)
         if (b.s < q.down - 30) { this.letGo(b); continue; }
+        if (b.kind.titles && Math.hypot(b.p.x - q.at.x, b.p.z - q.at.z) < MEET) b.met = true;
         if (b.bumped <= 0 && Math.hypot(b.p.x - q.at.x, b.p.z - q.at.z) < q.reach + 0.2 * b.size * (b.kind.balls[0][2] / 0.42) && Math.abs(b.p.y - q.at.y) < 2 + Math.max(0, b.size - 1.2)) {
           const at2 = this.middleOf(b), struck = this.strike(b, q.v.clone().multiplyScalar(0.6).add(new Vector3(0, 4, 0)), RUN_DOWN);
           if (struck?.down) ran.push({ at: at2, kind: b.kind });
@@ -232,6 +242,7 @@ export class Horde {
     if (!b || b.state !== 'come') return null;
     const bleeds = bloody && b.kind.bloody;
     b.hp -= blow;
+    b.met = true;
     if (b.hp > 0) {
       b.reel = 0.45;
       b.gait.flinch();
@@ -255,6 +266,17 @@ export class Horde {
   /** Where each still coming stands, for a script that drives the page; and what it is. */
   where(): Vector3[] { return this.foes.filter((b) => b.state === 'come').map((b) => b.p.clone()); }
   kinds(): FoeName[] { return this.foes.filter((b) => b.state === 'come').map((b) => b.kind.name); }
+  /**
+   * The great ones the skier has come to (within `MEET` metres, or struck), still coming, or fallen a moment ago; nearest first, two at
+   * the most.
+   */
+  bosses(at: Vector3): Boss[] {
+    return this.foes
+      .map((b, i) => ({ b, i, far: Math.hypot(b.p.x - at.x, b.p.z - at.z) }))
+      .filter(({ b }) => b.kind.titles && b.met && (b.state === 'come' || (b.state === 'down' && b.since < FELLED)))
+      .sort((x, y) => x.far - y.far).slice(0, 2)
+      .map(({ b, i }) => ({ id: `${i}.${b.comes}`, title: b.title, kind: b.kind.name, hp: Math.max(0, b.hp), most: b.kind.hp, down: b.state === 'down' }));
+  }
   /** Where each still coming is to be aimed at: its middle. */
   aims(): Vector3[] { return this.foes.filter((b) => b.state === 'come').map((b) => this.middleOf(b)); }
 }

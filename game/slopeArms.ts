@@ -17,7 +17,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
-import { attribute, texture, uv, vec3 } from 'three/tsl';
+import { attribute, texture, uniform, uv, vec3 } from 'three/tsl';
 import type { Rng } from '../src/core/rng';
 import type { Stance } from '../src/figures/alpine';
 import { FORE_GRIP, MUZZLE, tommyGun } from './slopeGun';
@@ -45,7 +45,7 @@ const smooth01 = (t: number) => { const u = Math.min(1, Math.max(0, t)); return 
 /** The bore's height over the grip, for the guns made here; the bazooka's tube's, which lies on the shoulder. */
 const BORE = 0.065, TUBE = 0.12;
 export const LADDER: Arm[] = [
-  { kind: 'sword', name: 'Sword', after: 0, firing: 'swing', every: 1.5, hint: 'click or tap to cut at either side; or ride them down', muzzle: new Vector3(0, 0, 1.12), fore: -0.13, kick: 0, make: () => sword() },
+  { kind: 'sword', name: 'Sword', after: 0, firing: 'swing', every: 1.5, hint: 'click or tap to cut at either side; hold to raise it and let go to cut harder; or ride them down', muzzle: new Vector3(0, 0, 1.12), fore: -0.13, kick: 0, make: () => sword() },
   { kind: 'pistol', name: 'Pistol', after: 10, firing: 'single', every: 0.16, hint: 'a click a shot', muzzle: new Vector3(0, BORE, 0.19), fore: 0.03, kick: 0.7, out: true, make: () => pistol() },
   { kind: 'shotgun', name: 'Shotgun', after: 15, firing: 'single', every: 0.75, hint: 'a click a blast, a spread of shot', muzzle: new Vector3(0, BORE, 0.78), fore: 0.36, kick: 1.8, stance: 'shoulder', make: () => shotgun() },
   { kind: 'flamer', name: 'Flamethrower', after: 20, firing: 'stream', every: 1 / 30, hint: 'hold to pour fire on them', muzzle: new Vector3(0, BORE, 0.66), fore: 0.32, kick: 0.35, make: () => flamer() },
@@ -442,15 +442,21 @@ const Z = new Vector3(0, 0, 1);
  * The sword's sweep as it cuts (asked: "the sword animations need to be improved, like proper slashing alternating on right and left
  * side of the horse flanks"): a ribbon through where the blade has been over the last moment, from near its hilt to its point, a
  * smear of the steel's grey, fading behind it and toward the hilt, as the eye keeps a blade swung fast. (Pale, as such sweeps are
- * mostly drawn, it was not to be seen against the snow and the sky.)
+ * mostly drawn, it was not to be seen against the snow and the sky.) Drawn stronger for a cut held and let go, and reddened once the
+ * blade has drawn blood in the cut (asked: "improve the sword play").
  */
 export class Sweep {
-  private static readonly N = 16;
-  private static readonly LIFE = 0.13;
-  private readonly at: { a: Vector3; b: Vector3; age: number }[] = [];
+  private static readonly N = 24;
+  /** (A fifth of a second, which reads as a stroke of the blade: at an eighth it was a flicker, gone before it was seen.) */
+  private static readonly LIFE = 0.2;
+  private readonly at: { a: Vector3; b: Vector3; age: number; glow: number }[] = [];
   private readonly mesh: Mesh;
   private readonly pos = new Float32Array(Sweep.N * 6);
   private readonly fade = new Float32Array(Sweep.N * 2);
+  /** Its colour: steel grey, or, once the blade has drawn blood in this cut, red. */
+  private readonly tint = uniform(new Color(0.5, 0.56, 0.66));
+  private static readonly STEEL = new Color(0.5, 0.56, 0.66);
+  private static readonly BLOOD = new Color(0.62, 0.05, 0.04);
   constructor(scene: Scene) {
     const geo = new BufferGeometry(), index: number[] = [];
     geo.setAttribute('position', new BufferAttribute(this.pos, 3));
@@ -458,7 +464,7 @@ export class Sweep {
     for (let i = 0; i < Sweep.N - 1; i++) { const k = 2 * i; index.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
     geo.setIndex(index);
     const paint = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: DoubleSide });
-    paint.colorNode = vec3(0.5, 0.56, 0.66);
+    paint.colorNode = this.tint;
     paint.opacityNode = attribute('aFade', 'float');
     this.mesh = new Mesh(geo, paint);
     this.mesh.frustumCulled = false;
@@ -466,11 +472,13 @@ export class Sweep {
     this.mesh.visible = false;
     scene.add(this.mesh);
   }
-  /** The blade where it is now, from `a` (near its hilt) to `b` (its point), while it cuts. */
-  add(a: Vector3, b: Vector3): void {
-    this.at.unshift({ a: a.clone(), b: b.clone(), age: 0 });
+  /** The blade where it is now, from `a` (near its hilt) to `b` (its point), while it cuts; `glow`, how strongly it is drawn (a cut held and let go, up to twice). */
+  add(a: Vector3, b: Vector3, glow = 1): void {
+    this.at.unshift({ a: a.clone(), b: b.clone(), age: 0, glow });
     if (this.at.length > Sweep.N) this.at.pop();
   }
+  /** Its colour, red once the blade has drawn blood in this cut, steel before. */
+  redden(blood: boolean): void { this.tint.value.copy(blood ? Sweep.BLOOD : Sweep.STEEL); }
   /** A step on by `dt`: each place the blade was, older, and gone once it is old enough. */
   step(dt: number): void {
     for (const p of this.at) p.age += dt;
@@ -481,7 +489,7 @@ export class Sweep {
     this.at.forEach((p, i) => {
       const k = 1 - p.age / Sweep.LIFE;
       this.pos.set([p.a.x, p.a.y, p.a.z, p.b.x, p.b.y, p.b.z], i * 6);
-      this.fade[i * 2] = 0.1 * k; this.fade[i * 2 + 1] = 0.55 * k;
+      this.fade[i * 2] = Math.min(1, 0.1 * k * p.glow); this.fade[i * 2 + 1] = Math.min(0.95, 0.55 * k * p.glow);
     });
     const geo = this.mesh.geometry;
     geo.getAttribute('position').needsUpdate = true;
