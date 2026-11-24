@@ -149,9 +149,12 @@ its kind is from the props made for it: barrels, crates, sacks, tables, a desk, 
 candlesticks and candelabra, altars, statues, coffins, a dais, urns, braziers burning, banners, skulls, bones and skeletons, shackles,
 bedrolls, buckets, a rack of spears, heaps of gold, cobwebs. Furthest from the gate, behind a portcullis, the last room and its chest
 (5,000 points, once a run). It is lit by its torches, candles and braziers and the light carried in; the place is named as you come in
-at the gate, and each room said as you come into it. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer), and orcs come at you in the dungeon: out of rooms some way off and out of sight, two to four at a time, finding their
-way to you round the walls, through the doorways and up and down the stairs, striking at you as they come up to you (200 points lost,
-and you are thrown back a step); shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
+at the gate, and each room said as you come into it. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer), and foes come at you in the dungeon: out of rooms some way off and out of sight, a pack at a time, of orcs (two to four), goblins (three
+to five, quick, striking light) or the draugr (two to four, slow, striking hard), finding their way to you round the walls, through the
+doorways and up and down the stairs, striking at you as they come up to you (200 points lost for an orc's blow, less for a goblin's,
+more for one of the dead's, and you are thrown back a step); and now and then, alone and no sooner than a minute and a half after the
+last, a barrow-king, a crowned draugr half as tall again as a man, named, its strength in the bar across the foot of the picture,
+taking fourteen blows, striking two and a half times as hard as an orc; shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there (come in on the cart, too: down, the run carried on as before the cart came).
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
@@ -164,8 +167,9 @@ the summit down its south spur; *Lake Wall*, from a knoll at the head of a long 
 the range; *Arford*, long, gentle and broad, to the shore; or a groomed slope
 going on for ever: one run is held at a time, the one left let go of), *Skier* (the horse with its
 rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
-*Camera* (*Cinema*, *Behind*, *Beside*, *Above*, or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and
-riding from behind, and each keeps the one it was last left in; and its distance; from behind on a phone held upright, twice as far
+*Camera* (*Cinema*, *Behind*, *Beside*, *Iso* (isometric: high, looking down across the slope at forty-five degrees, as on foot in the
+cave), or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`, as they are pressed and not as they repeat held; watching begins in *Cinema* and
+riding from behind, and each keeps the one it was last left in, on foot in the cave too (where the view is always isometric); and its distance; from behind on a phone held upright, twice as far
 off to begin with) and *Picture* (the snow detailed or plain, the minimap shown or
 hidden, how finely the picture is drawn, the blur). Escape or `H` closes it. `M` opens the map of the runs (riding, the ride held while it is open). `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so).
 

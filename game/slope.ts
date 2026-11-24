@@ -2584,7 +2584,7 @@ async function start() {
     eye.lerp(watching, atTop);
     target.lerp(mid.clone().addScaledVector(UP, 1.5), atTop);
     const end = smooth((c.t - (p.down - 1.2)) / 1.4), own = end > 0 ? viewAtTop(c) : null;
-    if (own) { eye.lerp(own.eye, end); target.lerp(own.look, end); if (view === 'above') camera.up.lerp(c.downhill, end).normalize(); }
+    if (own) { eye.lerp(own.eye, end); target.lerp(own.look, end); }
     e.at.copy(eye);
     if (!e.started) e.rel.copy(e.look).sub(mid);
     e.rel.lerp(target.sub(mid), ease(dt, 4) * turnIn(c));
@@ -4139,11 +4139,11 @@ async function start() {
 
   // ---------------------------------------------------------------- what is shown, and how it is moved about in
   type Mode = 'watch' | 'ride';
-  type View = 'cinema' | 'behind' | 'beside' | 'above' | 'free';
+  type View = 'cinema' | 'behind' | 'beside' | 'iso' | 'free';
   let mode = 'watch' as Mode;
   let t = 0, playing = true, rate = 1, view = 'cinema' as View, scrubbing = false;
   const rates: [string, number][] = [['¼×', 0.25], ['½×', 0.5], ['1×', 1]];
-  const views: [string, View, string][] = [['Cinema', 'cinema', 'C'], ['Behind', 'behind', 'B'], ['Beside', 'beside', 'S'], ['Above', 'above', 'A'], ['Free', 'free', 'F']];
+  const views: [string, View, string][] = [['Cinema', 'cinema', 'C'], ['Behind', 'behind', 'B'], ['Beside', 'beside', 'S'], ['Iso', 'iso', 'A'], ['Free', 'free', 'F']];
   const modes: [string, Mode, string][] = [['Watch demo', 'watch', 'Watch the demo run, a trick off every kicker (R)'], ['Ride', 'ride', 'Ride it yourself: you steer, and each kicker gives you a trick (R)']];
   /** A button in the menu, in the bar or the cards of `parent`; a card says what it is under its name (`detail`). */
   const button = (parent: string, label: string, onclick: () => void, title?: string, detail?: string) => {
@@ -4595,9 +4595,11 @@ async function start() {
     // (Asked the way back, by its number: 1 to 9, and 0 for the tenth.)
     const nth = e.key === '0' ? 9 : /^[1-9]$/.test(e.key) ? +e.key - 1 : -1;
     if (asking && nth >= 0 && nth < wayButtons.length && !wayButtons[nth].hidden) { takeWay(WAY_NAMES[nth][0]); e.preventDefault(); return; }
+    // (A view's key only as it is pressed, not as it repeats held: walking out of the camp with A or S held, the skis on and the keys no
+    // longer the walker's, their repeats chose the view from above, or beside, as it rode on.)
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
-    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v) setView(v[1]);
+    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v && !e.repeat) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (WASD[e.code]) want.keys[WASD[e.code]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
@@ -5205,18 +5207,24 @@ async function start() {
       walk: (x, z, tx, tz, r) => { const [a, b] = cave.walk(x - o.x, z - o.z, tx - o.x, tz - o.z, r); return [a + o.x, b + o.z]; },
     };
   };
-  /** Struck by an orc come up to it on foot: points lost, and thrown back a step from it. */
-  const struck = (from: Vector3) => {
+  /**
+   * Struck by a foe come up to it on foot: points lost, and thrown back a step from it; the more, the harder it strikes (a goblin, less
+   * than an orc; one of the dead, more; the barrow-king, two and a half times as much: `FoeKind.den`).
+   */
+  const struck = (from: Vector3, kind: FoeKind) => {
     const f = foot, cave = caveNow();
     if (!f || !cave || mode !== 'ride') return;
-    score = Math.max(0, score - 200);
+    const blow = kind.den?.blow ?? 1, lost = Math.round((200 * blow) / 10) * 10;
+    score = Math.max(0, score - lost);
     scoreEl.textContent = score.toLocaleString('en');
-    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2), o = land.group.position;
+    if (blow > 2) bladeJolt = Math.max(bladeJolt, 0.6);
+    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2 * Math.sqrt(blow)), o = land.group.position;
     const [x, z] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + away.x, f.z - o.z + away.z, walks() ? FOOT.person : FOOT.horse);
     f.x = x + o.x; f.z = z + o.z;
     const s = overPictureAt(rider.position.clone().addScaledVector(UP, 1.8));
-    if (s) popUp(s, '−200', 'run', 'struck');
-    tell('Struck!', 'an orc came at you', true, 1.2);
+    if (s) popUp(s, `−${lost}`, 'run', 'struck');
+    const what = kind.titles ? 'the barrow-king' : `${/^[aeiou]/.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
+    tell('Struck!', `${what} came at you`, true, 1.2);
     gunSound.hear('grunt');
   };
   const armUp = (dt: number, now: Now) => {
@@ -5348,7 +5356,6 @@ async function start() {
     // (The force gathered in a held cut, a ring filling about the guide's mark.)
     const charging = swing?.held && swing.k >= SLASH_MARKS.up ? Math.round(swing.charge * 50) / 50 : -1;
     if (charging !== shownCharge) { shownCharge = charging; aimEl.style.setProperty('--charge', String(Math.max(0, charging))); aimEl.classList.toggle('charging', charging >= 0); aimEl.classList.toggle('charged', charging >= 1); }
-    bladeJolt *= Math.exp(-dt * 14);
     // Fired on the snow, each arm as it is fired: the tommy gun while the button is held (or an orc is in its sights, watching), the
     // first round as it is pressed; the pistol and the shotgun a round, or a blast, a click; the flamethrower pouring fire while held;
     // the lightning gun a bolt every third of a second while held; the sword a swing a click.
@@ -5401,6 +5408,13 @@ async function start() {
   // and above look most of the way along the way it goes.
   let placed = false, distance = 1;
   const eyeOff = new Vector3(), lookOff = new Vector3(), lastRider = new Vector3(), ahead = new Vector3(0, 0, 1);
+  /**
+   * The isometric view riding: how far off it is (further than on foot, for the speed), and which way it looks across the land, level:
+   * down the run turned forty-five degrees to the skier's left, as the cave's view is turned across its lattice.
+   */
+  const ISO_RIDE = { far: 30 };
+  const isoWay = (down: Vector3, aside: Vector3) => down.clone().multiplyScalar(Math.SQRT1_2).addScaledVector(aside, Math.SQRT1_2).setY(0).normalize();
+  const isoTurn = new Vector3(0, 0, 1);
   /** How hard the view is jolted by a blow of the sword struck home, dying away (`swingOn`); the charge last shown about the guide's mark. */
   let bladeJolt = 0, shownCharge = -1;
   /** What the free view is held looking at, for a picture of what is not the skier (`__slope.lookAt`); none, the skier. */
@@ -5622,6 +5636,9 @@ async function start() {
     // (Swung from the view it rode in, as it takes its skis off.)
     const k = smooth(iso.since / ISO.swing);
     if (k < 1) { camera.position.lerpVectors(iso.from, eye, k); camera.quaternion.slerpQuaternions(iso.turn, camera.quaternion.clone(), k); }
+    // (A blow struck home, or a great one's struck on it, felt: the view jolted a moment.)
+    bladeJolt *= Math.exp(-dt * 14);
+    if (bladeJolt > 0.003) { const w = performance.now() / 1000, j = 0.12 * bladeJolt; camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j)); }
     const fov = FOV + (ISO.fov - FOV) * k;
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fovNow = fov; camera.updateProjectionMatrix(); }
     lastRider.copy(target);
@@ -5828,7 +5845,7 @@ async function start() {
     // (Riding from behind, a little wider the faster it goes, up to eight degrees at a hundred kilometres an hour: the snow beside
     // streams by further out, and speed is felt. Eased, so that it is not seen to change.)
     if (view !== 'cinema') {
-      const wide = FOV + (mode === 'ride' && view === 'behind' ? 8 * smooth((now.speed - 14) / 16) : 0);
+      const wide = view === 'iso' ? ISO.fov : FOV + (mode === 'ride' && view === 'behind' ? 8 * smooth((now.speed - 14) / 16) : 0);
       fovNow = placed ? fovNow + (wide - fovNow) * ease(dt, 1.8) : wide;
       if (Math.abs(camera.fov - fovNow) > 0.01) { camera.fov = fovNow; camera.updateProjectionMatrix(); }
     }
@@ -5853,8 +5870,16 @@ async function start() {
       // that it eases so that there is more visibility to the side the rider is heading to (now the rider is in the sharp center of
       // framing)").)
       else if (view === 'beside') { over(wantAt.copy(follow).addScaledVector(aside, 14 * d).addScaledVector(down, -4 * d), 2.2 * d); wantAt.y = Math.max(wantAt.y, at.y + 0.8 * d); aim.copy(at).addScaledVector(UP, 0.9).addScaledVector(travel, 4.5 * d); }
-      // (From above, looking a little behind the skier, so that it is in the upper part of the picture with its tracks below it.)
-      else { wantAt.copy(follow).addScaledVector(ahead, -5).setY(at.y + 32 * d); aim.copy(follow).addScaledVector(ahead, -5).setY(at.y); camera.up.copy(ahead); }
+      // (Isometric, as on foot in the cave (asked: "lets make the isometric view available for skiing as well, as replacement of the above
+      // camera"): high and back, looking down at the skier at `ISO.pitch`, from up the run and off to one side at forty-five degrees, drawn
+      // narrow so that it is nearly as a plan is; turned only slowly as the run bends, so that the slope does not swing about; a little
+      // ahead of the skier, where it goes. It had been from straight above, the view turned after the skier's way.)
+      else {
+        isoTurn.lerp(isoWay(down, aside), placed ? ease(dt, 0.7) : 1).setY(0).normalize();
+        const D = ISO_RIDE.far * d;
+        wantAt.copy(at).addScaledVector(isoTurn, -D * Math.cos(ISO.pitch)).setY(at.y + D * Math.sin(ISO.pitch));
+        aim.copy(at).addScaledVector(travel, Math.min(6, now.speed * 0.25) * d);
+      }
       eyeOff.lerp(wantAt.sub(at), placed ? ease(dt, 5) : 1);
       lookOff.lerp(aim.sub(at), placed ? ease(dt, 6) : 1);
       camera.position.copy(at).add(eyeOff);
@@ -5862,6 +5887,7 @@ async function start() {
       camera.position.y = Math.max(camera.position.y, ground(camera.position.x, camera.position.z) + 0.6);
       camera.lookAt(at.clone().add(lookOff));
       // (A blow of the sword struck home felt: the view jolted a moment, the more the harder the blow.)
+      bladeJolt *= Math.exp(-dt * 14);
       if (bladeJolt > 0.003) {
         const w = performance.now() / 1000, j = 0.09 * bladeJolt;
         camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j));
@@ -5960,7 +5986,6 @@ async function start() {
     const end = smooth((c.t - (s.done - 1.5)) / 1.5), own = end > 0 ? viewAtTop(c) : null;
     if (own) {
       eye.lerp(own.eye, end); target.lerp(own.look, end);
-      if (view === 'above') camera.up.lerp(c.downhill, end).normalize();
     }
     e.at.copy(eye);
     // (Where it looks eased against the two of them, not the world: carried off faster than any eased look follows, it fell behind
@@ -6035,8 +6060,7 @@ async function start() {
       const end = smooth((ft - (fly.total - 1.8)) / 1.8), own = end > 0 ? viewAtTop(c) : null;
       if (own) {
         eye.lerp(own.eye, end); target.lerp(own.look, end);
-        if (view === 'above') camera.up.lerp(c.downhill, end).normalize();
-      }
+        }
       e.rel.lerp(target.sub(mid), ease(dt, 6));
       e.look.copy(mid).add(e.rel);
       camera.position.copy(eye);
@@ -6076,7 +6100,7 @@ async function start() {
       eye.y = Math.max(eye.y, L.y + 0.8 * d);
       return { eye, look: L.clone().addScaledVector(UP, 0.9).addScaledVector(down, 4.5 * d) };
     }
-    if (view === 'above') { const p = L.clone().addScaledVector(down, -5); return { eye: p.clone().setY(L.y + 32 * d), look: p.setY(L.y) }; }
+    if (view === 'iso') { const way = isoWay(down, aside), D = ISO_RIDE.far * d; return { eye: L.clone().addScaledVector(way, -D * Math.cos(ISO.pitch)).setY(L.y + D * Math.sin(ISO.pitch)), look: L.clone() }; }
     return null;
   };
   /**

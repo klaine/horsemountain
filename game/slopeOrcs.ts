@@ -79,6 +79,9 @@ export class Horde {
   private readonly rng = new Rng('orcs');
   /** (The great ones' names drawn apart: drawn from `rng`, every horde after the first yeti came somewhere else.) */
   private readonly naming = this.rng.fork('titles');
+  /** In a den: how long it has been gone through, and when a great one last came there. */
+  private denClock = 0;
+  private greatAt = -Infinity;
   private making = false;
   private readonly scratch = new Vector3();
   private readonly ball = new Vector3();
@@ -227,22 +230,43 @@ export class Horde {
   /**
    * A frame on, by `dt`, in a den (`Den`) rather than on a run: a few at a time out of its rooms, out of the way of the one on foot
    * (`q.at`), more as fewer come; each coming at it round the walls, faster than up a run; and, come up to it, striking (`strike`, told
-   * where from), then a moment back before it may again. Fallen, as on the snow, on the floor. Far off, let go of. (Only orcs: the
-   * goblins, the wolves, the draugr and the yetis keep to the snow.)
+   * where from, and what it is), then a moment back before it may again. Fallen, as on the snow, on the floor. Far off, let go of.
+   * Each pack of one kind of those that come there (`FoeKind.den`: orcs, goblins, the draugr), drawn by chance; and now and then, none of
+   * them coming already and none for a minute and a half, a great one alone in a pack's stead (the barrow-king), its strength shown in
+   * the bar across the foot of the picture as it comes (`bosses`). (Wolves and yetis keep to the snow.)
    */
-  within(dt: number, den: Den, q: Quarry, strike: (from: Vector3) => void, most = 9): void {
-    const orc = FOES[0], orcs = this.foes.filter((b) => b.kind === orc);
-    if (orcs.length < Math.min(this.most, most + 3) && !this.making) { this.making = true; void this.make(orc).finally(() => { this.making = false; }); }
-    const coming = orcs.filter((b) => b.state === 'come').length, free = orcs.filter((b) => b.state === 'gone');
-    if (dt > 0 && coming < most * 0.5 && free.length >= 2 && this.rng.chance(dt * 0.8)) {
-      const from = den.spawn(this.rng, q.at);
-      if (from) for (let k = 0, n = Math.min(free.length, this.rng.int(2, 4)); k < n; k++) {
-        const b = free[k];
-        Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(1.3, 1.9), next: 0, hp: orc.hp, reel: 0, bumped: 0, penned: false });
-        b.p.set(from.x + this.rng.range(-0.8, 0.8), 0, from.z + this.rng.range(-0.8, 0.8));
-        b.p.y = den.floor(b.p.x, b.p.z);
-        b.gait.go(b.pace * 0.9, this.rng.range(0, 1));
-        b.gait.model.visible = true;
+  within(dt: number, den: Den, q: Quarry, strike: (from: Vector3, kind: FoeKind) => void, most = 9): void {
+    this.denClock += dt;
+    // (Only one kind, if a script asks for it (`only`); a great one so asked, at once.)
+    const kinds = FOES.filter((k) => k.den && (!this.only || k.name === this.only)), packs = kinds.filter((k) => !k.titles), greats = kinds.filter((k) => k.titles);
+    const of = (k: FoeKind) => this.foes.filter((b) => b.kind === k), free = (k: FoeKind) => of(k).filter((b) => b.state === 'gone');
+    // (Bodies made for each kind as it is wanted, one at a time, as many as its biggest pack, and one besides.)
+    if (!this.making) {
+      const short = kinds.find((k) => of(k).length < Math.min(this.most, k.den!.pack[1] + 1));
+      if (short) { this.making = true; void this.make(short).finally(() => { this.making = false; }); }
+    }
+    const coming = this.foes.filter((b) => b.state === 'come').length;
+    if (dt > 0 && coming < most * 0.5 && this.rng.chance(dt * 0.8)) {
+      const greatOn = this.foes.some((b) => b.state === 'come' && b.kind.titles);
+      const great = !greatOn && (this.only || this.denClock - this.greatAt > 90) && greats.find((k) => free(k).length && (this.only || this.rng.chance(k.den!.chance)));
+      let kind: FoeKind | undefined = great || undefined;
+      if (!kind) {
+        let pick = this.rng.range(0, packs.reduce((n, k) => n + k.den!.chance, 0));
+        for (const k of packs) { if (pick < k.den!.chance) { kind = k; break; } pick -= k.den!.chance; }
+      }
+      const waiting = kind ? free(kind) : [], from = kind && waiting.length >= Math.min(2, kind.den!.pack[0]) ? den.spawn(this.rng, q.at) : null;
+      if (kind && from) {
+        const d = kind.den!;
+        if (kind.titles) this.greatAt = this.denClock;
+        for (let k = 0, n = Math.min(waiting.length, this.rng.int(...d.pack)); k < n; k++) {
+          const b = waiting[k];
+          Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(...d.pace), next: 0, hp: kind.hp, reel: 0, bumped: 0, penned: false, met: false, comes: b.comes + 1 });
+          if (kind.titles) b.title = this.naming.pick(kind.titles);
+          b.p.set(from.x + this.rng.range(-0.8, 0.8), 0, from.z + this.rng.range(-0.8, 0.8));
+          b.p.y = den.floor(b.p.x, b.p.z);
+          b.gait.go(b.pace * 0.9, this.rng.range(0, 1));
+          b.gait.model.visible = true;
+        }
       }
     }
     for (const b of this.foes) {
@@ -253,7 +277,9 @@ export class Horde {
         const to = q.at, d = Math.hypot(to.x - b.p.x, to.z - b.p.z), reach = 0.75 + 0.35 * b.size;
         if (d > 45) { this.letGo(b); continue; }
         // (Come up to it: struck at, and a moment back; else on at it, round the walls.)
-        if (d < reach + 0.15 && b.since > b.next) { b.next = b.since + 1.6; strike(b.p.clone()); }
+        if (d < reach + 0.15 && b.since > b.next) { b.next = b.since + 1.6; strike(b.p.clone(), b.kind); }
+        // (A great one met as it comes near enough to be seen in the dark.)
+        if (b.kind.titles && d < 25) b.met = true;
         const back = b.since < b.next - 1.1, way = den.way(b.p, to), step = (back ? -0.8 : d > reach ? b.pace * (b.reel > 0 ? 0.2 : 1) : 0) * dt;
         // (Something in the way, a coffin, a stack of crates: round it, veering a little and then more, one side and then the other.)
         let x = b.p.x, z = b.p.z;
