@@ -5806,6 +5806,8 @@ async function start() {
   };
   $('packEmpty').addEventListener('click', () => { if (pack && confirm('Let go of everything found, and forget the guidebooks read?')) pack.empty(); });
 
+  /** Where the arm was last aimed, for a script to see that it holds still (`__slope.aimed`). */
+  const aimedAt = new Vector3();
   const armUp = (dt: number, now: Now) => {
     // (A weapon found strikes harder.)
     horde.might = 1 + (wornWeapon() ? kit().might : 0);
@@ -5903,6 +5905,11 @@ async function start() {
       // within a stride of the floor pointed to as well; and the floor pointed to and none there, at chest height over it, so that what
       // is fired goes level across the room.)
       let foe: Vector3 | null = met ? horde.middle(met.orc) : null;
+      // (On foot by touch, no finger on the picture: ahead, the way it faces (asked: "something is also causing the aiming to flicker
+      // superfast when i enter a camp and dungeon, on iphone 15 chrome"). With no pointer the aim had stayed where the picture's middle
+      // is, which seen from above is the one on foot itself, and the gun turned to and fro about it every frame.)
+      const faces = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : null;
+      if (foot && faces && !fingerAims() && !document.body.classList.contains('mouse')) { target = rider.position.clone().addScaledVector(faces, 8); target.y = foot.y + 1.1; foe = null; }
       if (foot && !foe) {
         let near = 1.6;
         for (const p of horde.aims()) { const d = Math.hypot(p.x - target.x, p.z - target.z); if (d < near) { near = d; foe = p; } }
@@ -5912,7 +5919,10 @@ async function start() {
       // (Aimed nearer than three metres: on along the same way from the muzzle, thirty metres; it had been on along the line from the eye,
       // which from behind, from beside or from above looks down at the skier, and fired into the snow, or the floor, at its feet.)
       if (target.distanceTo(muzzle) < 3) {
-        const way = target.clone().sub(muzzle);
+        // (On foot, the way from its body, which the gun turning does not move, level; or, pointed at itself, the way it faces: from the
+        // muzzle, which moves as the gun turns to it, the way had turned round with the gun from frame to frame.)
+        const body = foot ? target.clone().sub(rider.position).setY(0) : null;
+        const way = body ? (body.lengthSq() > 0.36 ? body : faces!.clone()) : target.clone().sub(muzzle);
         if (foot || way.lengthSq() < 0.04) way.y = Math.max(way.y, -0.1 * Math.hypot(way.x, way.z));
         target = muzzle.clone().addScaledVector(way.lengthSq() > 1e-4 ? way.normalize() : go.clone(), 30);
       }
@@ -5923,7 +5933,7 @@ async function start() {
       // something is pulling the gun direction and often it just fires forward"): it had fired so at any snow within twelve metres ahead
       // too, and turned by the way the eye looks, nearly straight ahead from behind the skier, not by where the snow touched lies; on an
       // iPad, which shows more of the snow near the skier than a phone held sideways, at most of what was touched.)
-      if (fingerAims() && !met) {
+      if (fingerAims() && !met && !foot) {
         const rel = target.clone().sub(rider.position).setY(0);
         if (rel.x * go.x + rel.z * go.z < 1.5) {
           const level = rel.lengthSq() > 1e-4 ? rel : go.clone();
@@ -5935,6 +5945,7 @@ async function start() {
     }
     // The gun turned to it from the muzzle, as far round as the arms let it (in the frame of what holds the human: a skier's own, a
     // horse's saddle's; whose right and ahead, in the scene, the sword cuts to).
+    aimedAt.copy(target);
     const hq = holder.getWorldQuaternion(new Quaternion());
     const right = new Vector3(-1, 0, 0).applyQuaternion(hq).setY(0).normalize(), ahead = new Vector3(0, 0, 1).applyQuaternion(hq).setY(0).normalize();
     const d = target.sub(muzzle).normalize().applyQuaternion(hq.clone().invert());
@@ -7427,6 +7438,7 @@ async function start() {
       }
       return null;
     },
+    aimed: () => aimedAt.toArray().map((v) => +v.toFixed(2)),
     pack: () => pack && { items: pack.items.map((i) => ({ name: i.name, slot: i.slot, rarity: i.rarity, mods: i.mods, worn: pack!.worn[i.slot] === i.id })), read: [...pack.read], kit: { ...worn }, carried: carried().name, drops: drops.count },
     wear: (slot: Slot, n: number) => { if (!pack) return; const of = pack.items.filter((i) => i.slot === slot); pack.wear(slot, n < 0 ? null : of[n]?.id ?? null); },
     emptyPack: () => pack?.empty(),
