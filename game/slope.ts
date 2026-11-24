@@ -1365,8 +1365,12 @@ async function start() {
    */
   const noteProblem = (what: string) => {
     console.warn(`Grand Horse Mountain: ${what}`);
-    const at = new Date();
-    try { localStorage.setItem('slope.problem', JSON.stringify({ what: what.slice(0, 300), at: at.toISOString() })); } catch { /* (not kept) */ }
+    // (The last six kept, oldest first: the first of a run of them is where it began, which the last alone had hidden.)
+    try {
+      const was = JSON.parse(localStorage.getItem('slope.problems') ?? '[]') as { what: string; at: string }[];
+      was.push({ what: what.slice(0, 420), at: new Date().toISOString() });
+      localStorage.setItem('slope.problems', JSON.stringify(was.slice(-6)));
+    } catch { /* (not kept) */ }
     showProblem?.();
   };
   let showProblem: (() => void) | null = null;
@@ -4680,10 +4684,10 @@ async function start() {
   // (The last number gone bad, said in the menu under *Settings*: `noteProblem`.)
   showProblem = () => {
     try {
-      const k = JSON.parse(localStorage.getItem('slope.problem') ?? 'null');
+      const all = JSON.parse(localStorage.getItem('slope.problems') ?? '[]') as { what: string; at: string }[];
       const el = $('problemNote');
-      el.hidden = !k;
-      if (k) el.textContent = `Last problem seen (${new Date(k.at).toLocaleString()}): ${k.what}`;
+      el.hidden = !all.length;
+      el.textContent = all.length ? `Problems seen, oldest first: ${all.map((k) => `(${new Date(k.at).toLocaleTimeString()}) ${k.what}`).join(' · ')}` : '';
     } catch { /* (none) */ }
   };
   showProblem();
@@ -7772,7 +7776,7 @@ async function start() {
       at = { down: f.s, left: f.left, speed: crash ? 0 : ride.speed, way: ride.way, ski: ride.way, skid: 0, tuck: ride.tuck, brake: ride.brake };
       // (Until the arm has it in its claw, the ride goes on: lain in the snow, or stood at the foot of the run.)
       if (foot) at = stepFoot(playing && !menuOpen ? dt : 0);
-      else if (!cat?.held) for (let i = 0; i < steps; i++) { askRide(); at = stepRide(dt / steps); }
+      else if (!cat?.held) for (let i = 0; i < steps; i++) { askRide(); at = stepRide(dt / steps); checkStep(); }
       if (playing && !menuOpen) stepCamp();
       // (A run over: fallen and lain still, or stopped at the foot of the run; and the arm comes for it.)
       // (Or, the run to end in the whirlwind, ridden into it.)
@@ -7868,6 +7872,32 @@ async function start() {
   const pictureState = () => {
     const ok = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
     return [`eye ${ok(camera.position) ? 'ok' : 'bad'}`, `rider ${ok(rider.position) ? 'ok' : 'bad'}`, `view ${view}`, ride.ended ? 'ended' : '', asking ? 'asking' : '', crash ? 'fallen' : '', cat ? `way ${cat.by}` : '', inside ? 'inside out' : '', foot ? 'on foot' : '', `blur ${blurLevel}`].filter(Boolean).join(', ');
+  };
+  /**
+   * Each step of the ride looked at as it is taken (asked, the eye and the rider gone to no number again on an iPad, never here): the
+   * first of the ride's numbers to go so, which, what it was a step before and what was going on, said (`noteProblem`); and set back to
+   * the step before. The rider placed at no number, the same, and put back where the ride is. So nothing gone so reaches the eye.
+   */
+  const goodRide: Record<string, number> = {};
+  const doingNowly = () => [
+    air ? `in the air (${air.kind}, ${air.name}, t ${air.t.toFixed(2)} of ${air.T.toFixed(2)})` : '', crash ? `fallen (${crash.why})` : '', ride.turn180 ? `a ${ride.turn180.kind} 180` : '',
+    carting ? 'on the cart' : '', inside ? 'inside out' : '', ride.skating ? 'skating' : '', ride.ended ? 'ended' : '', stopping ? 'stopping at the camp' : '',
+    `${who}`, `speed ${Number(goodRide.speed ?? 0).toFixed(1)}`, `way ${Number(goodRide.way ?? 0).toFixed(2)}`, `stones ${Number(goodRide.stones ?? 0).toFixed(2)}`, `deep ${Number(goodRide.deep ?? 0).toFixed(2)}`,
+  ].filter(Boolean).join(', ');
+  let stepSaidAt = -1e9;
+  const checkStep = () => {
+    const r = ride as unknown as Record<string, unknown>, bad: string[] = [];
+    for (const k in r) if (typeof r[k] === 'number' && !Number.isFinite(r[k] as number)) bad.push(k);
+    const fine = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    const q = rider.quaternion, placedOk = !crash ? fine(rider.position) && [q.x, q.y, q.z, q.w].every(Number.isFinite) : true;
+    if (!bad.length && placedOk) { for (const k in r) if (typeof r[k] === 'number') goodRide[k] = r[k] as number; return; }
+    if (performance.now() - stepSaidAt > 3000) {
+      stepSaidAt = performance.now();
+      noteProblem(bad.length ? `the ride's ${bad.join(', ')} went to no number in a step (${doingNowly()})` : `the rider was placed at no number in a step (${doingNowly()})`);
+    }
+    // (Set back: the ride's numbers to the step before; the rider to where the ride is, upright.)
+    for (const k of bad) r[k] = goodRide[k] ?? 0;
+    if (!placedOk || bad.length) { rider.position.set(ride.x, ride.y, ride.z); rider.quaternion.identity(); rider.updateMatrixWorld(true); placed = false; }
   };
   /**
    * The eye and the rider kept sane each frame: a place gone to no number (as from a length of nothing made one), drawn, blackens the
