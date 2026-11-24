@@ -233,7 +233,8 @@ the groomed slope, which has no foot.)
 
 In the address: `?nointro` (no title, no map), `?pack=0` (nothing found worn), `?offpiste=0` (kept between the poles), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run; `#w2-8`, `#w2-10`, `#w2-2`, `#w2-14`, `#w2-17`, `#w2-25`, the third to the eighth), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
 `?dungeon=` (the cave's dungeon from a given seed, rather than a new one), `?tags=` (its tags: `?tags=prison,large,winding`), `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
-frames come), `?webgl` (WebGL 2 rather than WebGPU). Where the graphics report that they could not draw something as the page opens, it opens
+frames come), `?webgl` (WebGL 2 rather than WebGPU; on an iPhone or an iPad, whatever the browser, it draws by WebGL 2 from the first, its WebGPU
+having stopped drawing now and then, the picture going black; `?webgpu` there asks for WebGPU all the same). Where the graphics report that they could not draw something as the page opens, it opens
 again drawn more simply (the plain snow; then by WebGL 2) and keeps to it in that browser, said in the menu under *Picture* with a way
 to try the full picture again; `?safe=0` forgets it, `?safe=1` or `?safe=2` asks for it.
 
