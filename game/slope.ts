@@ -395,10 +395,21 @@ async function start() {
   await renderer.init();
   /** When the page was opened, to the moment: what fails while it opens, or in the seconds after, is the device's; later, it is let be. */
   let openedAt = Infinity, fallingBack = false;
+  /**
+   * The graphics failing once the page is open, kept for when it is opened again (`slope.lost`) and said then over the picture: what
+   * went wrong and what was happening, so that it can be told of (asked: "Ipad chrome: screen turned black after upside down world
+   * transition"). Given for the page as it was when it happened.
+   */
+  let doingWhenLost = () => '';
+  const noteLost = (why: string) => {
+    try { localStorage.setItem('slope.lost', JSON.stringify({ why: why.slice(0, 200), doing: doingWhenLost(), at: new Date().toISOString() })); } catch { /* (not kept) */ }
+  };
   const fallBack = (why: string, late = false) => {
     if (fallingBack || (!late && performance.now() > openedAt + SAFE.within)) return;
     const webglAlready = query.has('webgl') || safe.level >= 2, next = safe.level + 1;
-    // (Already as simple as it is drawn: nothing more to fall back on.)
+    if (late) noteLost(why);
+    // (Already as simple as it is drawn: nothing more to fall back on; once open, opened again all the same, rather than left black.)
+    if (late && (next > SAFE.most || (next === 2 && webglAlready && snowLook === 'plain'))) { fallingBack = true; loading.fail('The graphics failed: opening again…'); setTimeout(() => location.reload(), 1200); return; }
     if (next > SAFE.most || (next === 2 && webglAlready && snowLook === 'plain')) { console.warn(`Grand Horse Mountain could not draw everything here: ${why}`); return; }
     fallingBack = true;
     console.warn(`Grand Horse Mountain will draw more simply here (${next}): ${why}`);
@@ -432,7 +443,7 @@ async function start() {
     // (Never let go of on purpose, the renderer: lost however it is said to be, 'destroyed' too, as a browser may say of a lost device.)
     // (Lost once the page is open, which no frame drawn after it can come back from: opened again as it was, rather than left stood
     // still; drawn no more simply, as it had drawn till then.)
-    if (performance.now() > openedAt + SAFE.within && !fallingBack) { fallingBack = true; console.warn(`Grand Horse Mountain lost its graphics: ${info.message}`); loading.fail('The graphics were lost: opening again…'); setTimeout(() => location.reload(), 1200); return; }
+    if (performance.now() > openedAt + SAFE.within && !fallingBack) { fallingBack = true; noteLost(`lost (${info.reason}): ${info.message}`); console.warn(`Grand Horse Mountain lost its graphics: ${info.message}`); loading.fail('The graphics were lost: opening again…'); setTimeout(() => location.reload(), 1200); return; }
     fallBack(`the graphics were lost: ${info.message}`.slice(0, 160));
   };
   // (How finely: see *Resolution*, below.)
@@ -4611,6 +4622,10 @@ async function start() {
   menuButton.onclick = () => setMenu(true);
   $('menuClose').onclick = () => setMenu(false);
   $('menuResume').onclick = () => setMenu(false);
+  doingWhenLost = () => `${runs.find((r) => r.id === landKind)?.label ?? landKind}, ${mode === 'watch' ? `watching (${demoKind})` : inside ? (cat ? 'the land turning back' : inside.reversed ? 'riding the land inside out' : 'the land turning inside out') : cat ? `the way back to the top (${cat.by})` : foot ? 'on foot at the cave' : trip ? `off to ${trip.kind}` : 'riding'}`;
+  /** What went wrong last time the page was open, said once riding begins. */
+  let lostBefore: { why: string; doing: string } | null = null;
+  try { const k = localStorage.getItem('slope.lost'); if (k) { lostBefore = JSON.parse(k); localStorage.removeItem('slope.lost'); } } catch { /* (none) */ }
   /** The card at the menu's head: the run, and whether it is ridden, watched (which demo) or walked in its cave. */
   const showNow = () => {
     say($('menuRun'), runs.find((r) => r.id === landKind)?.label ?? 'The groomed slope');
@@ -6921,7 +6936,13 @@ async function start() {
   let runEndKey = '';
   $('runEndMap').addEventListener('click', () => showMap());
   $('runEndNext').addEventListener('click', () => restart());
+  const sayLostBefore = () => {
+    if (!lostBefore || mode !== 'ride' || ride.time < 0.5) return;
+    tell('The graphics failed last time', `${lostBefore.doing}: ${lostBefore.why}`.slice(0, 180), true, 10);
+    lostBefore = null;
+  };
   const stepRunEnd = () => {
+    sayLostBefore();
     const over = runOver, on = touchHud && mode === 'ride' && !!over && !foot && !trip;
     if (document.body.classList.contains('ended') !== on) document.body.classList.toggle('ended', on);
     if (runEndEl.hidden === on) runEndEl.hidden = !on;
