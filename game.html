@@ -112,6 +112,17 @@
     #menu .wide.map { margin: 0 0 8px; }
     #menu .keys { margin: 20px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-dim); }
     #menu .keys.more { margin-top: 6px; }
+    #menu h2 #packCount { font: 600 10.5px/1 var(--sans); letter-spacing: .04em; text-transform: none; color: var(--ink-dim); }
+    #menu .pack-note { margin-top: 0; }
+    #menu .pack { display: grid; gap: 5px; margin-top: 8px; }
+    #menu .pack .slot { margin: 8px 0 1px; font: 600 12px/1.2 var(--sans); color: var(--ink-dim); }
+    #menu .pack .item { display: grid; gap: 2px; text-align: left; padding: 7px 12px 8px; border-radius: 10px; background: rgba(232, 226, 214, .04); border: 1px solid var(--rule); }
+    #menu .pack .item b { font: 650 13.5px/1.25 var(--sans); color: var(--ink); }
+    #menu .pack .item span { font-size: 12px; line-height: 1.35; color: var(--ink-dim); }
+    #menu .pack .item span:first-of-type { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+    #menu .pack div.item span:first-of-type { font-size: 12px; letter-spacing: 0; text-transform: none; }
+    #menu .wide.quiet { color: var(--ink-dim); background: transparent; font-weight: 600; }
+    #menu .pack .item.on { background: rgba(224, 176, 112, .14); border-color: var(--brass); }
     #menu .note { margin: 12px 0 0; font-size: 12px; line-height: 1.45; color: var(--ink-dim); }
     #menu .note button { margin-top: 6px; min-height: 32px; font-size: 12px; }
     #menu .keys b { font-weight: 650; color: var(--ink); margin-right: 4px; }
@@ -236,6 +247,19 @@
     #felled.on { display: block; animation: felled 3.2s ease-out forwards; }
     @keyframes felled { 0% { opacity: 0; letter-spacing: .3em; } 14% { opacity: 1; } 72% { opacity: 1; } 100% { opacity: 0; } }
     body.choosing #bosses, body.choosing #felled { display: none; }
+    /* What is found (slopeLoot.ts): a card high in the picture, edged in its rarity's colour. */
+    #loot { position: fixed; left: 50%; top: calc(84px + env(safe-area-inset-top, 0px)); translate: -50% 0; z-index: 3; pointer-events: none; display: none;
+      width: min(360px, calc(100vw - 32px)); box-sizing: border-box; padding: 12px 16px 13px; border-radius: 12px; background: var(--sheet);
+      border: 1px solid var(--rarity, var(--brass)); box-shadow: 0 0 28px color-mix(in srgb, var(--rarity, #e0b070) 45%, transparent), 0 8px 24px rgba(0, 0, 0, .5); text-align: center; }
+    #loot.on { display: block; animation: lootIn .45s cubic-bezier(.2, 1.4, .4, 1) both; }
+    #loot .kind { font: 700 10.5px/1 "Cinzel", var(--serif); letter-spacing: .2em; text-transform: uppercase; color: var(--rarity, var(--brass)); }
+    #loot .name { margin-top: 6px; font: italic 700 23px/1.15 "Cormorant Garamond", var(--serif); color: var(--rarity, var(--brass)); text-wrap: balance; }
+    #loot .lines { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.45; color: var(--ink); }
+    #loot .lines .about { margin-top: 4px; font: italic 500 15px/1.3 "Cormorant Garamond", var(--serif); color: var(--ink-dim); }
+    #loot .where { margin-top: 8px; font-size: 11.5px; color: var(--ink-dim); }
+    @keyframes lootIn { from { opacity: 0; translate: -50% -14px; scale: .92; } to { opacity: 1; translate: -50% 0; scale: 1; } }
+    body.choosing #loot { display: none; }
+    @media (prefers-reduced-motion: reduce) { #loot.on { animation: none; } }
     @media (prefers-reduced-motion: reduce) { #bosses .boss, #bosses .boss.gone { animation-duration: .01s; } #bosses .bar .lag { transition-delay: 0s; } #felled.on { animation-name: none; } }
     /* The force gathered in a held cut of the sword, a ring filling about the mark; bright once whole. */
     #aim .dot::after { content: ""; position: absolute; inset: -9px; border-radius: 50%; opacity: 0; transition: opacity .12s;
@@ -546,6 +570,7 @@
   <div id="pops" aria-hidden="true"></div>
   <div id="bosses" aria-live="polite"></div>
   <div id="felled" aria-hidden="true"><b>Felled</b><small></small></div>
+  <div id="loot" aria-live="polite"><div class="kind"></div><div class="name"></div><ul class="lines"></ul><div class="where"></div></div>
   <div id="backTo" hidden role="dialog" aria-labelledby="backToWhat">
     <div class="what" id="backToWhat">Back to the top</div>
     <div class="ways" role="group" aria-label="How to get back to the top"></div>
@@ -581,6 +606,10 @@
         <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
         <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
       </div>
+      <h2>Pack <span id="packCount"></span></h2>
+      <p class="note pack-note">Found in the chests at the ends of the dungeons and on the great ones felled, kept in this browser. Click one to wear it; weapons and wards act with <i>Orcs &amp; weapons</i> on.</p>
+      <div class="pack" id="pack" role="group" aria-label="What has been found"></div>
+      <button id="packEmpty" class="wide quiet" type="button" hidden>Empty the pack</button>
       <h2>Slope</h2>
       <button id="openMap" class="wide map" type="button" title="The map of the runs, to choose one to ride (M)">Map of the runs</button>
       <div class="cards" id="lands" role="group" aria-label="Slope"></div>

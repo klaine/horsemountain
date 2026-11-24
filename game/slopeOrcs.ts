@@ -94,6 +94,10 @@ export class Horde {
    */
   onGreat: ((s: number, left: number) => void) | null = null;
   pen: Pen | null = null;
+  /** How much harder every blow strikes than it is given (a weapon found, `slopeLoot.ts`; 1, as it is). */
+  might = 1;
+  /** The name of the last great one brought down, for what it leaves (`slopeLoot.ts`). */
+  lastGreat = '';
   /** How far ahead of the skier a horde comes from (nearer, for a script that would see them soon). */
   ahead: [number, number] = AHEAD;
   /** How many there may be out at once, coming and fallen (each kind's share of it waiting besides); a horde comes while fewer than two fifths of as many are coming. */
@@ -335,7 +339,7 @@ export class Horde {
     const b = typeof i === 'number' ? this.foes[i] : i;
     if (!b || b.state !== 'come') return null;
     const bleeds = bloody && b.kind.bloody;
-    b.hp -= blow;
+    b.hp -= blow * this.might;
     b.met = true;
     if (b.hp > 0) {
       b.reel = 0.45;
@@ -347,6 +351,7 @@ export class Horde {
     b.state = 'down'; b.since = 0; b.v.copy(push).multiplyScalar(Math.min(1, 1.6 / b.size));
     b.gait.fall();
     this.downed++;
+    if (b.kind.titles) this.lastGreat = b.title;
     this.onStruck?.(this.middleOf(b), push, b.size, true, bleeds);
     return { kind: b.kind, down: true };
   }
