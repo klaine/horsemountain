@@ -125,6 +125,12 @@ export class Boosters {
     x.fillStyle = g; x.fillRect(0, 0, 64, 64);
     this.glow = new SpriteMaterial({ map: new CanvasTexture(c), blending: AdditiveBlending, depthWrite: false, transparent: true });
     this.group.name = 'boosters';
+    // (One kept, never shown, so that the page makes their shaders ready as it opens: laid with the first arena, they had made them then.)
+    const kept = new Group(), light = new Sprite(this.glow);
+    light.scale.setScalar(2.4);
+    kept.add(light, new Mesh(this.crystal, this.amber), new Mesh(this.halo, this.gold));
+    kept.visible = false;
+    this.group.add(kept);
   }
 
   /** Boosters hung over each of `points` (on the snow), the ones there before taken away. */

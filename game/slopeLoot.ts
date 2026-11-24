@@ -293,17 +293,37 @@ export class Drops {
   private readonly gem = new OctahedronGeometry(0.26, 0);
   private readonly plane = new PlaneGeometry(1, 1);
   private readonly beam = new CylinderGeometry(0.1, 0.32, 10, 12, 1, true).translate(0, 5, 0);
-  constructor(private readonly scene: Scene) {}
+  /**
+   * Each rarity's paints, made once and shared by every drop of it; and a drop of them all kept in the scene, never shown, so that the
+   * page makes their shaders ready as it opens with all else (asked: "I feel that we might not be precaching all new things anymore"):
+   * each drop made its own, and the first found halted the picture a moment while its shaders were made.
+   */
+  private readonly paints = Object.fromEntries((Object.keys(RARITY) as Rarity[]).map((r) => {
+    const colour = new Color(RARITY[r].colour);
+    return [r, {
+      gem: new MeshBasicMaterial({ color: colour.clone().multiplyScalar(1.6) }),
+      halo: new MeshBasicMaterial({ color: colour, map: glowTexture(), transparent: true, depthWrite: false, blending: AdditiveBlending }),
+      beam: new MeshBasicMaterial({ color: colour, map: beamTexture(), transparent: true, opacity: 0.55, depthWrite: false, blending: AdditiveBlending, side: DoubleSide }),
+    }];
+  })) as Record<Rarity, { gem: MeshBasicMaterial; halo: MeshBasicMaterial; beam: MeshBasicMaterial }>;
+  constructor(private readonly scene: Scene) {
+    const kept = this.made('common');
+    kept.visible = false;
+    kept.name = 'drop (kept to make ready)';
+    scene.add(kept);
+  }
+  /** A drop's gem, halo and beam in a rarity's paints. */
+  private made(rarity: Rarity): Group {
+    const p = this.paints[rarity], g = new Group(), halo = new Mesh(this.plane, p.halo), beam = new Mesh(this.beam, p.beam);
+    halo.scale.setScalar(1.6);
+    beam.position.y = -0.9;
+    g.add(new Mesh(this.gem, p.gem), halo, beam);
+    return g;
+  }
   get count(): number { return this.drops.length; }
   /** Something found at `at`, to wait glowing at `rest` (over the floor or the snow). */
   add(item: Item, at: Vector3, rest: Vector3): void {
-    const colour = new Color(RARITY[item.rarity].colour), g = new Group();
-    const gem = new Mesh(this.gem, new MeshBasicMaterial({ color: colour.clone().multiplyScalar(1.6) }));
-    const halo = new Mesh(this.plane, new MeshBasicMaterial({ color: colour, map: glowTexture(), transparent: true, depthWrite: false, blending: AdditiveBlending }));
-    halo.scale.setScalar(1.6);
-    const beam = new Mesh(this.beam, new MeshBasicMaterial({ color: colour, map: beamTexture(), transparent: true, opacity: 0.55, depthWrite: false, blending: AdditiveBlending, side: DoubleSide }));
-    beam.position.y = -0.9;
-    g.add(gem, halo, beam);
+    const g = this.made(item.rarity), halo = g.children[1] as Mesh;
     g.position.copy(at);
     this.scene.add(g);
     this.drops.push({ item, g, from: at.clone(), rest: rest.clone(), t: 0, at: at.clone(), v: new Vector3(), halo });
@@ -338,8 +358,8 @@ export class Drops {
     return taken;
   }
   private let(d: Drop): void {
+    // (Its paints are its rarity's, shared: kept.)
     d.g.removeFromParent();
-    for (const m of d.g.children) ((m as Mesh).material as MeshBasicMaterial).dispose();
     this.drops.splice(this.drops.indexOf(d), 1);
   }
   /** All let go of (a new run): what was still to be taken given back, so that it is not lost. */

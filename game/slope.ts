@@ -41,7 +41,7 @@
 import {
   ACESFilmicToneMapping, AdditiveBlending, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
   Group, HemisphereLight, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
-  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, Sphere, SRGBColorSpace, Vector2, Vector3,
+  PCFShadowMap, PerspectiveCamera, PlaneGeometry, PointLight, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, Sphere, SRGBColorSpace, Vector2, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
 import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, fract, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
@@ -455,6 +455,12 @@ async function start() {
   // (The renderer's own soft shadows: `PCFSoftShadowMap` is gone from it, and asked for only brought a warning and these.)
   renderer.shadowMap.type = PCFShadowMap;
   const scene = new Scene();
+  // The caves' two lights, the lantern carried in and the campfire's, the same two for every cave and kept in the scene for good, each
+  // cave setting them where it wants them as it is stepped, and out where there is none (`Cave`): a light's own number is part of what
+  // every lit thing's shaders are made for, and a pair of each cave's own, come with each run and gone as the land was turned inside out,
+  // had every shader in the scene made again each time.
+  const caveLights = { lantern: new PointLight(0xffc690, 0, 20, 1.6), fire: new PointLight(0xff9440, 0, 24, 2) };
+  scene.add(caveLights.lantern, caveLights.fire);
   const camera = new PerspectiveCamera(50, 1, 0.1, 1200);
   const controls = new OrbitControls(camera, canvas);
   controls.enabled = false;
@@ -623,7 +629,7 @@ async function start() {
       if (slice && where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
       // (Where its top lies in the world: each run's land is laid with its own top at the middle of the scene.)
       if (slice) topOf.set(made, new Vector3(slice.run.points[0][0], 0, slice.run.points[0][1]));
-      if (site && base) { const t0 = performance.now(); dig(made, new Cave(site, base, dungeonSeed, (query.get('tags') ?? '').split(',').map((t) => t.trim()))); caveMade = performance.now() - t0; }
+      if (site && base) { const t0 = performance.now(); dig(made, new Cave(site, base, dungeonSeed, (query.get('tags') ?? '').split(',').map((t) => t.trim()), caveLights)); caveMade = performance.now() - t0; }
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
     lands.set(key, made);
     return made;
@@ -6440,7 +6446,7 @@ async function start() {
   let caveDark = 0;
   const stepCave = (dt: number, seconds: number) => {
     const cave = caveNow();
-    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; return; }
+    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; caveLights.lantern.intensity = caveLights.fire.intensity = 0; return; }
     const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
     // (On foot the view is from above, out in the air over the snow: how dark it is, is how dark it is where the one on foot is.)
     caveDark = cave.darkness(at && mode === 'ride' ? at : eye);
@@ -7660,6 +7666,24 @@ async function start() {
       return null;
     },
     aimed: () => aimedAt.toArray().map((v) => +v.toFixed(2)),
+    // (The shaders made from now on, each by what it was made for, its name (or its parent's) and its material: for a script to see
+    // what was not made ready ahead (`warmSoon`). `shaders(true)` begins counting afresh; `shaders()` says what has been made since.)
+    shaders: (fresh = false) => {
+      const pipes = (renderer as unknown as { _pipelines?: { caches: Map<unknown, unknown>; getForRender: (o: { object: Object3D; material: Material }, p?: unknown) => unknown } })._pipelines;
+      if (!pipes) return null;
+      const w = window as unknown as { __late?: string[]; __lateOn?: boolean };
+      if (!w.__lateOn) {
+        w.__lateOn = true; w.__late = [];
+        const was = pipes.getForRender.bind(pipes);
+        pipes.getForRender = (o, p) => {
+          const n = pipes.caches.size, r = was(o, p);
+          if (pipes.caches.size > n) { let at: Object3D | null = o.object, name = ''; while (at && !name) { name = at.name; at = at.parent; } w.__late!.push(`${name || o.object.type} · ${o.material.type}${o.material.name ? ` ${o.material.name}` : ''}`); }
+          return r;
+        };
+      }
+      if (fresh) w.__late = [];
+      return { total: pipes.caches.size, since: [...new Set(w.__late)] };
+    },
     // (Whether the picture has been seen drawn, and how many times over since it came out black: `probeBlack`.)
     blackProbe: () => ({ seen: probeSeen, black: blackFor }),
     pack: () => pack && { items: pack.items.map((i) => ({ name: i.name, slot: i.slot, rarity: i.rarity, mods: i.mods, worn: pack!.worn[i.slot] === i.id })), read: [...pack.read], kit: { ...worn }, carried: carried().name, drops: drops.count },
