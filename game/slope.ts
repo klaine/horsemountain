@@ -429,7 +429,7 @@ async function start() {
   const lost = renderer.onDeviceLost.bind(renderer);
   renderer.onDeviceLost = (info) => {
     lost(info);
-    if (info.reason === 'destroyed') return;
+    // (Never let go of on purpose, the renderer: lost however it is said to be, 'destroyed' too, as a browser may say of a lost device.)
     // (Lost once the page is open, which no frame drawn after it can come back from: opened again as it was, rather than left stood
     // still; drawn no more simply, as it had drawn till then.)
     if (performance.now() > openedAt + SAFE.within && !fallingBack) { fallingBack = true; console.warn(`Grand Horse Mountain lost its graphics: ${info.message}`); loading.fail('The graphics were lost: opening again…'); setTimeout(() => location.reload(), 1200); return; }
@@ -7368,8 +7368,38 @@ async function start() {
       pipeline.render();
     } else sharp.render();
     unwarm?.();
+    probeBlack(now);
     // (For a script making a video a frame at a time: told once each frame is drawn, `__slope.everyFrame`.)
     afterFrame?.();
+  };
+  /**
+   * Whether the picture is being drawn at all (asked: "Ipad chrome: screen turned black after upside down world transition"; "Gui
+   * visible and player moving"): every four seconds, just after a frame is drawn, the picture taken small; once it has been seen drawn
+   * on this page (so that a browser that gives back nothing of its picture is never taken for a black one), black or empty three times
+   * over, outdoors, where nothing is ever black, and the graphics are taken to have failed: the page opened again, drawn more simply.
+   */
+  const probe = document.createElement('canvas');
+  probe.width = probe.height = 8;
+  const probeCtx = probe.getContext('2d', { willReadFrequently: true });
+  let probeAt = 0, probing = false, probeSeen = false, blackFor = 0;
+  const probeBlack = (now: number) => {
+    if (!probeCtx || probing || fallingBack || now < probeAt || typeof createImageBitmap === 'undefined') return;
+    probeAt = now + 4000;
+    if (document.hidden || drawnFrames >= 0 || foot || caveDark > 0.3 || menuOpen) return;
+    probing = true;
+    createImageBitmap(canvas, { resizeWidth: 8, resizeHeight: 8 }).then((bmp) => {
+      probeCtx.clearRect(0, 0, 8, 8);
+      probeCtx.drawImage(bmp, 0, 0);
+      bmp.close();
+      const d = probeCtx.getImageData(0, 0, 8, 8).data;
+      let most = 0;
+      for (let i = 0; i < d.length; i += 4) most = Math.max(most, Math.min(d[i + 3], Math.max(d[i], d[i + 1], d[i + 2])));
+      if (most >= 24) { probeSeen = true; blackFor = 0; return; }
+      if (!probeSeen) return;
+      blackFor++;
+      console.warn(`Grand Horse Mountain: the picture came out black (${blackFor})`);
+      if (blackFor >= 3) fallBack('the picture went black', true);
+    }).catch(() => { /* (not to be told) */ }).finally(() => { probing = false; });
   };
   const __look = (off: Vector3) => { heldLook = null; view = 'free'; controls.enabled = true; const at = focus(); camera.position.copy(at).add(off); controls.target.copy(at).addScaledVector(UP, 0.9); controls.update(); lastRider.copy(at); placed = true; };
   // (For a script that drives the page: where it is, and to put it anywhere; riding, what the pointer would ask.)
@@ -7607,6 +7637,8 @@ async function start() {
       return null;
     },
     aimed: () => aimedAt.toArray().map((v) => +v.toFixed(2)),
+    // (Whether the picture has been seen drawn, and how many times over since it came out black: `probeBlack`.)
+    blackProbe: () => ({ seen: probeSeen, black: blackFor }),
     pack: () => pack && { items: pack.items.map((i) => ({ name: i.name, slot: i.slot, rarity: i.rarity, mods: i.mods, worn: pack!.worn[i.slot] === i.id })), read: [...pack.read], kit: { ...worn }, carried: carried().name, drops: drops.count },
     wear: (slot: Slot, n: number) => { if (!pack) return; const of = pack.items.filter((i) => i.slot === slot); pack.wear(slot, n < 0 ? null : of[n]?.id ?? null); },
     emptyPack: () => pack?.empty(),
