@@ -62,6 +62,7 @@ import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sweep
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type FoeKind, Horde } from './slopeOrcs';
+import { Boosters, PIPE, Pipe } from './slopeArena';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
 import { Tornado } from './slopeStorm';
@@ -666,11 +667,27 @@ async function start() {
   /** The cave in the land now, if it has one (none while the land is turned inside out); and where the land is stood. */
   const caveNow = (): Cave | null => (land as CaveLand).cave ?? null;
   const toCave = <T extends { x: number; z: number; y?: number }>(p: T) => { const o = land.group.position; return { x: p.x - o.x, y: p.y ?? 0, z: p.z - o.z }; };
+  /**
+   * The arena laid where a great one is fought, riding (`slopeArena.ts`; asked: "for locations where these bosses spawn, we need to
+   * dynamically add some elements like half pipes etc. which allow the player to proceed back on skis, maybe booster powerups to pick
+   * etc."): the quarter-pipe below it, drawn; where in the scene it may stand (a box, for `ground` to pass over it quickly elsewhere);
+   * whether it is sinking back, the fight done.
+   */
+  let arena: { pipe: Pipe; group: Group; box: [number, number, number, number]; sinking: boolean } | null = null;
+  /** How high the arena's pipe raises the snow at a point: only riding, and never while the demo run is flown, which it is not in. */
+  const arenaRaise = (x: number, z: number) => {
+    const a = arena;
+    if (!a || mode !== 'ride' || flyingDemo || x < a.box[0] || x > a.box[1] || z < a.box[2] || z > a.box[3]) return 0;
+    const f = land.frame(x, z, a.pipe.foot);
+    return a.pipe.raise(f.s - a.pipe.foot, f.left - a.pipe.mid);
+  };
+  /** Whether the skier is about the arena: in its pen, or on its pipe. */
+  const inArena = () => !!arena && !arena.sinking && mode === 'ride' && !flyingDemo && ride.down > (horde.pen?.lo ?? arena.pipe.foot) - 30 && ride.down < arena.pipe.foot + arena.pipe.end;
   // (Over the cave's mound, its rock: the snow under it is cut away there.)
   const ground = (x: number, z: number) => {
     const cave = caveNow();
     if (cave) { const o = land.group.position, top = cave.skiTop(x - o.x, z - o.z); if (top !== null) return top + bumpAt(x, z); }
-    return land.height(x, z) + bumpAt(x, z);
+    return land.height(x, z) + bumpAt(x, z) + arenaRaise(x, z);
   };
   const slopeAt = (x: number, z: number, e = 0.3): [number, number] => [(ground(x + e, z) - ground(x - e, z)) / (2 * e), (ground(x, z + e) - ground(x, z - e)) / (2 * e)];
   const normalAt = (x: number, z: number, e = 0.3) => { const [gx, gz] = slopeAt(x, z, e); return new Vector3(-gx, 1, -gz).normalize(); };
@@ -751,7 +768,9 @@ async function start() {
   /** The kickers about `s`: one behind, the next two ahead; built when first come near, and let go of once far behind. */
   const placeKickers = (s: number) => {
     const i0 = Math.floor((s - KICK.first) / KICK.every) - 1, near: Kicker[] = [];
-    for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i); if (k && k.s < land.length) near.push(k); }
+    // (None where an arena is laid, riding: its pen and its pipe have the snow, and a kicker's landing ran into the pipe.)
+    const clear = (k: Kicker) => !arena || k.s < arena.pipe.foot - 120 || k.s > arena.pipe.foot + arena.pipe.end + 20;
+    for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i); if (k && k.s < land.length && clear(k)) near.push(k); }
     for (const k of kickerAt.values()) if (k && !near.includes(k)) takeDown(k);
     if (kickersOn) for (const k of near) if (!k.group) buildKicker(k);
     kicks = kickersOn ? near : [];
@@ -1178,7 +1197,8 @@ async function start() {
     const can = mode === 'ride' && !flyingDemo && !carting && !ride.ended && ride.brake < 0.3 && !ride.turn180 && !(ride.down < -2 && Math.cos(ride.way) < 0);
     const boost = can && skateHeld && !rideTrick;
     if (!can || (!boost && ride.speed >= SKATE.until)) ride.skating = false;
-    else if (boost || ride.speed < SKATE.below) ride.skating = true;
+    // (Not of itself going up the snow about an arena: there the skier is to run out of speed and turn, and come back down at the great one.)
+    else if (boost || (ride.speed < SKATE.below && !(against > 0 && inArena()))) ride.skating = true;
     ride.skate += ((ride.skating ? 1 : 0) - ride.skate) * ease(dt, 4);
     const quick = 1 + SKATE_BOOST.quicker * smooth((ride.speed - SKATE.below) / (SKATE_BOOST.full * 1.2));
     if (ride.skate > 0.005) ride.stride = (ride.stride + dt * SKATE.rate * quick) % 1;
@@ -1628,7 +1648,46 @@ async function start() {
    * is held hard (`holding`, in `stepAir`), so that let go it comes round to the next half turn ahead: a 180, a 540 or a 900 lands
    * it switch.
    */
+  /**
+   * Off the lip of an arena's pipe, going up its face (`Pipe.nearLip`): thrown straight up, as off a halfpipe's wall, rather than on
+   * over its deck: what of its going was along the run, up the face, taken out, and a little given back the other way, so that it comes
+   * down onto the face a metre or so under the lip, whatever its speed (it is up as long as it took to rise; the faster, the longer). And
+   * set back off the lip by a hand, over the face. Its going across the run kept: carved across the pipe, it comes down further along it.
+   */
+  const pipeThrow = (v: Vector3) => {
+    const a = arena;
+    if (!a || a.sinking || mode !== 'ride' || flyingDemo) return;
+    const f = land.frame(ride.x, ride.z, a.pipe.foot);
+    if (!a.pipe.nearLip(f.s - a.pipe.foot, f.left - a.pipe.mid)) return;
+    const rd = runDir(here), up = v.dot(rd);
+    if (up <= 0 || v.y <= 1) return;
+    const back = clamp(G / (2 * v.y), 0.15, 1);
+    v.addScaledVector(rd, -up - back);
+    ride.x -= rd.x * 0.35; ride.z -= rd.z * 0.35;
+  };
+  /**
+   * Which way the body faces, going `way` (radians from straight down the run): a person's chest kept turned down the slope as it
+   * crosses it, half as far round as its skis (a horse's, most of the way); and, past straight across, coming on round to face back up the
+   * run once it goes straight up it. (Only the first, it had been turned sideways on, going straight back up the run, and turned the
+   * other way side on as soon as it veered across the top.)
+   */
+  const chestTo = (way: number) => {
+    const f = skier.facing, a = Math.abs(way), q = Math.PI / 2;
+    return a <= q ? f * way : Math.sign(way) * (f * q + (a - q) * (2 - f));
+  };
+  /**
+   * A booster taken (`Boosters`, in an arena): for a second and a half, a push on along the way the skier goes, dying away over its last
+   * moments; some thirteen metres a second more, all told, enough to carry the skier back up to the great one.
+   */
+  const BOOSTER = { push: 10, last: 1.5 };
+  let boostLeft = 0;
+  const boostNow = (dt: number) => {
+    if (boostLeft <= 0 || mode !== 'ride' || flyingDemo) return 0;
+    boostLeft = Math.max(0, boostLeft - dt);
+    return BOOSTER.push * smooth(boostLeft / 0.4);
+  };
   const takeOff = (v: Vector3, nose: number, pop: number, plain = false) => {
+    pipeThrow(v);
     if (!plain) soak(v);
     const from = new Vector3(ride.x, ride.y, ride.z), T = timeToSnow(from, v), long = T > 0.5;
     // (Off a knoll, `plain`: not set off on purpose, so no spin and no flip, whatever the stick was asking as the snow fell away.)
@@ -3386,8 +3445,11 @@ async function start() {
     cartPush += ((push ? push / 15 : 0) - cartPush) * ease(dt, 6);
     ride.shove = Math.max(0, ride.shove - dt);
     const stones = stonesNow(dt), deep = deepNow(dt);
-    const pull = push + shoveNow() + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - (stopping ? 6 * ride.brake : 0) - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
+    const pull = push + shoveNow() + boostNow(dt) + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - (stopping ? 6 * ride.brake : 0) - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
     ride.speed = Math.max(0, ride.speed + pull * dt);
+    // (About an arena, its speed run out going up the snow (the pipe's face, or the run back up to the great one): turned round where
+    // it stands, to come back down. Elsewhere it stops, as it always did.)
+    if (ride.speed < 0.4 && rise > 0.05 && inArena()) ride.way = wrapAngle(ride.way + Math.PI);
     ride.x += go.x * ride.speed * level * dt; ride.z += go.z * ride.speed * level * dt;
     ride.time += dt;
     if (intoTree(go) || intoRock(go)) return stepFallen(dt);
@@ -3414,7 +3476,7 @@ async function start() {
     // rising as it was; and where it turns over nearly as fast as that, it springs off the crest as a skier does off a roller, the
     // harder the sharper (`KNOLL`). A moment after landing, before it does again. (Held to the snow, it took a crest of less than sixty
     // metres across at 90 km/h to throw a skier; the runs, along the fall of the land, have few.)
-    if (!carting && !g180 && ride.out < 0.01 && ride.speed > KNOLL.speed && (ride.time > knollAfter || knollAfter - ride.time > KNOLL.after)) {
+    if (!carting && !g180 && ride.out < 0.01 && arenaRaise(ride.x, ride.z) < 0.01 && ride.speed > KNOLL.speed && (ride.time > knollAfter || knollAfter - ride.time > KNOLL.after)) {
       // (The least it turns over at any of those times: a crest turns over all the way along, a knob only for a moment, and taken at
       // the most, every knob was a crest and the skier hopped off each, a step's height, and was slowed.)
       let pull = Infinity;
@@ -3444,7 +3506,7 @@ async function start() {
     const bump = (left: number) => (left > 0 ? Math.sin((Math.PI * (FLICK - left)) / FLICK) : 0) * (1 - ride.tuck);
     // (Riding switch, its body faces back up the slope, its skis' tails leading; it leans into a turn the other way in its own frame,
     // and the pole it flicks is its other hand's.)
-    ride.facing += wrapAngle(skier.facing * ride.way + switched() - ride.facing) * ease(dt, 2);
+    ride.facing += wrapAngle(chestTo(ride.way) + switched() - ride.facing) * ease(dt, 2);
     const ski = ride.way + pivot + ((ride.brakeSide * 78 * Math.PI) / 180) * ride.brake, mirror = ride.switch ? -1 : 1;
     // Crouched going up a kicker's ramp, the more the steeper, and springing up out of the crouch over its last metre or two to the lip
     // (the pop); sunk into a landing, quickly, and coming up out of it more slowly; and out of what is left of a turn of the whole body.
@@ -4307,7 +4369,7 @@ async function start() {
       let i = clamp(Math.round(t / STEP), 0, demo.frames.length - 1);
       while (i < demo.frames.length - 1 && demo.frames[i].air) i++;
       const s = demo.frames[i].now, sw = demo.frames[i].sw;
-      Object.assign(ride, { way: s.way, speed: s.speed, facing: skier.facing * s.way + (sw ? Math.PI : 0), tuck: s.tuck, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, ended: false, switch: sw, back: sw ? 1 : 0, stones: 0, overStones: 0, bare: 0, deep: 0 });
+      Object.assign(ride, { way: s.way, speed: s.speed, facing: chestTo(s.way) + (sw ? Math.PI : 0), tuck: s.tuck, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, ended: false, switch: sw, back: sw ? 1 : 0, stones: 0, overStones: 0, bare: 0, deep: 0 });
       Object.assign(ask, { x: 0, y: s.tuck });
       Object.assign(want, { x: 0, y: s.tuck, brake: false, brakeKey: false });
       showWatchTracks(null);
@@ -4958,8 +5020,81 @@ async function start() {
       e.el.addEventListener('animationend', () => { e.el.remove(); bossShown.delete(id); }, { once: true });
     }
   };
+  /**
+   * The arena laid where a horde of great ones comes, riding (`horde.onGreat`): the pipe across the run some way below it, a flag at
+   * either end of its lip; the great ones penned between the pipe and some fifty metres above where they came, after the skier; and
+   * boosters up the run from the pipe's foot, the way the skier climbs back. Not where the run ends too soon after it. Said as it is laid,
+   * well ahead. Kickers about it taken away while it stands (`placeKickers`).
+   */
+  const boosters = new Boosters();
+  scene.add(boosters.group);
+  const layArena = (s0: number, mid0: number) => {
+    if (mode !== 'ride' || flyingDemo || arena || carting || inside) return;
+    const foot = s0 + 34, [lo, hi] = land.edges(foot), mid = (lo + hi) / 2, half = (hi - lo) / 2 + PIPE.wider;
+    const onLand = (s: number, left: number) => { const p = land.at(s, left); return new Vector3(p.x, land.height(p.x, p.z), p.z); };
+    const fall = (onLand(foot - 6, mid).y - onLand(foot + 6, mid).y) / 12, pipe = new Pipe(foot, mid, half, fall);
+    if (foot + pipe.end > land.length - 60) return;
+    const group = pipe.build(onLand, kickerParts.snow, kickerParts.dye);
+    for (const side of [-1, 1]) {
+      const p = onLand(foot + pipe.lip + 0.6, mid + side * (half + 0.6)), pole = new Mesh(kickerParts.pole, kickerParts.wood), flag = new Mesh(kickerParts.flag, kickerParts.cloth);
+      pole.position.copy(p).setY(p.y + pipe.raise(pipe.lip + 0.6, side * (half + 0.6))); flag.position.copy(pole.position);
+      const d = land.at(foot, mid);
+      flag.rotation.y = Math.atan2(-d.dx, -d.dz);
+      pole.castShadow = flag.castShadow = true;
+      group.add(pole, flag);
+    }
+    scene.add(group);
+    // (The box it may stand in, for `ground` to pass by quickly anywhere else.)
+    const box: [number, number, number, number] = [Infinity, -Infinity, Infinity, -Infinity];
+    for (let u = 0; u <= pipe.end; u += 2) for (const x of [-half - PIPE.taper, 0, half + PIPE.taper]) {
+      const p = land.at(foot + u, mid + x);
+      box[0] = Math.min(box[0], p.x - 2); box[1] = Math.max(box[1], p.x + 2); box[2] = Math.min(box[2], p.z - 2); box[3] = Math.max(box[3], p.z + 2);
+    }
+    arena = { pipe, group, box, sinking: false };
+    horde.pen = { lo: s0 - 45, hi: foot - 5, mid: (mid + mid0) / 2, half: Math.max(4, half - PIPE.wider - 3) };
+    boosters.lay([12, 26, 40, 54].map((back, i) => onLand(foot - back, mid + (i % 2 ? -2.5 : 2.5))));
+    placeKickers(ride.down);
+    tell('A great one ahead', 'a pipe below it turns you back up to it; take the boosters', false, 3.5);
+  };
+  horde.onGreat = layArena;
+  /** The arena taken away: at once (a new run, or no longer riding with arms), or sunk back into the snow over a few seconds once the fight is done. */
+  const endArena = (now = false) => {
+    if (!arena) return;
+    if (!arena.sinking) { arena.sinking = true; horde.unpen(); boosters.clear(); }
+    if (now) arena.pipe.sunk = 1;
+    if (arena.pipe.sunk >= 1) {
+      arena.group.removeFromParent();
+      arena.group.traverse((o) => { const m = o as Mesh; if (m.isMesh && m.geometry !== kickerParts.pole && m.geometry !== kickerParts.flag) m.geometry.dispose(); });
+      arena = null;
+      placeKickers(ride.down);
+    }
+  };
+  /** The arena a moment on, riding: boosters taken; done once its great ones are, or once the skier has gone on well past it (round its pipe's end), sinking. */
+  const arenaOn = (dt: number) => {
+    if (!arena) return;
+    if (mode !== 'ride') { endArena(true); return; }
+    const a = arena;
+    if (!a.sinking && (horde.penned === 0 || ride.down > a.pipe.foot + a.pipe.end + 40)) endArena();
+    if (a.sinking) {
+      a.pipe.sunk = Math.min(1, a.pipe.sunk + dt / 2.5);
+      (a.group.userData.relay as () => void)();
+      // (Its flags going down with it.)
+      for (const o of a.group.children) { const g = (o as Mesh).geometry; if (g === kickerParts.pole || g === kickerParts.flag) o.position.y -= dt * 3; }
+      if (a.pipe.sunk >= 1) endArena();
+      return;
+    }
+    for (const at of boosters.step(dt, rider.position)) {
+      boostLeft = BOOSTER.last;
+      gunSound.hear('boost');
+      burst(at.clone().setY(ground(at.x, at.z)), 6, 24);
+      const on = overPictureAt(at);
+      if (on) popUp(on, '+50', 'trick', 'boost');
+      addScore(50);
+    }
+  };
   clearGun = () => {
     horde.clear(); gunfire.clear(); splatter.clear(); flames.clear(); bolts.clear(); heat.clear(); sweep.clear(); rockets.clear();
+    endArena(true); boostLeft = 0;
     for (const b of booms) b.blast.hide();
     swing = null; pulls = 0;
   };
@@ -5026,6 +5161,7 @@ async function start() {
     if (!on || !human) {
       if (bossShown.size) showBosses([]);
       if (horde.about) clearGun!();
+      endArena(true);
       firing = false;
       return;
     }
@@ -5167,6 +5303,7 @@ async function start() {
     const ranDown = horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
     for (const r of ranDown) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run', r.kind);
     showBosses(horde.bosses(rider.position));
+    arenaOn(going);
     say($('orcs'), String(horde.downed));
     // (Riding, what is carried: how many more until the next, the bar beside the picture says.)
     say($('armSay'), watching ? '' : ` · ${armAfter(slain).arm.name}`);
@@ -5256,7 +5393,7 @@ async function start() {
     ride.y = ground(f.x, f.z);
     const dir = new Vector3(Math.sin(f.heading), 0, Math.cos(f.heading));
     ride.way = Math.atan2(dir.dot(runLeft(here)), dir.dot(runDir(here)));
-    ride.facing = skier.facing * ride.way;
+    ride.facing = chestTo(ride.way);
     ride.speed = 2.5; ride.vy = risingHere();
     pushOff();
     tell('Skis on', 'and away', false, 1.8);
@@ -6352,6 +6489,9 @@ async function start() {
     // (As if the graphics had failed as the page opened: to try the falling back to a simpler picture, `fallBack`.)
     failGraphics: (why = 'tried') => fallBack(why),
     // (With the tommy gun: how many orcs are about, and how many have been brought down.)
+    // (The arena laid for a great one, if there is one: where its pipe's foot, lip and end are along the run, its middle and half its
+    // breadth across it, how far it has sunk; its pen; how many boosters are still to be taken.)
+    arena: () => arena && { foot: arena.pipe.foot, lip: arena.pipe.foot + arena.pipe.lip, top: arena.pipe.top, end: arena.pipe.foot + arena.pipe.end, mid: arena.pipe.mid, half: arena.pipe.half, sunk: arena.pipe.sunk, sinking: arena.sinking, pen: horde.pen, penned: horde.penned, boosters: boosters.where().length },
     // (Only one kind of foe comes, for a script trying it (`slopeFoes.ts`); `null`, every kind again; and from how far ahead.)
     foes: (only: FoeKind['name'] | null, ahead?: [number, number]) => { horde.only = only; if (ahead) horde.ahead = ahead; horde.clear(); },
     orcs: () => ({ about: horde.about, downed: horde.downed, kinds: horde.kinds(), coming: horde.where().map((p) => { const s = p.clone().setY(p.y + 0.4).project(camera); return { at: p.toArray().map((v) => +v.toFixed(1)), screen: [+s.x.toFixed(3), +s.y.toFixed(3)] }; }) }),

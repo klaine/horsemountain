@@ -48,7 +48,14 @@ interface Foe {
   casts: boolean;
   /** For a great one: the name it goes by this time it comes; whether the skier has come to it (`bosses`); how many times it has come. */
   title: string; met: boolean; comes: number;
+  /** Kept within the pen where it came (`Horde.pen`), not let go of behind the skier. */
+  penned: boolean;
 }
+/**
+ * Where a great one is kept while it is fought (`slope.ts` lays a pipe below it): along the run from `lo` to `hi`, and `half` either
+ * side of `mid` across it.
+ */
+export interface Pen { lo: number; hi: number; mid: number; half: number }
 /** A great one the skier has come to: which (the same while it comes), its name, how strong it is still, and whether it has fallen. */
 export interface Boss { id: string; title: string; kind: FoeName; hp: number; most: number; down: boolean }
 /** How near a great one comes before the skier is reckoned to have come to it; how long its bar stays once it has fallen. */
@@ -68,6 +75,12 @@ export class Horde {
   downed = 0;
   /** Only this kind to come, if any (for a script trying it), wherever down the run. */
   only: FoeName | null = null;
+  /**
+   * Told of each horde of great ones as it comes, where (along the run, across it): may lay a pen for them (`pen`), which they are kept
+   * in. And the pen, while there is one.
+   */
+  onGreat: ((s: number, left: number) => void) | null = null;
+  pen: Pen | null = null;
   /** How far ahead of the skier a horde comes from (nearer, for a script that would see them soon). */
   ahead: [number, number] = AHEAD;
   /** How many there may be out at once, coming and fallen (each kind's share of it waiting besides); a horde comes while fewer than two fifths of as many are coming. */
@@ -104,7 +117,7 @@ export class Horde {
     this.dress(gait.model);
     gait.model.visible = false;
     this.scene.add(gait.model);
-    this.foes.push({ kind, gait, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, hp: kind.hp, state: 'gone', since: 0, v: new Vector3(), reel: 0, bumped: 0, casts: true, title: '', met: false, comes: 0 });
+    this.foes.push({ kind, gait, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, hp: kind.hp, state: 'gone', since: 0, v: new Vector3(), reel: 0, bumped: 0, casts: true, title: '', met: false, comes: 0, penned: false });
   }
   /** The kind fewest of which have been made, against how many there may be; none, when there are enough of each. */
   private wanting(): FoeKind | null {
@@ -145,6 +158,10 @@ export class Horde {
           b.gait.go(b.pace, this.rng.next());
           b.gait.model.visible = true;
         }
+        if (kind.titles && this.onGreat && !this.pen) {
+          this.onGreat(s0, mid);
+          if (this.pen) for (let k = 0; k < n; k++) waiting[k].penned = true;
+        }
       }
     }
     for (const b of this.foes) {
@@ -153,15 +170,20 @@ export class Horde {
       if (b.state === 'come') {
         // Up the run, and across towards the skier's line, the nearer the more; hardly at all while it reels from a blow.
         b.reel = Math.max(0, b.reel - dt); b.bumped = Math.max(0, b.bumped - dt);
-        const slow = b.reel > 0 ? 0.2 : 1;
+        const slow = b.reel > 0 ? 0.2 : 1, pen = b.penned ? this.pen : null;
         const was = g.at(b.s, b.left), across = Math.max(-1, Math.min(1, (q.left - b.left) / 12)) * 0.6 * b.kind.hunt;
-        b.s -= b.pace * slow * dt; b.left += across * slow * dt;
+        if (pen) {
+          // Penned: after the skier, up or down the run and across it, as far as the pen goes; standing its ground once it is there.
+          const ts = Math.max(pen.lo, Math.min(pen.hi, q.down)), tl = Math.max(pen.mid - pen.half, Math.min(pen.mid + pen.half, q.left));
+          const ds = ts - b.s, dl = tl - b.left, far = Math.hypot(ds, dl), step = Math.min(far, b.pace * slow * dt);
+          if (far > 0.05) { b.s += (ds / far) * step; b.left += (dl / far) * step; }
+        } else { b.s -= b.pace * slow * dt; b.left += across * slow * dt; }
         const at = g.at(b.s, b.left), mx = at.x - was.x, mz = at.z - was.z;
         if (Math.hypot(mx, mz) > 1e-5) b.yaw = Math.atan2(mx, mz);
         // (Climbing up out of the snow over its first moments, as it sinks into it when it is done with: none stands there all at once.)
         b.p.set(at.x, g.ground(at.x, at.z) - Math.max(0, 1 - b.since / 0.9) * 1.9 * b.size, at.z);
         // (Gone by: let go of. Run down: thrown on along the skier's way and up.)
-        if (b.s < q.down - 30) { this.letGo(b); continue; }
+        if (b.s < q.down - 30 && !(b.penned && this.pen)) { this.letGo(b); continue; }
         if (b.kind.titles && Math.hypot(b.p.x - q.at.x, b.p.z - q.at.z) < MEET) b.met = true;
         if (b.bumped <= 0 && Math.hypot(b.p.x - q.at.x, b.p.z - q.at.z) < q.reach + 0.2 * b.size * (b.kind.balls[0][2] / 0.42) && Math.abs(b.p.y - q.at.y) < 2 + Math.max(0, b.size - 1.2)) {
           const at2 = this.middleOf(b), struck = this.strike(b, q.v.clone().multiplyScalar(0.6).add(new Vector3(0, 4, 0)), RUN_DOWN);
@@ -257,10 +279,14 @@ export class Horde {
     return { kind: b.kind, down: true };
   }
 
-  private letGo(b: Foe): void { b.state = 'gone'; b.gait.model.visible = false; b.gait.stop(); }
+  private letGo(b: Foe): void { b.state = 'gone'; b.penned = false; b.gait.model.visible = false; b.gait.stop(); }
+  /** How many penned are still coming (none, and the fight is done). */
+  get penned(): number { return this.foes.filter((b) => b.penned && b.state === 'come').length; }
+  /** The pen taken away: those in it go on as the rest do. */
+  unpen(): void { this.pen = null; for (const b of this.foes) b.penned = false; }
 
   /** Every one let go of, and the count begun again (a new run, or no gun). */
-  clear(): void { for (const b of this.foes) if (b.state !== 'gone') this.letGo(b); this.downed = 0; }
+  clear(): void { for (const b of this.foes) if (b.state !== 'gone') this.letGo(b); this.downed = 0; this.pen = null; }
   /** How many are about. */
   get about(): number { return this.foes.filter((b) => b.state !== 'gone').length; }
   /** Where each still coming stands, for a script that drives the page; and what it is. */

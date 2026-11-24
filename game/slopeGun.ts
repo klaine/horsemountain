@@ -137,9 +137,9 @@ const Z = new Vector3(0, 0, 1);
  * the other arms' (`slopeArms.ts`): a pistol's shot, sharper and lighter; a shotgun's, a long low boom; the flamethrower's roar, a
  * roar of low noise over the hiss of its jet; the lightning gun's crack and buzz; a sword's swish through the air; the bazooka's rocket
  * rushing off, and its blast, a long low rumble under the crack. The sword's blow struck home, a chop, a dull thud under a short tearing
- * crack; and its blade held drawn up until its cut has all its force, a ring of steel.
+ * crack; and its blade held drawn up until its cut has all its force, a ring of steel. A booster taken, a rising rush.
  */
-export type Heard = 'shot' | 'grunt' | 'pistol' | 'shotgun' | 'flame' | 'zap' | 'swish' | 'chop' | 'ring' | 'rocket' | 'boom';
+export type Heard = 'shot' | 'grunt' | 'pistol' | 'shotgun' | 'flame' | 'zap' | 'swish' | 'chop' | 'ring' | 'boost' | 'rocket' | 'boom';
 export class GunSound {
   constructor(private readonly rng: Rng) {}
   private ctx: AudioContext | null = null;
@@ -215,6 +215,7 @@ export class GunSound {
     if (kind === 'zap') { this.hiss(c, out, noise, t, 'highpass', 2600, 5200, 0.14, 0.5); this.tone(c, out, t, 'sawtooth', 1400, 90, 0.18, 0.12); return; }
     if (kind === 'swish') { this.hiss(c, out, noise, t, 'bandpass', 900, 2600, 0.2, 0.28); return; }
     if (kind === 'chop') { this.hiss(c, out, noise, t, 'lowpass', 3400, 280, 0.13, 0.75, 0.7); this.tone(c, out, t, 'sine', 160, 48, 0.12, 0.85); return; }
+    if (kind === 'boost') { this.hiss(c, out, noise, t, 'bandpass', 500, 3200, 0.45, 0.4, 0.6); this.tone(c, out, t, 'triangle', 330, 990, 0.35, 0.07); return; }
     if (kind === 'ring') { this.tone(c, out, t, 'triangle', 1760, 1700, 0.5, 0.06); this.tone(c, out, t, 'sine', 2640, 2600, 0.35, 0.03); return; }
     if (kind === 'shot') {
       const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();

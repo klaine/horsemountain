@@ -116,7 +116,17 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   shambling, pale and iced, who take two blows and do not bleed (half as much again); and yetis, twice a man's height in
   shaggy white fur, one or two at a time, who take eight (a round is one blow, the sword three, lightning two, running one
   down two, fire kept on them a second and a half, a rocket only near where it goes off), worth five times an orc. One
-  struck and not brought down reels a moment, and a white cross shows where it was struck.
+  struck and not brought down reels a moment, and a white cross shows where it was struck. A yeti comes with a name, and met (within
+  fifty-five metres, or struck) its strength shows in a long thin bar across the foot of the picture, what a blow takes left pale a
+  moment before it drains; brought down, a *Felled* banner. Where yetis come, riding, an arena is laid for the fight
+  (`game/slopeArena.ts`): a quarter-pipe across the run some way below them, its face curving up to near upright at a blue lip with a
+  flag at either end. Ridden into, it carries the skier up its face and throws it straight up off the lip, as a halfpipe's wall does
+  (spins and flips can be made up there), and it comes down onto the face again going back up the run; up the run, its speed run out,
+  it turns round and comes down again, so that it passes the yeti again and again. The yeti is kept between the pipe and some fifty
+  metres above where it came, coming after the skier; four boosters, amber crystals over the snow, lie up the run from the pipe's foot,
+  each a push of some thirteen metres a second taken by riding through it (and back nine seconds later). Kickers are taken away about
+  it while it stands. Its yetis brought down (or the pipe ridden round, and the skier gone on past it), the pipe sinks back into the
+  snow. Not in the demo runs, which never meet it.
 
 **The cave on Silent Warden.** Halfway down the run, where a bank rises beside the piste's left edge, a cave opens in a face of rock
 under a mound of snow, two torches at its mouth and a camp before it: a fire in a ring of stones smoking, logs to sit on, a rack, wood
@@ -221,7 +231,7 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   `game/slopeArm.ts`, the robot arm at the run's end, the parachute, and the throw's flight; `game/slopeStorm.ts`, the tornado,
   `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, `game/slopePlane.ts`, the airplane, `game/slopeIce.ts`, the ice jump, and
   `game/slopeInvert.ts`, the land turned inside out, and `game/slopeCart.ts`, the rocket cart, the run's other ends; `game/slopeGun.ts`, the tommy gun, its
-  tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the hordes coming up the run; `game/slopeFoes.ts`, what they are made of (orcs, goblins, wolves, the draugr and yetis);
+  tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the hordes coming up the run; `game/slopeFoes.ts`, what they are made of (orcs, goblins, wolves, the draugr and yetis); `game/slopeArena.ts`, the arena laid where yetis come (the quarter-pipe and the boosters);
   `game/slopeSplatter.ts`, their blood on the snow; `game/slopeDungeon.ts`, the cave on Silent Warden, its camp and the dungeon in it (where it is, the snow levelled and cut for it, the rooms grown, the torches' light worked out); `game/slopeFoot.ts`, on foot there, the person by the packs' walk and jog and the horse's walk and trot made here; `game/slopeProps.ts`, the props the dungeon is furnished with; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.
 - `src/maps/inkWorld.ts`: the world's ink map, as klaine/dungeons draws it (the map of the runs is a stretch of it).
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
