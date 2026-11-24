@@ -104,15 +104,15 @@ export class Horde {
    */
   onGreat: ((s: number, left: number) => void) | null = null;
   pen: Pen | null = null;
+  /** How much harder every blow strikes than it is given (a weapon found, `slopeLoot.ts`; 1, as it is). */
+  might = 1;
+  /** The name of the last great one brought down, for what it leaves (`slopeLoot.ts`). */
+  lastGreat = '';
   /**
    * Told of one brought to its knees and struck again: its body, where it is, how large; the page sends it off far away and hands it
    * back (`release`) once it is gone.
    */
   onTaken: ((model: Object3D, at: Vector3, size: number, kind: FoeKind) => void) | null = null;
-  /** How much harder every blow strikes than it is given (a weapon found, `slopeLoot.ts`; 1, as it is). */
-  might = 1;
-  /** The name of the last great one brought down, for what it leaves (`slopeLoot.ts`). */
-  lastGreat = '';
   /** How far ahead of the skier a horde comes from (nearer, for a script that would see them soon). */
   ahead: [number, number] = AHEAD;
   /** How many there may be out at once, coming and fallen (each kind's share of it waiting besides); a horde comes while fewer than two fifths of as many are coming. */
@@ -389,6 +389,7 @@ export class Horde {
     if (b.kneeling && this.onTaken) {
       b.state = 'taken'; b.since = 0; b.kneeling = false;
       this.downed++;
+      if (b.kind.titles) this.lastGreat = b.title;
       this.onStruck?.(this.middleOf(b), push, b.size, false, bleeds);
       this.onTaken(b.gait.model, b.p.clone(), b.size, b.kind);
       return { kind: b.kind, down: true };
