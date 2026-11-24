@@ -74,7 +74,7 @@ import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
-import { carve, Cave, findSite, sliceGround } from './slopeDungeon';
+import { carve, Cave, findSite, sitePoint, sliceGround } from './slopeDungeon';
 import { horseCadence, horseWalk, Walker } from './slopeFoot';
 import { MiniMap } from './slopeMini';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
@@ -6115,7 +6115,7 @@ async function start() {
   const leaveFoot = () => {
     if (!foot) return;
     const c = caveNow();
-    if (c) underground(c, false, 0);
+    if (c) underground(c, false, false, 0);
     foot = null; stopping = false;
     if (who === 'person') for (const s of personSkis) s.visible = true;
     horde.clear();
@@ -6277,17 +6277,21 @@ async function start() {
   /**
    * Under the snow on foot, seen from above: the cave cut away over its floors (`Cave.overhead`); the snow over it and all that lies on
    * the snow (the land, the woods, the poles, the kickers, the tracks) not drawn, and the sky behind it all gone dark, as a dungeon is
-   * drawn from above in the dark. Back out, all as it was.
+   * drawn from above in the dark. Back out, all as it was. And just inside, in the tunnel where only the mound lies over it (`shallow`;
+   * asked: "when player just inside the dungeon or coming out, the outdoor camp and snow can be shown"): the cave cut away as inside,
+   * the mound with it, but the land about, the camp and the snow still drawn, and the sky as it is, through the hole the land has for
+   * the tunnel.
    */
   let under = false;
-  const underground = (cave: Cave, on: boolean, floor: number) => {
+  const underground = (cave: Cave, on: boolean, shallow: boolean, floor: number) => {
     cave.overhead(!!foot && mode === 'ride', on, floor);
-    uUnder.value = on ? 1 : 0;
-    if (on === under) return;
-    under = on;
-    for (const c of cave.group.parent?.children ?? []) if (c !== cave.group) c.visible = !on;
-    for (const k of kicks) if (k.group) k.group.visible = !on;
-    for (const m of watchTracks) m.visible = !on && ((m.geometry.drawRange.count ?? 0) > 0);
+    const dark = on && !shallow;
+    uUnder.value = dark ? 1 : 0;
+    if (dark === under) return;
+    under = dark;
+    for (const c of cave.group.parent?.children ?? []) if (c !== cave.group) c.visible = !dark;
+    for (const k of kicks) if (k.group) k.group.visible = !dark;
+    for (const m of watchTracks) m.visible = !dark && ((m.geometry.drawRange.count ?? 0) > 0);
   };
   /** How far into the cave's dark the eye is (0 to 1): the sun and the sky dimmed by as much, and the picture drawn brighter. */
   let caveDark = 0;
@@ -6297,7 +6301,8 @@ async function start() {
     const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
     // (On foot the view is from above, out in the air over the snow: how dark it is, is how dark it is where the one on foot is.)
     caveDark = cave.darkness(at && mode === 'ride' ? at : eye);
-    underground(cave, !!at && mode === 'ride' && cave.inside(at.x, at.z), at ? at.y : 0);
+    const into = !!at && mode === 'ride' && cave.inside(at.x, at.z);
+    underground(cave, into, into && cave.shallow(at!.x, at!.z), at ? at.y : 0);
     const ahead = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : undefined;
     cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0, ahead);
   };
@@ -7410,8 +7415,9 @@ async function start() {
     // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
     cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), knoll: !!c.site.knoll, camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
-    // the gate, before the chest, or in room `back` (by its number); or, `chest`, a step from the chest, to open it.)
-    goCave: (where: 'ride' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'chest' = 'camp', back = 50) => {
+    // the gate, before the chest, or in room `back` (by its number); or, `chest`, a step from the chest, to open it; or, `tunnel`, `back`
+    // metres in from the mouth.)
+    goCave: (where: 'ride' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'chest' | 'tunnel' = 'camp', back = 50) => {
       const c = caveNow();
       if (!c) return false;
       if (mode !== 'ride') setMode('ride');
@@ -7419,7 +7425,7 @@ async function start() {
       // (`cart`: stopped `back` metres down the run from the camp, its end the rocket cart, to be driven back up into it.)
       if (where === 'cart') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s + back, f.left); placeKickers(ride.down); Object.assign(ride, { way: 0, speed: 0, ended: true }); ending = 'cart'; return true; }
       if (where === 'ride') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s - back, f.left); placeKickers(ride.down); ride.way = 0; ride.speed = 8; placed = false; return true; }
-      const sp = where === 'chest' ? { x: c.chest.at.x + 1.2, z: c.chest.at.z, heading: -Math.PI / 2 } : c.spot(where, back);
+      const sp = where === 'chest' ? { x: c.chest.at.x + 1.2, z: c.chest.at.z, heading: -Math.PI / 2 } : where === 'tunnel' ? { ...sitePoint(c.site, back, 0), heading: Math.atan2(c.site.ax, c.site.az) } : c.spot(where, back);
       if (!foot) { const f = land.frame(sp.x + o.x, sp.z + o.z); putAt(f.s, f.left); ride.speed = 0; skisOff(); }
       Object.assign(foot!, { x: sp.x + o.x, z: sp.z + o.z, y: c.floorUnder(sp.x, sp.z) ?? land.height(sp.x + o.x, sp.z + o.z), heading: sp.heading, speed: 0, room: -1 });
       placed = false;

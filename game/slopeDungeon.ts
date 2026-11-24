@@ -1485,6 +1485,14 @@ export class Cave {
     const [t, lat] = siteLocal(this.site, x, z);
     return t > 0 && (t <= this.site.length ? Math.abs(lat) < CAVE.hw + CAVE.rough : this.openAt(lat, t));
   }
+  /**
+   * Whether a point inside is still near the mouth: in the tunnel where it runs under the hole cut in the land for it, which only the
+   * mound covers (`holeTo`), and not yet where the land lies over it. There, seen from above, the land about may still be drawn.
+   */
+  shallow(x: number, z: number): boolean {
+    const [t] = siteLocal(this.site, x, z);
+    return this.inside(x, z) && t <= this.site.holeTo;
+  }
   /** How far into the dark a point is: none outside, all of it some metres down the tunnel and in the dungeon. */
   darkness(p: Vector3): number {
     // (Only within the cave's own hollow, between its floor and its roof: not on the snow over it, nor anywhere else about it.)

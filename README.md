@@ -147,7 +147,7 @@ rider gets down and leaves the horse standing by the rack. Drive the rocket cart
 Dungeons), and the controls are its own: W A S D (or the arrows) go up, down, left and right across the picture, running (Shift,
 walking); the mouse aims, and a click attacks (with nothing carried, walks to where it is; the right button always walks there, held, after
 the pointer); by touch, the stick goes, and a tap attacks there (or walks there); the wheel, or *Distance*, brings the view nearer or
-further. Into the mouth and down a tunnel of rough rock to a gate of dressed stone, the snow over it all no longer drawn, the dark about,
+further. Into the mouth and down a tunnel of rough rock to a gate of dressed stone, the camp and the snow about still drawn over its first metres (where only the mound lies over it), then the snow over it all no longer drawn, the dark about,
 and the cave cut away over a height above its floors, its roofs and the tops of its walls, the cut stone capped dark. Behind the gate, a dungeon made afresh each time the page is
 opened (the same while it stays open; its seed is in `__slope.cave()`, and `?dungeon=` a given one brings it back), grown as watabou's
 One Page Dungeon grows one, by tags dealt with it (`?tags=` names any): its size (*small*, most often, *medium* or *large*: five to
