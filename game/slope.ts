@@ -4881,7 +4881,38 @@ async function start() {
     if (d > 1) { x /= d; y /= d; }
     stick.x = x; stick.y = y;
   };
-  const letGo = () => { stick.x = 0; stick.y = 0; stickHeld = null; };
+  const letGo = () => { stick.x = 0; stick.y = 0; stickHeld = null; homeStick(); };
+  /**
+   * The stick where the thumb comes down (asked: "Can we make the left thumb movement control position "dynamic", placed where the
+   * player puts their left side thumb?"): on a phone or a tablet, a thumb put down anywhere on the left of the picture, under the
+   * strip at its top, brings the stick there, its middle under the thumb, and steers from there as it moves; let go, the stick goes back
+   * to its corner. (Not while the run's end is at its work or the skier lies fallen, when a tap begins the next run; nor over the
+   * picture's buttons, which take their own touches.) What is carried is fired by a finger on the rest of the picture.
+   */
+  const homeStick = () => { if (!stickEl.classList.contains('floating')) return; stickEl.classList.remove('floating'); stickEl.style.left = stickEl.style.top = stickEl.style.bottom = ''; };
+  const floatsStick = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse' || stickHeld !== null || mode !== 'ride' || menuOpen || stickEl.hidden || cat || crash || runOver) return false;
+    const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    const strip = parseFloat(getComputedStyle(document.body).getPropertyValue('--under')) || 70;
+    return x < r.width * 0.42 && y > strip + 10 && y < r.height - 4;
+  };
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!floatsStick(e)) return;
+    // (The stick's middle under the thumb, kept whole on the picture.)
+    const w = stickEl.offsetWidth, h = stickEl.offsetHeight;
+    stickEl.classList.add('floating');
+    stickEl.style.left = `${clamp(e.clientX - w / 2, 4, innerWidth - w - 4)}px`;
+    stickEl.style.top = `${clamp(e.clientY - h / 2, 4, innerHeight - h - 4)}px`;
+    stickEl.style.bottom = 'auto';
+    stickHeld = e.pointerId;
+    try { stickEl.setPointerCapture(e.pointerId); } catch { /* (a pointer it cannot take: followed by the canvas's own) */ }
+    holdStick(e);
+    // (The picture's own handling of a touch, firing or walking to it, not done for this one.)
+    e.preventDefault(); e.stopImmediatePropagation();
+  }, true);
+  canvas.addEventListener('pointermove', (e) => { if (stickHeld === e.pointerId) holdStick(e); });
+  canvas.addEventListener('pointerup', (e) => { if (stickHeld === e.pointerId) letGo(); });
+  canvas.addEventListener('pointercancel', (e) => { if (stickHeld === e.pointerId) letGo(); });
   stickEl.addEventListener('pointerdown', (e) => { stickHeld = e.pointerId; stickEl.setPointerCapture(e.pointerId); holdStick(e); e.preventDefault(); });
   stickEl.addEventListener('pointermove', (e) => { if (stickHeld === e.pointerId) holdStick(e); });
   stickEl.addEventListener('pointerup', letGo);

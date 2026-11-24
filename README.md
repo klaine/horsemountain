@@ -196,7 +196,8 @@ to the next over a thin bar, how wild the tricks are (eight pips, earned with *O
 the menu as a square button of its own. What has just happened is said under the strip (a great one's bar and what is found under
 that); the run is a slim rail at the right, its top, its kickers in brass, the cave and its foot along it and an arrow for how far down
 you are, tapped for the minimap (tapped again, the rail). The bottom is left to the thumbs: the stick, its *Tuck* and *Straight*
-inside its ring, and *Skate* and *180* as two round buttons at the lower right. The run's end is a sheet at the foot (a card held
+inside its ring (or wherever the left thumb comes down on the left of the picture, under the strip: the stick comes to it there, and
+goes back to its corner as it is let go; a finger on the rest of the picture fires what is carried), and *Skate* and *180* as two round buttons at the lower right. The run's end is a sheet at the foot (a card held
 sideways): what became of it, its points, how far down and how long, the tricks landed, what was brought down and found, and *Map of
 the runs* or *Next run*. On a computer, all as it was.
 
