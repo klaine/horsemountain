@@ -61,7 +61,7 @@ import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sweep } from './slopeArms';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
-import { Horde } from './slopeOrcs';
+import { type Den, Horde } from './slopeOrcs';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
 import { Tornado } from './slopeStorm';
@@ -74,7 +74,6 @@ import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
 import { carve, Cave, findSite } from './slopeDungeon';
 import { horseCadence, horseWalk, Walker } from './slopeFoot';
-import { clone as cloneRigged } from 'three/addons/utils/SkeletonUtils.js';
 import { MiniMap } from './slopeMini';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
 import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowLiesAt, snowUniforms } from '../src/render/siteMaterial';
@@ -669,7 +668,13 @@ async function start() {
   // (Over the cave's mound, its rock: the snow under it is cut away there.)
   const ground = (x: number, z: number) => {
     const cave = caveNow();
-    if (cave) { const o = land.group.position, top = cave.skiTop(x - o.x, z - o.z); if (top !== null) return top + bumpAt(x, z); }
+    if (cave) {
+      const o = land.group.position, lx = x - o.x, lz = z - o.z;
+      // (On foot inside, what falls or burns or bleeds there comes down on the cave's floor, not on the snow over it.)
+      if (foot && cave.inside(lx, lz)) { const f = cave.floorUnder(lx, lz); if (f !== null) return f; }
+      const top = cave.skiTop(lx, lz);
+      if (top !== null) return top + bumpAt(x, z);
+    }
     return land.height(x, z) + bumpAt(x, z);
   };
   const slopeAt = (x: number, z: number, e = 0.3): [number, number] => [(ground(x + e, z) - ground(x - e, z)) / (2 * e), (ground(x, z + e) - ground(x, z - e)) / (2 * e)];
@@ -911,9 +916,12 @@ async function start() {
     horse.mesh.material = coat;
   }
   for (const o of [model, horse.model, jockey.model]) rimAll(o);
-  // (The adventurer on foot, by the packs' clips (`slopeFoot.ts`): made while the page opens, for when the skis come off at the cave.)
-  let walker: Walker | null = null;
-  void library.body(bodyId).then((b) => { const m = cloneRigged(source); shade(m); rimAll(m); walker = new Walker(m, b.moves, b.scale); }).catch((e) => console.warn(e));
+  // (On foot at the cave, the skier, or the horse's rider got down, walks and runs by the packs' clips (`slopeFoot.ts`), played on its
+  // own posed body: so that what it carries is held as it is on skis, the arms posed on the walk (`Rider.hold`). Their clips fitted to the
+  // body while the page opens.)
+  let walkers: { person: Walker; mounted: Walker } | null = null;
+  void library.body(bodyId).then((b) => { walkers = { person: new Walker(live.model, b.moves, b.scale), mounted: new Walker(jockey.model, b.moves, b.scale) }; }).catch((e) => console.warn(e));
+  const walkerNow = () => (walkers ? (who === 'mounted' ? walkers.mounted : walkers.person) : null);
   // (The horse and its rider unless another is asked for (asked: "also make the horse & rider the default mode"): `?skier=person` or
   // `?skier=horse`.)
   let who: Who = (['person', 'horse', 'mounted'] as Who[]).find((w) => w === query.get('skier')) ?? 'mounted', skier = skiers[who];
@@ -4675,11 +4683,18 @@ async function start() {
   const poleSets: [Who, Object3D[]][] = [['person', gear.filter((p) => p.parent?.name.startsWith('hand_'))], ['mounted', jockeyGear]];
   /** Whether the gun is carried: riding, on a computer, by a human (the skier alone, or the horse's rider). */
   // (The showcase shows them whether or not they are on: it is there to show what the game has.)
-  const armed = () => ((orcsOn && (mode === 'ride' || (mode === 'watch' && demoKind === 'orcs'))) || (mode === 'watch' && demoKind === 'show')) && who !== 'horse' && !foot;
+  const armed = () => ((orcsOn && (mode === 'ride' || (mode === 'watch' && demoKind === 'orcs'))) || (mode === 'watch' && demoKind === 'show')) && who !== 'horse';
   const ray = new Raycaster(), ndc = new Vector2(), toLook = new Matrix4(), ZERO = new Vector3(), Y = new Vector3(0, 1, 0);
   /** Where a line from `from` along `dir` (of length one) first meets the snow, within `most` metres; none, beyond. */
   const snowAlong = (from: Vector3, dir: Vector3, most: number): number => {
     const p = new Vector3();
+    // (On foot in the cave, its walls, floors and roofs: what is fired there strikes them, in small steps, as they are near.)
+    const cave = foot ? caveNow() : null;
+    if (cave) {
+      const o = land.group.position, q = new Vector3();
+      for (let t = 0.25; t <= Math.min(most, 80); t += 0.25) { p.copy(from).addScaledVector(dir, t); if (!cave.clear(q.set(p.x - o.x, p.y, p.z - o.z)) || p.y < ground(p.x, p.z)) return t; }
+      return Infinity;
+    }
     let last = 0;
     for (let t = 1; t <= most; t += t < 60 ? 1 : 3) {
       p.copy(from).addScaledVector(dir, t);
@@ -4912,6 +4927,33 @@ async function start() {
    * and its orcs with it, when it is not carried. Watching the orc hunt, aimed and fired for the rider: at the nearest orc ahead that can
    * be seen from the muzzle, within a hundred metres, for as long as there is one.
    */
+  /**
+   * The dungeon as the orcs come through it (`Horde.within`; asked: "go ahead with the indoor combat requirements"): out of its rooms,
+   * round its walls, on its floors; in the land's frame, as the cave is stood in it.
+   */
+  const den = (cave: Cave): Den => {
+    const o = land.group.position;
+    return {
+      spawn: (rng, from) => { const p = cave.orcSpawn(rng, { x: from.x - o.x, z: from.z - o.z }); return p && new Vector3(p.x + o.x, 0, p.z + o.z); },
+      way: (p, to) => { const w = cave.orcWay({ x: p.x - o.x, z: p.z - o.z }, { x: to.x - o.x, z: to.z - o.z }); return new Vector3(w.x, 0, w.z); },
+      floor: (x, z) => cave.floorUnder(x - o.x, z - o.z) ?? land.height(x, z),
+      walk: (x, z, tx, tz, r) => { const [a, b] = cave.walk(x - o.x, z - o.z, tx - o.x, tz - o.z, r); return [a + o.x, b + o.z]; },
+    };
+  };
+  /** Struck by an orc come up to it on foot: points lost, and thrown back a step from it. */
+  const struck = (from: Vector3) => {
+    const f = foot, cave = caveNow();
+    if (!f || !cave || mode !== 'ride') return;
+    score = Math.max(0, score - 200);
+    scoreEl.textContent = score.toLocaleString('en');
+    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2), o = land.group.position;
+    const [x, z] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + away.x, f.z - o.z + away.z, walks() ? FOOT.person : FOOT.horse);
+    f.x = x + o.x; f.z = z + o.z;
+    const s = overPictureAt(rider.position.clone().addScaledVector(UP, 1.8));
+    if (s) popUp(s, '−200', 'run', 'struck');
+    tell('Struck!', 'an orc came at you', true, 1.2);
+    gunSound.hear('grunt');
+  };
   const armUp = (dt: number, now: Now) => {
     const on = armed(), human = who === 'person' ? live : who === 'mounted' ? jockey : null, watching = mode === 'watch';
     document.body.classList.toggle('gun', on);
@@ -5064,7 +5106,9 @@ async function start() {
     const v = !watching && air ? air.v.clone() : go.clone().multiplyScalar(now.speed);
     // (Any downed as the orcs come on, the skier ran down: the rounds' are counted as they strike.)
     const downedBefore = horde.downed;
-    horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
+    const cave = caveNow();
+    if (foot && cave) horde.within(going, den(cave), { at: rider.position, down: now.down, left: now.left, v, reach: 0.9 }, struck);
+    else horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
     for (let i = horde.downed - downedBefore; i > 0; i--) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run');
     say($('orcs'), String(horde.downed));
     // (Riding, what is carried: how many more until the next, the bar beside the picture says.)
@@ -5102,7 +5146,7 @@ async function start() {
     stopping = cave.inCamp(p.x, p.z) || (was && cave.inCamp(p.x, p.z, 3));
     for (let d = 1; d <= reach && !stopping; d += 1) stopping = cave.inCamp(p.x + go.x * d, p.z + go.z * d, -3);
     if (stopping && !was) tell('The camp', 'skis off here, and on foot into the cave', false, 2.5);
-    if (stopping && ride.speed < 1.4 && cave.inCamp(p.x, p.z, 0.8) && (!walks() || walker)) skisOff();
+    if (stopping && ride.speed < 1.4 && cave.inCamp(p.x, p.z, 0.8) && (!walks() || walkerNow())) skisOff();
   };
   /** The skis taken off where the skier has stopped, and left on the rack by the fire. */
   const skisOff = () => {
@@ -5112,7 +5156,11 @@ async function start() {
     Object.assign(ride, { speed: 0, brake: 0, tuck: 0, tall: 0, skating: false, skate: 0, turn180: null, switch: false, back: 0 });
     // (Its rider off the horse, the horse left standing by the rack, and the rider on foot.)
     if (who === 'mounted') parkHorse(cave);
-    if (walks() && walker) { if (who === 'person') skier.object.removeFromParent(); rider.add(walker.model); }
+    // (The person's skis off its feet; the rider down from the saddle, on its own feet where the horse stood.)
+    if (who === 'person') for (const s of personSkis) s.visible = false;
+    if (who === 'mounted') { jockey.model.position.set(0, 0, 0); jockey.model.quaternion.identity(); rider.add(jockey.model); }
+    // (The orcs on the run gone: those of the dungeon come in it, `Horde.within`.)
+    horde.clear();
     cave.rackSkis(who === 'person' ? 'person' : horse.skis, who === 'person' ? 1.18 : who === 'mounted' ? 2.3 : 0);
     const mouse = document.body.classList.contains('mouse');
     tell(who === 'mounted' ? 'Down off the horse' : 'Skis off', mouse ? 'on foot: W or the up arrow to go, A and D to turn, S back; Shift to walk' : 'on foot: push the stick up to go, to either side to turn', false, 3.5);
@@ -5136,7 +5184,8 @@ async function start() {
   const leaveFoot = () => {
     if (!foot) return;
     foot = null; stopping = false;
-    if (walks() && walker) { walker.model.removeFromParent(); if (who === 'person') rider.add(skier.object); }
+    if (who === 'person') for (const s of personSkis) s.visible = true;
+    horde.clear();
     if (who === 'mounted') { caveNow()?.parkHorse(false); horse.model.position.set(0, 0, 0); horse.model.quaternion.identity(); rider.add(horse.model); seat(); }
     caveNow()?.rackSkis(null, 0);
     placed = false;
@@ -5181,7 +5230,7 @@ async function start() {
     const floor = cave.floorUnder(nx, nz) ?? land.height(f.x, f.z);
     f.y = Math.abs(floor - f.y) > 1 ? floor : f.y + (floor - f.y) * ease(dt, 18);
     // (Its body: the person by the clips, the horse by its gait, its rider sat easy in the saddle, the poles put away.)
-    if (person) walker?.update(dt, f.speed);
+    if (person) walkerNow()?.update(dt, f.speed);
     else {
       f.phase = (f.phase + horseCadence(f.speed) * dt) % 1;
       horse.pose(horseWalk(f.phase, f.speed, f.turn, ride.time));
@@ -5209,7 +5258,9 @@ async function start() {
       tell('Treasure!', `the gold of ${cave.title.name.replace(/^The [A-Za-z]+ of /, '')} · 5,000 points`, false, 4);
     }
     if (!cave.inCamp(nx, nz, 1.2) && !cave.inside(nx, nz)) skisOn();
-    return { down: here.s, left: here.left, speed: Math.abs(f.speed), way: 0, ski: 0, skid: 0, tuck: 0, brake: 0 };
+    // (Its way against the run's, as riding has it, for what it carries to be aimed from.)
+    const dir = new Vector3(Math.sin(f.heading), 0, Math.cos(f.heading)), way = Math.atan2(dir.dot(runLeft(here)), dir.dot(runDir(here)));
+    return { down: here.s, left: here.left, speed: Math.abs(f.speed), way, ski: way, skid: 0, tuck: 0, brake: 0 };
   };
   /** How far down the view is drawn in, and which way it looks round, on foot. */
   const footView = { reach: 4, heading: 0 };
@@ -5253,7 +5304,8 @@ async function start() {
     if (!cave) { caveDark = 0; return; }
     const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
     caveDark = cave.darkness(eye);
-    cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0);
+    const ahead = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : undefined;
+    cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0, ahead);
   };
 
   // ---------------------------------------------------------------- the cinematic camera
@@ -6244,6 +6296,8 @@ async function start() {
     trees: () => (land.group.getObjectByName('woods')?.userData.trees ?? []) as { x: number; z: number; kind: string; tall: number }[],
     // (How long each stage of opening took, in milliseconds.)
     loadTimes: () => loading.times,
+    // (On foot, turned to face a point, for a script.)
+    faceTo: (x: number, z: number) => { if (foot) { foot.heading = Math.atan2(x - foot.x, z - foot.z); placed = false; } return !!foot; },
     // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
     cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside

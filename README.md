@@ -127,7 +127,10 @@ its kind is from the props made for it: barrels, crates, sacks, tables, a desk, 
 candlesticks and candelabra, altars, statues, coffins, a dais, urns, braziers burning, banners, skulls, bones and skeletons, shackles,
 bedrolls, buckets, a rack of spears, heaps of gold, cobwebs. Furthest from the gate, behind a portcullis, the last room and its chest
 (5,000 points, once a run). It is lit by its torches, candles and braziers and the light carried in; the place is named as you come in
-at the gate, and each room said as you come into it. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
+at the gate, and each room said as you come into it. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer,
+W A S D to move), and orcs come at you in the dungeon: out of rooms some way off and out of sight, two to four at a time, finding their
+way to you round the walls, through the doorways and up and down the stairs, striking at you as they come up to you (200 points lost,
+and you are thrown back a step); shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there.
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from

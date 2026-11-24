@@ -25,6 +25,17 @@ export interface HordeGround {
 }
 /** Where the skier is: in the scene, along the run and across it, and how fast it goes; and how near a body must come to be run down. */
 export interface Quarry { at: Vector3; down: number; left: number; v: Vector3; reach: number }
+/**
+ * Somewhere walled the orcs come at the one on foot through, rather than up a run (a dungeon): where one may come from, out of the way
+ * of `from`; which way to go from `p` to come at `to`, round the walls; the floor's height; and a step from (`x`, `z`) toward (`tx`, `tz`)
+ * as the walls let a body `r` across its middle go.
+ */
+export interface Den {
+  spawn(rng: Rng, from: Vector3): Vector3 | null;
+  way(p: Vector3, to: Vector3): Vector3;
+  floor(x: number, z: number): number;
+  walk(x: number, z: number, tx: number, tz: number, r: number): [number, number];
+}
 
 /**
  * How large an orc is, against the skier (each its own, between these); how many there may be at once (each is the skier's body and
@@ -40,6 +51,8 @@ interface Orc {
   s: number; left: number; p: Vector3; pace: number; yaw: number;
   /** `come` while it comes up the slope; `down` once it has fallen (how long since, and how it was thrown); `gone`, waiting to come. */
   state: 'come' | 'down' | 'gone'; since: number; v: Vector3;
+  /** In a den, when it may strike again. */
+  next: number;
   /** Its meshes, and whether they are drawn into the sun's shadows now: only near the skier, about which those are kept. */
   meshes: Mesh[]; casts: boolean;
 }
@@ -107,7 +120,7 @@ export class Horde {
     die.clampWhenFinished = true;
     model.visible = false;
     this.scene.add(model);
-    this.orcs.push({ model, mixer, walk, die, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, state: 'gone', since: 0, v: new Vector3(), meshes, casts: true });
+    this.orcs.push({ model, mixer, walk, die, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, state: 'gone', since: 0, v: new Vector3(), meshes, casts: true, next: 0 });
   }
 
   /** A frame on, by `dt`: more come where there are too few ahead; each comes on, or lies where it fell. */
@@ -158,6 +171,64 @@ export class Horde {
       // (Drawn into the sun's shadows only within fifty metres of the skier, about whom they are kept fourteen metres out: its skinned
       // body is never passed over as out of sight, and every orc on the run, a hundred metres off and more, was drawn into them each frame.)
       const casts = b.p.distanceToSquared(q.at) < 50 * 50;
+      if (casts !== b.casts) { b.casts = casts; for (const m of b.meshes) m.castShadow = casts; }
+      b.model.rotation.set(0, b.yaw, 0);
+      b.mixer.update(dt);
+    }
+  }
+
+  /**
+   * A frame on, by `dt`, in a den (`Den`) rather than on a run: a few at a time out of its rooms, out of the way of the one on foot
+   * (`q.at`), more as fewer come; each coming at it round the walls, faster than up a run; and, come up to it, striking (`strike`, told
+   * where from), then a moment back before it may again. Fallen, as on the snow, on the floor. Far off, let go of.
+   */
+  within(dt: number, den: Den, q: Quarry, strike: (from: Vector3) => void, most = 9): void {
+    if (this.orcs.length < Math.min(this.most, most + 3) && !this.making) { this.making = true; void this.make().finally(() => { this.making = false; }); }
+    const coming = this.orcs.filter((b) => b.state === 'come').length, free = this.orcs.filter((b) => b.state === 'gone');
+    if (dt > 0 && coming < most * 0.5 && free.length >= 2 && this.rng.chance(dt * 0.8)) {
+      const from = den.spawn(this.rng, q.at);
+      if (from) for (let k = 0, n = Math.min(free.length, this.rng.int(2, 4)); k < n; k++) {
+        const b = free[k];
+        Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(1.3, 1.9), next: 0 });
+        b.p.set(from.x + this.rng.range(-0.8, 0.8), 0, from.z + this.rng.range(-0.8, 0.8));
+        b.p.y = den.floor(b.p.x, b.p.z);
+        b.walk.reset().setEffectiveTimeScale(b.pace * 0.9).setEffectiveWeight(1).play();
+        b.walk.time = this.rng.range(0, 2);
+        b.die.stop();
+        b.model.visible = true;
+      }
+    }
+    for (const b of this.orcs) {
+      if (b.state === 'gone') continue;
+      b.since += dt;
+      if (b.state === 'come') {
+        const to = q.at, d = Math.hypot(to.x - b.p.x, to.z - b.p.z), reach = 0.75 + 0.35 * b.size;
+        if (d > 45) { this.letGo(b); continue; }
+        // (Come up to it: struck at, and a moment back; else on at it, round the walls.)
+        if (d < reach + 0.15 && b.since > b.next) { b.next = b.since + 1.6; strike(b.p.clone()); }
+        const back = b.since < b.next - 1.1, way = den.way(b.p, to), step = (back ? -0.8 : d > reach ? b.pace : 0) * dt;
+        // (Something in the way, a coffin, a stack of crates: round it, veering a little and then more, one side and then the other.)
+        let x = b.p.x, z = b.p.z;
+        for (const a of [0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6]) {
+          const c = Math.cos(a), s = Math.sin(a), wx = way.x * c + way.z * s, wz = way.z * c - way.x * s;
+          const [nx, nz] = den.walk(b.p.x, b.p.z, b.p.x + wx * step, b.p.z + wz * step, 0.3 * b.size);
+          if (Math.abs(step) < 1e-6 || Math.hypot(nx - b.p.x, nz - b.p.z) > Math.abs(step) * 0.6) { x = nx; z = nz; break; }
+        }
+        b.p.set(x, den.floor(x, z), z);
+        const face = d < 4 ? new Vector3(to.x - b.p.x, 0, to.z - b.p.z) : way;
+        if (Math.hypot(face.x, face.z) > 1e-4) b.yaw = Math.atan2(face.x, face.z);
+      } else {
+        b.v.y -= 9.8 * dt;
+        b.p.addScaledVector(b.v, dt);
+        const y = den.floor(b.p.x, b.p.z);
+        if (b.p.y <= y) { b.p.y = y; b.v.y = 0; b.v.multiplyScalar(Math.exp(-4 * dt)); }
+        const [x, z] = den.walk(b.p.x - b.v.x * dt, b.p.z - b.v.z * dt, b.p.x, b.p.z, 0.25);
+        b.p.x = x; b.p.z = z;
+        if (b.since > 4.5) b.p.y = y - (b.since - 4.5) * 0.5;
+        if (b.since > 6.5) { this.letGo(b); continue; }
+      }
+      b.model.position.copy(b.p);
+      const casts = b.p.distanceToSquared(q.at) < 30 * 30;
       if (casts !== b.casts) { b.casts = casts; for (const m of b.meshes) m.castShadow = casts; }
       b.model.rotation.set(0, b.yaw, 0);
       b.mixer.update(dt);

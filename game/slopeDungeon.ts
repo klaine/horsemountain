@@ -653,7 +653,7 @@ type N = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 export class Cave {
   readonly group = new Group();
   /** The light carried in by one on foot, and the campfire's: the only lights the cave's own stone takes. */
-  readonly lantern = new PointLight(0xffc690, 0, 12, 2);
+  readonly lantern = new PointLight(0xffc690, 0, 20, 1.6);
   readonly fireLight = new PointLight(0xff9440, 0, 24, 2);
   /** The chest's place in the land, and how far open it is. */
   readonly chest = { at: new Vector3(), open: 0, opened: false };
@@ -1474,6 +1474,61 @@ export class Cave {
     for (let i = this.posts.length - 1; i >= 0; i--) if (this.posts[i].horse) this.posts.splice(i, 1);
     if (on) for (const d of [-0.8, 0, 0.8]) this.posts.push({ lat: this.parking[0], t: this.parking[1] + d, r: 0.45, horse: true });
   }
+  /** How far each square of the dungeon is from the square the one on foot was last in, through the open ones (for the orcs' way). */
+  private field: { from: number; dist: Int16Array } | null = null;
+  private fieldFrom(k0: number): Int16Array {
+    if (this.field?.from === k0) return this.field.dist;
+    const { cols, rows } = this.layout, dist = new Int16Array(cols * rows).fill(-1), queue = [k0];
+    dist[k0] = 0;
+    for (let q = 0; q < queue.length; q++) {
+      const k = queue[q], c = k % cols, r = (k / cols) | 0;
+      for (const [dc, dr] of WAYS) { const i = c + dc, j = r + dr; if (!this.open(i, j) || dist[j * cols + i] >= 0) continue; dist[j * cols + i] = dist[k] + 1; queue.push(j * cols + i); }
+    }
+    this.field = { from: k0, dist };
+    return dist;
+  }
+  /** The square one at a point (in the land) is in, or for one in the tunnel the square inside the gate; none outside. */
+  private squareOf(x: number, z: number): number {
+    const [t, lat] = siteLocal(this.site, x, z), L = this.site.length;
+    if (t > L) { const k = this.cellAt(lat, t); return k && this.open(k[0], k[1]) ? k[1] * this.layout.cols + k[0] : -1; }
+    return t > 0 ? this.layout.entry : -1;
+  }
+  /**
+   * Where orcs may come from (in the land), for one on foot at `from` in the dungeon: the middle of a square of a room some way off by
+   * the corridors and out of its sight, on any level; none while it is not in the dungeon, nor if there is no such room.
+   */
+  orcSpawn(rng: Rng, from: { x: number; z: number }): { x: number; z: number } | null {
+    const [t, lat] = siteLocal(this.site, from.x, from.z), k0 = this.squareOf(from.x, from.z);
+    if (t <= this.site.length || k0 < 0) return null;
+    const dist = this.fieldFrom(k0), { cols, cells } = this.layout, me = new Vector3(lat, 0, t), out: number[] = [];
+    for (let k = 0; k < cells.length; k++) {
+      if (cells[k] !== 2 || dist[k] < 5) continue;
+      const at = new Vector3(this.latOf(k % cols), 0, this.tOf((k / cols) | 0));
+      if (at.distanceTo(me) > 9 && !this.sees(at, me)) out.push(k);
+    }
+    if (!out.length) return null;
+    const k = rng.pick(out);
+    return sitePoint(this.site, this.tOf((k / cols) | 0), this.latOf(k % cols));
+  }
+  /**
+   * Which way one at `p` goes to come at `to` (both in the land; level, of length one, in the land): straight at it where nothing stands
+   * between them, or in the tunnel; else on to the next square nearer it by the corridors, through the doorways and up and down stairs.
+   */
+  orcWay(p: { x: number; z: number }, to: { x: number; z: number }): { x: number; z: number } {
+    const [pt, pl] = siteLocal(this.site, p.x, p.z), [tt, tl] = siteLocal(this.site, to.x, to.z), L = this.site.length;
+    const toLand = (dt: number, dl: number) => { const n = Math.hypot(dt, dl) || 1; return { x: (this.site.ax * dt + this.site.az * dl) / n, z: (this.site.az * dt - this.site.ax * dl) / n }; };
+    const kp = this.squareOf(p.x, p.z), kt = this.squareOf(to.x, to.z), here = new Vector3(pl, 0, pt), there = new Vector3(tl, 0, tt);
+    if (kp < 0 || kt < 0 || kp === kt || pt <= L || (here.distanceTo(there) < 14 && this.sees(here, there))) {
+      // (Into the tunnel from the dungeon, by the gate's doorway first.)
+      if (pt > L && tt <= L) return toLand(L - 1 - pt, -pl);
+      return toLand(tt - pt, tl - pl);
+    }
+    const dist = this.fieldFrom(kt), { cols } = this.layout, c = kp % cols, r = (kp / cols) | 0;
+    let best = -1, least = dist[kp] < 0 ? 1e9 : dist[kp];
+    for (const [dc, dr] of WAYS) { const i = c + dc, j = r + dr; if (!this.open(i, j)) continue; const d = dist[j * cols + i]; if (d >= 0 && d < least) { least = d; best = j * cols + i; } }
+    if (best < 0) return toLand(tt - pt, tl - pl);
+    return toLand(this.tOf((best / cols) | 0) - pt, this.latOf(best % cols) - pl);
+  }
   /** The skis (and poles) left on the rack while their owner is on foot: of a person, a horse's long pair or its four short; or none. */
   rackSkis(kind: 'person' | 'pair' | 'four' | null, poles: number): void {
     for (const c of [...this.rack.children]) { this.rack.remove(c); (c as Mesh).geometry?.dispose(); }
@@ -1506,7 +1561,7 @@ export class Cave {
    * in (`carried`, 0 to 1) about `player`; the dungeon drawn only when the eye is near enough to see into it; the snow under it all
    * from far off. `eye` and `player` in the land.
    */
-  update(dt: number, seconds: number, eye: Vector3, player: Vector3 | null, carried: number): void {
+  update(dt: number, seconds: number, eye: Vector3, player: Vector3 | null, carried: number, ahead?: Vector3): void {
     const flick = (k: number) => 0.9 + 0.06 * Math.sin(seconds * 7.3 + k * 1.7) + 0.04 * Math.sin(seconds * 17.9 + k * 3.1);
     this.flicker.value = flick(0);
     const [lat, , t] = this.localOf(eye), far = Math.hypot(lat, t);
@@ -1539,8 +1594,9 @@ export class Cave {
       this.smokeFade.needsUpdate = true;
     }
     this.fireLight.intensity = 9 * flick(50) * (0.85 + 0.15 * Math.sin(seconds * 11.3));
-    if (player) this.lantern.position.set(...this.localOf(player)).setY(player.y + 2.6);
-    this.lantern.intensity = 4 * carried * flick(60);
+    // (Held up a little ahead of whoever carries it, the way it looks: what comes at it out of the dark is lit as it comes.)
+    if (player) { const at = ahead ? player.clone().addScaledVector(ahead, 1.4) : player; this.lantern.position.set(...this.localOf(at)).setY(player.y + 2.5); }
+    this.lantern.intensity = 5 * carried * flick(60);
     // (The chest's lid thrown back over a second, once opened.)
     if (this.chest.opened && this.chest.open < 1) { this.chest.open = Math.min(1, this.chest.open + dt * 0.9); this.lid.rotation.x = -1.85 * smooth(this.chest.open); }
     this.glow.rotation.y = Math.atan2(local.x - this.glow.position.x, local.z - this.glow.position.z);
