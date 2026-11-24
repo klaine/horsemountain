@@ -325,6 +325,7 @@ async function start() {
    * The dungeon's seed: a new one each time the page is opened (asked: "would it be expensive to regenerate the dungeon layout every
    * session?": laying it out is nothing, building and lighting it some part of a second as its run is laid), the same while it stays
    * open, so that the cave is the same each time the run is come back to; `?dungeon=` a given one, to find it again.
+   * (Its tags, `slopeDungeon.ts`, are dealt from it too; `?tags=` names any of them, `?tags=prison,large,winding`.)
    */
   const dungeonSeed = query.get('dungeon') ?? Math.floor(Math.random() * 36 ** 6).toString(36);
   let caveMade = 0;
@@ -554,7 +555,7 @@ async function start() {
       if (slice && where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
       // (Where its top lies in the world: each run's land is laid with its own top at the middle of the scene.)
       if (slice) topOf.set(made, new Vector3(slice.run.points[0][0], 0, slice.run.points[0][1]));
-      if (site && base) { const t0 = performance.now(); dig(made, new Cave(site, base, dungeonSeed)); caveMade = performance.now() - t0; }
+      if (site && base) { const t0 = performance.now(); dig(made, new Cave(site, base, dungeonSeed, (query.get('tags') ?? '').split(',').map((t) => t.trim()))); caveMade = performance.now() - t0; }
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
     lands.set(key, made);
     return made;
@@ -919,7 +920,7 @@ async function start() {
   /** The rider back in its saddle, if there is one. */
   const seat = () => { if (who === 'mounted') horse.saddle.add(jockey.model); else jockey.model.removeFromParent(); horse.setTack(who === 'mounted'); };
   /** The reins from the bit to the rider's hands, as they are now; none once the rider is thrown. */
-  const reinsNow = () => { if (who === 'mounted') { rider.updateMatrixWorld(true); horse.setReins(crash || (cat && cat.t < cat.gather[1]) ? null : ['hand_l', 'hand_r'].map((n) => jockey.model.getObjectByName(n)!.getWorldPosition(new Vector3()))); } };
+  const reinsNow = () => { if (who === 'mounted' && !foot) { rider.updateMatrixWorld(true); horse.setReins(crash || (cat && cat.t < cat.gather[1]) ? null : ['hand_l', 'hand_r'].map((n) => jockey.model.getObjectByName(n)!.getWorldPosition(new Vector3()))); } };
   rider.add(skier.object);
   seat();
 
@@ -3492,7 +3493,7 @@ async function start() {
   /** On foot, what it is doing, in words: in the camp, in the tunnel, or in which of the dungeon's rooms. */
   const footDoing = () => {
     const cave = caveNow(), f = foot!, o = land.group.position, x = f.x - o.x, z = f.z - o.z, room = cave?.roomAt(x, z);
-    const going = Math.abs(f.speed) < 0.2 ? 'Standing' : f.speed < 0 ? 'Stepping back' : f.speed > (who === 'person' ? FOOT.walk : FOOT.horseWalk) + 0.3 ? (who === 'person' ? 'Running' : 'Trotting') : 'Walking';
+    const going = Math.abs(f.speed) < 0.2 ? 'Standing' : f.speed < 0 ? 'Stepping back' : f.speed > (walks() ? FOOT.walk : FOOT.horseWalk) + 0.3 ? (walks() ? 'Running' : 'Trotting') : 'Walking';
     return `${going} ${room ? `in the ${room.kind === 'gate' ? 'antechamber' : room.kind}` : cave?.inside(x, z) ? 'in the cave' : 'in the camp'}`;
   };
   /** What the ridden skier is doing, in words. */
@@ -4481,6 +4482,7 @@ async function start() {
     if (on) { levelTilt(); void listenTilt(); }
   };
   const ARROWS: Record<string, keyof typeof want.keys> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+  const WASD: Record<string, keyof typeof want.keys> = { KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right' };
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && menuOpen) { setMenu(false); return; }
     // (The map of the runs open, the keys are its own: it closes itself on Escape.)
@@ -4490,6 +4492,8 @@ async function start() {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target instanceof HTMLButtonElement && e.key === ' ') return;
     if (mode === 'ride' && ARROWS[e.key]) { want.keys[ARROWS[e.key]] = true; e.preventDefault(); return; }
+    // (On foot, W, A, S and D as the arrows, by where the keys are whatever the keyboard's letters: riding, S and A are views.)
+    if (mode === 'ride' && foot && WASD[e.code] && !(e.target instanceof HTMLInputElement)) { want.keys[WASD[e.code]] = true; e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Shift') { want.brakeKey = true; return; }
     if (mode === 'ride' && e.key.toLowerCase() === 'x' && !(e.target instanceof HTMLInputElement)) { start180(); e.preventDefault(); return; }
     if (mode === 'ride' && e.key.toLowerCase() === 'z' && !(e.target instanceof HTMLInputElement)) { if (!e.repeat) holdSkate(true); e.preventDefault(); return; }
@@ -4503,7 +4507,7 @@ async function start() {
     if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
-  window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
+  window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (WASD[e.code]) want.keys[WASD[e.code]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
   window.addEventListener('blur', () => { holdSkate(false); for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
 
   // Riding by mouse or touchpad (asked: "make better controls for desktop/laptop users, current is for touch screens. Mouse / touchpad
@@ -5085,7 +5089,9 @@ async function start() {
 
   // ---------------------------------------------------------------- on foot, at the cave
   /** How fast one goes on foot, walking and running (a horse a little faster, trotting), backwards; how quickly it turns; how broad it is. */
-  const FOOT = { walk: 1.45, run: 3.2, horseWalk: 1.7, horseRun: 3.4, back: 0.9, turn: 2.3, person: 0.35, horse: 0.62 };
+  const FOOT = { walk: 1.9, run: 4.4, horseWalk: 2.0, horseRun: 4.2, back: 1.4, turn: 3.2, person: 0.35, horse: 0.62 };
+  /** Whether one on foot walks as a person: the skier, or the rider got down off its horse (the horse alone walks as a horse). */
+  const walks = () => who !== 'horse';
   /** Into the cave's camp, riding: braked to a stop, and the skis off. Out of it on foot: the skis on again, and away. */
   const stepCamp = () => {
     const cave = caveNow();
@@ -5096,7 +5102,7 @@ async function start() {
     stopping = cave.inCamp(p.x, p.z) || (was && cave.inCamp(p.x, p.z, 3));
     for (let d = 1; d <= reach && !stopping; d += 1) stopping = cave.inCamp(p.x + go.x * d, p.z + go.z * d, -3);
     if (stopping && !was) tell('The camp', 'skis off here, and on foot into the cave', false, 2.5);
-    if (stopping && ride.speed < 1.4 && cave.inCamp(p.x, p.z, 0.8) && (who !== 'person' || walker)) skisOff();
+    if (stopping && ride.speed < 1.4 && cave.inCamp(p.x, p.z, 0.8) && (!walks() || walker)) skisOff();
   };
   /** The skis taken off where the skier has stopped, and left on the rack by the fire. */
   const skisOff = () => {
@@ -5104,17 +5110,34 @@ async function start() {
     stopping = false;
     foot = { x: ride.x, y: ride.y, z: ride.z, heading: Math.atan2(go.x, go.z), speed: 0, turn: 0, phase: 0, room: -1, told: false };
     Object.assign(ride, { speed: 0, brake: 0, tuck: 0, tall: 0, skating: false, skate: 0, turn180: null, switch: false, back: 0 });
-    if (who === 'person' && walker) { skier.object.removeFromParent(); rider.add(walker.model); }
+    // (Its rider off the horse, the horse left standing by the rack, and the rider on foot.)
+    if (who === 'mounted') parkHorse(cave);
+    if (walks() && walker) { if (who === 'person') skier.object.removeFromParent(); rider.add(walker.model); }
     cave.rackSkis(who === 'person' ? 'person' : horse.skis, who === 'person' ? 1.18 : who === 'mounted' ? 2.3 : 0);
     const mouse = document.body.classList.contains('mouse');
-    tell('Skis off', mouse ? 'on foot: the pointer above or the up arrow to walk, to either side to turn' : 'on foot: push the stick up to walk, to either side to turn', false, 3.5);
+    tell(who === 'mounted' ? 'Down off the horse' : 'Skis off', mouse ? 'on foot: W or the up arrow to go, A and D to turn, S back; Shift to walk' : 'on foot: push the stick up to go, to either side to turn', false, 3.5);
     placed = false;
   };
-  /** On foot no more, quietly: the skier back as it was on its skis, the rack bare. */
+  /**
+   * The horse left by the rack while its rider goes on foot (asked: "if the player is on a horse, we can leave the horse next to the ski
+   * rack outside"): out from under the rider, its rider out of the saddle, standing there riderless, its reins hanging.
+   */
+  const parkHorse = (cave: Cave) => {
+    const at = cave.horseSpot, o = land.group.position;
+    horse.model.removeFromParent();
+    jockey.model.removeFromParent();
+    horse.model.position.set(at.x + o.x, land.height(at.x + o.x, at.z + o.z), at.z + o.z);
+    horse.model.quaternion.setFromAxisAngle(UP, at.heading);
+    scene.add(horse.model);
+    horse.setReins(null);
+    cave.parkHorse(true);
+  };
+  /** On foot no more, quietly: the skier back as it was on its skis (the rider back in the saddle), the rack bare. */
   const leaveFoot = () => {
     if (!foot) return;
     foot = null; stopping = false;
-    if (who === 'person' && walker) { walker.model.removeFromParent(); rider.add(skier.object); }
+    if (walks() && walker) { walker.model.removeFromParent(); if (who === 'person') rider.add(skier.object); }
+    if (who === 'mounted') { caveNow()?.parkHorse(false); horse.model.position.set(0, 0, 0); horse.model.quaternion.identity(); rider.add(horse.model); seat(); }
     caveNow()?.rackSkis(null, 0);
     placed = false;
   };
@@ -5144,14 +5167,14 @@ async function start() {
    * Out of the camp, the skis back on; into a room, what it is said; at the chest, opened.
    */
   const stepFoot = (dt: number): Now => {
-    const f = foot!, cave = caveNow()!, person = who === 'person';
+    const f = foot!, cave = caveNow()!, person = walks();
     askFoot();
     easeAsk(dt);
     const walk = person ? FOOT.walk : FOOT.horseWalk, run = want.brakeKey || want.brake ? walk : person ? FOOT.run : FOOT.horseRun, y = ask.y;
     const goal = y > 0.08 ? (y < 0.75 ? walk * (0.3 + 0.7 * smooth((y - 0.08) / 0.67)) : walk + (run - walk) * smooth((y - 0.75) / 0.2)) : y < -0.25 ? -FOOT.back * smooth((-y - 0.25) / 0.5) : 0;
-    f.speed += (goal - f.speed) * ease(dt, 5);
-    f.turn += (-ask.x - f.turn) * ease(dt, 8);
-    f.heading = wrapAngle(f.heading + f.turn * FOOT.turn * dt * (1 - 0.35 * smooth(Math.abs(f.speed) / run)));
+    f.speed += (goal - f.speed) * ease(dt, goal > f.speed ? 7 : 10);
+    f.turn += (-ask.x - f.turn) * ease(dt, 14);
+    f.heading = wrapAngle(f.heading + f.turn * FOOT.turn * dt * (1 - 0.25 * smooth(Math.abs(f.speed) / run)));
     const o = land.group.position, r = person ? FOOT.person : FOOT.horse;
     const [nx, nz] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + Math.sin(f.heading) * f.speed * dt, f.z - o.z + Math.cos(f.heading) * f.speed * dt, r);
     f.x = nx + o.x; f.z = nz + o.z;
@@ -5162,8 +5185,9 @@ async function start() {
     else {
       f.phase = (f.phase + horseCadence(f.speed) * dt) % 1;
       horse.pose(horseWalk(f.phase, f.speed, f.turn, ride.time));
-      if (who === 'mounted') jockey.posePose(saddlePose({ s: -0.15 * f.turn, ski: 0, tuck: 0, brake: 0, tall: 0.25, flickL: 0, flickR: 0, life: ride.time }));
     }
+    // (The horse left by the rack standing easy, its tail swishing.)
+    if (who === 'mounted') horse.pose(horseWalk(0, 0, 0, ride.time));
     rider.position.set(f.x, f.y, f.z);
     rider.quaternion.setFromAxisAngle(UP, f.heading);
     rider.updateMatrixWorld(true);
@@ -5194,9 +5218,9 @@ async function start() {
    * the line to the head wherever a wall, the roof, the rock or the snow would come between (`Cave.clear`), and let out again slowly.
    */
   const placeFootView = (dt: number) => {
-    const f = foot!, cave = caveNow(), o = land.group.position, person = who === 'person';
-    const target = new Vector3(f.x, f.y + (person ? 1.5 : who === 'horse' ? 1.9 : 2.45), f.z);
-    footView.heading = placed ? footView.heading + wrapAngle(f.heading - footView.heading) * ease(dt, 3) : f.heading;
+    const f = foot!, cave = caveNow(), o = land.group.position, person = walks();
+    const target = new Vector3(f.x, f.y + (person ? 1.5 : 1.9), f.z);
+    footView.heading = placed ? footView.heading + wrapAngle(f.heading - footView.heading) * ease(dt, 6) : f.heading;
     const back = new Vector3(-Math.sin(footView.heading), 0, -Math.cos(footView.heading));
     const most = (person ? 3.6 : 5.4) * distance, want = target.clone().addScaledVector(back, most).addScaledVector(UP, person ? 0.6 : 0.9);
     // (Under the snow, inside, only the cave knows what is clear.)
@@ -6223,14 +6247,14 @@ async function start() {
     // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
     cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
-    // the gate, or before the chest.)
-    goCave: (where: 'ride' | 'camp' | 'gate' | 'tomb' = 'camp', back = 50) => {
+    // the gate, before the chest, or in room `back` (by its number).)
+    goCave: (where: 'ride' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' = 'camp', back = 50) => {
       const c = caveNow();
       if (!c) return false;
       if (mode !== 'ride') setMode('ride');
       const o = land.group.position;
       if (where === 'ride') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s - back, f.left); placeKickers(ride.down); ride.way = 0; ride.speed = 8; placed = false; return true; }
-      const sp = c.spot(where);
+      const sp = c.spot(where, back);
       if (!foot) { const f = land.frame(sp.x + o.x, sp.z + o.z); putAt(f.s, f.left); ride.speed = 0; skisOff(); }
       Object.assign(foot!, { x: sp.x + o.x, z: sp.z + o.z, y: c.floorUnder(sp.x, sp.z) ?? land.height(sp.x + o.x, sp.z + o.z), heading: sp.heading, speed: 0, room: -1 });
       placed = false;

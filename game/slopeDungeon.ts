@@ -29,6 +29,7 @@ import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
 import { attribute, lights, mix, sin, texture, time, uniform, uv, vec3 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng, valueNoise2 } from '../src/core/rng';
+import { type PropKind, Props, type Stuff } from './slopeProps';
 import { type Grid, gridAt, type SkiSlice } from '../src/core/skiSlice';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -44,7 +45,7 @@ export const CAVE = {
   /** How steeply its floor falls (rise over run), and how far it runs level at the mouth and before the gate. */
   grade: 0.3, levelIn: 3, levelOut: 3.5,
   /** The dungeon's lattice: how broad each square is, how many across the tunnel's way and along it; how high its corridors and rooms are. */
-  cell: 3, cols: 15, rows: 13, corridor: 3.8, room: 5.4,
+  cell: 3, cols: 19, rows: 17, corridor: 3.8, room: 5.4,
   /** How much land at the least lies over any roof, and over the tunnel's where it runs under the snow (whose edges hang down 1.5 m). */
   cover: 2.4, tunnelCover: 2.4,
   /** How far behind the mouth the hole in the snow begins. */
@@ -224,72 +225,156 @@ export function carve(slice: SkiSlice, site: CaveSite): BaseHeight {
 
 // ---------------------------------------------------------------------------------------------------------------- the dungeon laid
 
-type RoomKind = 'gate' | 'hall' | 'store' | 'crypt' | 'ossuary' | 'shrine' | 'tomb';
+type RoomKind = 'gate' | 'hall' | 'store' | 'crypt' | 'ossuary' | 'shrine' | 'tomb' | 'library' | 'sanctum' | 'cell' | 'guard' | 'warden' | 'vault' | 'hoard';
 type DoorKind = 'arch' | 'door' | 'portcullis';
 /** A room: its squares, what it is, which level it is on (0 the gate's, -1 the one below), and what is said of it as it is come into. */
 interface Room { c0: number; r0: number; w: number; h: number; kind: RoomKind; level: number; note: string }
 /** A doorway, at the end of corridor square (c, r) where it opens toward (dc, dr) into a room. */
 interface Door { c: number; r: number; dc: number; dr: number; kind: DoorKind }
 /**
- * The dungeon on its lattice: each square solid (0), corridor (1) or room (2); its floor's height over the gate's (a stair's at its
- * high and its low end, and which way it goes down, `down`, -1 where none); how high its roof is over the gate's floor; its rooms and
- * doorways; how far each square is from the gate; and the dungeon's name, and what kind of place it is.
+ * The dungeon on its lattice of `cols` by `rows` squares (`entry` the column the corridor from the gate comes in at): each square
+ * solid (0), corridor (1) or room (2); its floor's height over the gate's (a stair's at its high and its low end, and which way it goes
+ * down, `down`, -1 where none); how high its roof is over the gate's floor; its rooms and doorways; how far each square is from the
+ * gate; the tags it was made by; and the dungeon's name, and what kind of place it is.
  */
 interface Layout {
+  cols: number; rows: number; entry: number; tags: Tags;
   cells: Uint8Array; rooms: Room[]; roomAt: Int16Array; far: Int16Array;
   floor: Float32Array; low: Float32Array; down: Int8Array; top: Float32Array;
   doors: Door[]; name: string; about: string;
 }
-const COLS = CAVE.cols, ROWS = CAVE.rows, ENTRY = COLS >> 1;
-/** How far the level below lies under the gate's; and the ways out of a square, by number (as `Layout.down`). */
+/** How far each level below lies under the one above; and the ways out of a square, by number (as `Layout.down`). */
 const DROP = 2.6, WAYS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
+/**
+ * The tags a dungeon is made by, as One Page Dungeon's are (watabou's generator; asked: "the dungeon generator uses the tags similar to
+ * the inspiration source? can we create different kind of layouts with tags?"): how big it is; how its rooms are laid out; whether it
+ * goes down a level; and what kind of place it is.
+ */
+export const TAGS = {
+  size: ['small', 'medium', 'large'],
+  layout: ['ordered', 'winding', 'chaotic', 'compact'],
+  levels: ['flat', 'multi-level'],
+  theme: ['tomb', 'temple', 'prison', 'vault'],
+} as const;
+export type Tags = { [K in keyof typeof TAGS]: (typeof TAGS)[K][number] };
+/**
+ * A dungeon's tags: those asked for (any of `TAGS`, in any order), and for the rest one each by chance (`rng`), small more often than
+ * not (asked: "I think for these within slope dungeons the tag small is best fit"), and two levels more often than one.
+ */
+export function tagsFor(rng: Rng, asked: string[] = []): Tags {
+  const odds: { [K in keyof Tags]: number[] } = { size: [0.55, 0.32, 0.13], layout: [1, 1, 1, 1], levels: [0.35, 0.65], theme: [1, 1, 1, 1] };
+  const pick = <K extends keyof Tags>(k: K): Tags[K] => {
+    const all = TAGS[k] as readonly string[], chosen = asked.find((a) => all.includes(a));
+    if (chosen) return chosen as Tags[K];
+    const w = odds[k], sum = w.reduce((a, b) => a + b, 0), r = rng.fork(k).next() * sum;
+    let i = 0, acc = w[0];
+    while (r > acc && i < all.length - 1) acc += w[++i];
+    return all[i] as Tags[K];
+  };
+  return { size: pick('size'), layout: pick('layout'), levels: pick('levels'), theme: pick('theme') };
+}
+
+/** Each size: the lattice it is laid on (the largest is what the cave is dug deep enough for, `CAVE`), how many rooms, how many stairs down. */
+const SIZES: Record<Tags['size'], { cols: number; rows: number; rooms: [number, number]; stairs: number }> = {
+  small: { cols: 15, rows: 13, rooms: [5, 7], stairs: 1 },
+  medium: { cols: 17, rows: 15, rooms: [8, 10], stairs: 1 },
+  large: { cols: CAVE.cols, rows: CAVE.rows, rooms: [11, 13], stairs: 2 },
+};
+/**
+ * Each layout: its rooms' sizes (squares across and along, by chance among them); how often a room is set off the last one laid rather
+ * than any; how often it goes on the way its parent was come into, and is set square on the corridor's end (ordered); how long its
+ * corridors are; and how many more corridors are cut between rooms that face each other, for ways round.
+ */
+const LAYOUTS: Record<Tags['layout'], { sizes: [number, number][]; last: number; straight: number; square: boolean; len: [number, number]; loops: number }> = {
+  ordered: { sizes: [[3, 3], [3, 2], [2, 3], [4, 3], [3, 4]], last: 0.7, straight: 0.65, square: true, len: [1, 2], loops: 1 },
+  winding: { sizes: [[2, 2], [2, 3], [3, 2], [3, 3]], last: 0.9, straight: 0.25, square: false, len: [3, 5], loops: 0 },
+  chaotic: { sizes: [[2, 2], [2, 4], [4, 2], [3, 5], [5, 3], [2, 3], [4, 4], [3, 2]], last: 0.3, straight: 0, square: false, len: [1, 4], loops: 3 },
+  compact: { sizes: [[2, 2], [3, 3], [2, 3], [3, 2], [4, 3]], last: 0.5, straight: 0, square: false, len: [1, 1], loops: 2 },
+};
+/**
+ * Each theme: what it is called, and what its places are called; what its rooms are (dealt in turn), its last room (the furthest from
+ * the gate, where the chest is), and whether its largest room is a pillared hall; how often a doorway is an arch, a door, a portcullis;
+ * and the small rooms it would rather have (a prison's cells).
+ */
+const THEMES: Record<Tags['theme'], { noun: string; places: string[]; kinds: RoomKind[]; last: RoomKind; hall: boolean; doors: [number, number, number]; small: number }> = {
+  tomb: { noun: 'tomb', places: ['Barrow', 'Tomb', 'Crypt', 'Catacombs'], kinds: ['crypt', 'ossuary', 'shrine', 'store', 'crypt'], last: 'tomb', hall: true, doors: [0.45, 0.4, 0.15], small: 0 },
+  temple: { noun: 'temple', places: ['Temple', 'Sanctuary', 'Undercroft', 'Shrine'], kinds: ['shrine', 'library', 'crypt', 'store', 'library', 'shrine'], last: 'sanctum', hall: true, doors: [0.6, 0.35, 0.05], small: 0 },
+  prison: { noun: 'prison', places: ['Gaol', 'Dungeons', 'Oubliette', 'Prison'], kinds: ['guard', 'store', 'ossuary', 'guard'], last: 'warden', hall: false, doors: [0.2, 0.3, 0.5], small: 0.6 },
+  vault: { noun: 'vault', places: ['Vault', 'Treasury', 'Strongroom', 'Hoard'], kinds: ['vault', 'store', 'guard', 'vault', 'store'], last: 'hoard', hall: true, doors: [0.25, 0.35, 0.4], small: 0 },
+};
+/** What is said of each kind of room as it is come into. */
+const LINES: Record<RoomKind, string[]> = {
+  gate: ['An antechamber, cut square; the air still and cold', 'An antechamber; old soot on its roof from torches long burnt'],
+  hall: ['A hall of pillars, their capitals worn smooth', 'A pillared hall, frost on its flagstones'],
+  store: ['A storeroom: barrels and crates, long rotted', 'Stores stacked in a cold room'],
+  crypt: ['A crypt: stone coffins, their lids cracked', 'A crypt, its dead laid out in rows'],
+  ossuary: ['An ossuary: bones heaped along the walls', 'Bones and skulls, sorted and stacked'],
+  shrine: ['A shrine: candles burning on its altar, lit by no one', 'A shrine, and a statue watching its altar'],
+  library: ['A library: shelves of books swollen with damp', 'Scrolls and books, and a reading table'],
+  cell: ['A cell, barely wide enough to lie down in', 'A cell; scratches on the wall, counting days'],
+  guard: ['A guardroom: a table, and stores for a watch long gone', 'Where the guards kept their watch'],
+  vault: ['A vault: chests and crates, coins spilled from one', 'A strongroom, gold glinting on its floor'],
+  tomb: ['The tomb of WHO: a great coffin, and a chest before it'],
+  sanctum: ['The sanctum of WHO: an altar, and a chest of offerings before it'],
+  warden: ["The warden's room: WHO's desk, and the chest of what was taken"],
+  hoard: ['The hoard of WHO: gold heaped about a chest'],
+};
 const NAMES = ['Aldric', 'Morwen', 'Hrothgar', 'Isolde', 'Cenric', 'Edda', 'Thorvald', 'Brannoc', 'Wulfhild', 'Osric', 'Sigrun', 'Eadmund'];
 const EPITHETS = ['the Pale', 'the Unbowed', 'Frostborn', 'the Silent', 'the Grey', 'the Hollow-Eyed', 'the Last', 'Oathbreaker', 'of the Long Winter'];
-const PLACES = ['Barrow', 'Tomb', 'Crypt', 'Vault', 'Catacombs'];
 
 /**
- * The dungeon's rooms and corridors (`rng`), grown as One Page Dungeon grows a small one (watabou's generator, asked: "can we adapt
- * ideas from https://watabou.github.io/one-page-dungeon/?seed=664989515&tags=tomb,multi-level,small to use in generating these
- * dungeons for 3d world? I think for these within slope dungeons the tag small is best fit"): a tomb, small, on two levels. From an
- * antechamber inside the gate, room after room is set off an earlier one (most often the last), down a short straight corridor from a
+ * The dungeon's rooms and corridors (`rng`), grown as One Page Dungeon grows one, by its tags (`tagsFor`): from an antechamber inside
+ * the gate, room after room set off an earlier one (as the layout has it, most often the last), down a straight corridor from a
  * doorway in one of its sides, wherever it and its corridor fit in solid rock with a square of rock about them, so that no room or
- * corridor runs into another; five to seven rooms in all, a tree of them as the generator's are. One corridor goes down by a stair to
- * the level below, and every room beyond it is there. Each doorway an open archway, a door standing open, or a portcullis drawn up;
- * the last room, the furthest from the gate, the tomb itself, behind a portcullis. Of the rest, the largest is a hall of pillars, and
- * the others crypts, an ossuary, a shrine, a store. And as the generator does, the place named, and each room given a line to say of it.
+ * corridor runs into another; as many rooms as its size has, a tree of them as the generator's are, with as many corridors cut after
+ * between rooms that face each other as the layout has loops. A multi-level one goes down by a stair, from the deepest level yet, to a
+ * level below (twice, if large); every room beyond a stair is on its level. Each doorway an arch, a door standing open, or a portcullis
+ * drawn up, as the theme has them; the last room, the furthest from the gate, behind a portcullis, with the chest; of the rest, the
+ * largest a hall of pillars (if the theme has one), the others what the theme deals, a prison's small rooms cells. The place named, and
+ * each room given a line to say of it. (Grown again, from the next of its random numbers, until it has as many stairs as asked and some
+ * rooms besides the antechamber.)
  */
-export function layDungeon(rng: Rng): Layout {
-  // (Grown again, from the next of its own random numbers, until it has its level below: a tomb on two levels, as asked.)
-  let laid = growDungeon(rng.fork('try 0'));
-  for (let i = 1; i < 40 && !laid.rooms.some((r) => r.level < 0); i++) laid = growDungeon(rng.fork(`try ${i}`));
+export function layDungeon(rng: Rng, tags: Tags): Layout {
+  const want = tags.levels === 'flat' ? 0 : SIZES[tags.size].stairs;
+  let laid = growDungeon(rng.fork('try 0'), tags);
+  for (let i = 1; i < 60 && (stairsOf(laid) < want || laid.rooms.length < 4); i++) laid = growDungeon(rng.fork(`try ${i}`), tags);
   return laid;
 }
-function growDungeon(rng: Rng): Layout {
+const stairsOf = (l: Layout) => -Math.min(0, ...l.rooms.map((r) => r.level));
+function growDungeon(rng: Rng, tags: Tags): Layout {
+  const size = SIZES[tags.size], plan = LAYOUTS[tags.layout], theme = THEMES[tags.theme], COLS = size.cols, ROWS = size.rows, ENTRY = COLS >> 1;
   const n = COLS * ROWS, cells = new Uint8Array(n), roomAt = new Int16Array(n).fill(-1), floor = new Float32Array(n), low = new Float32Array(n), down = new Int8Array(n).fill(-1);
-  const rooms: Room[] = [], doors: Door[] = [];
+  const rooms: Room[] = [], doors: Door[] = [], cameFrom: number[] = [];
   const at = (c: number, r: number) => r * COLS + c, inside = (c: number, r: number) => c >= 1 && r >= 1 && c < COLS - 1 && r < ROWS - 1;
   const solid = (c: number, r: number) => c < 0 || r < 0 || c >= COLS || r >= ROWS || !cells[at(c, r)];
   const add = (room: Room) => { rooms.push(room); for (let j = room.r0; j < room.r0 + room.h; j++) for (let i = room.c0; i < room.c0 + room.w; i++) { cells[at(i, j)] = 2; roomAt[at(i, j)] = rooms.length - 1; floor[at(i, j)] = low[at(i, j)] = room.level * DROP; } };
+  const doorKind = (): DoorKind => { const [a, d] = theme.doors, r = rng.next(); return r < a ? 'arch' : r < a + d ? 'door' : 'portcullis'; };
   add({ c0: ENTRY - 1, r0: 2, w: 3, h: 2, kind: 'gate', level: 0, note: '' });
+  cameFrom.push(2);
   for (let j = 0; j < 2; j++) cells[at(ENTRY, j)] = 1;
-  const want = rng.int(5, 7);
-  let stairs = false;
-  for (let tries = 0; tries < 1500 && rooms.length < want; tries++) {
-    const pi = rng.chance(0.55) ? rooms.length - 1 : rng.int(0, rooms.length - 1), parent = rooms[pi], [dc, dr] = rng.pick(WAYS);
+  const wantRooms = rng.int(size.rooms[0], size.rooms[1]), wantStairs = tags.levels === 'flat' ? 0 : size.stairs;
+  let stairs = 0;
+  for (let tries = 0; tries < 3000 && rooms.length < wantRooms; tries++) {
+    const pi = rng.chance(plan.last) ? rooms.length - 1 : rng.int(0, rooms.length - 1), parent = rooms[pi];
+    const way = rng.chance(plan.straight) ? cameFrom[pi] : rng.int(0, 3), [dc, dr] = WAYS[way];
     // (No room off the antechamber's front, where the corridor comes in from the gate.)
     if (pi === 0 && dr === -1) continue;
-    const goDown: boolean = !stairs && rooms.length >= 2 && rng.chance(0.45), len = goDown ? rng.int(2, 3) : rng.int(1, 3), w = rng.int(2, 4), h = rng.int(2, 4);
-    // (Its corridor out from a square along the parent's side, and the room where it ends, the corridor coming into it at one of its squares.)
-    const across = dc ? rng.int(parent.r0, parent.r0 + parent.h - 1) : rng.int(parent.c0, parent.c0 + parent.w - 1);
+    // (A stair down from the deepest level yet, once a few rooms are laid on it.)
+    const goDown: boolean = stairs < wantStairs && parent.level === -stairs && rooms.length >= 2 + 2 * stairs && rng.chance(0.45);
+    const len = Math.max(goDown ? 2 : 1, rng.int(plan.len[0], plan.len[1]));
+    const [w, h] = theme.small && rng.chance(theme.small) ? rng.pick([[1, 2], [2, 1], [2, 2], [1, 1]] as [number, number][]) : rng.pick(plan.sizes);
+    // (Its corridor out from a square along the parent's side, and the room where it ends, the corridor coming into it at one of its
+    // squares; ordered, both from the middle.)
+    const across = dc ? (plan.square ? parent.r0 + (parent.h >> 1) : rng.int(parent.r0, parent.r0 + parent.h - 1)) : plan.square ? parent.c0 + (parent.w >> 1) : rng.int(parent.c0, parent.c0 + parent.w - 1);
     const sc = dc ? (dc > 0 ? parent.c0 + parent.w : parent.c0 - 1) : across, sr = dr ? (dr > 0 ? parent.r0 + parent.h : parent.r0 - 1) : across;
     const ec = sc + dc * len, er = sr + dr * len;
-    const c0 = dc ? (dc > 0 ? ec : ec - w + 1) : ec - rng.int(0, w - 1), r0 = dr ? (dr > 0 ? er : er - h + 1) : er - rng.int(0, h - 1);
+    const c0 = dc ? (dc > 0 ? ec : ec - w + 1) : ec - (plan.square ? w >> 1 : rng.int(0, w - 1)), r0 = dr ? (dr > 0 ? er : er - h + 1) : er - (plan.square ? h >> 1 : rng.int(0, h - 1));
     const hall: [number, number][] = Array.from({ length: len }, (_, i) => [sc + dc * i, sr + dr * i]);
     let fits = hall.every(([c, r]) => inside(c, r) && solid(c, r) && solid(c + dr, r + dc) && solid(c - dr, r - dc));
     for (let j = r0 - 1; j <= r0 + h && fits; j++) for (let i = c0 - 1; i <= c0 + w && fits; i++) if (!solid(i, j) || ((i >= c0 && i < c0 + w && j >= r0 && j < r0 + h) && !inside(i, j))) fits = false;
     if (!fits) continue;
-    const level = parent.level - (goDown ? 1 : 0), way = WAYS.findIndex(([a, b]) => a === dc && b === dr);
+    const level = parent.level - (goDown ? 1 : 0);
     hall.forEach(([c, r], i) => {
       const k = at(c, r);
       cells[k] = 1;
@@ -299,11 +384,29 @@ function growDungeon(rng: Rng): Layout {
       low[k] = step >= 0 ? floor[k] - DROP / 2 : floor[k];
       if (step >= 0) down[k] = way;
     });
-    stairs ||= goDown;
+    if (goDown) stairs++;
     add({ c0, r0, w, h, kind: 'store', level, note: '' });
-    const kind = (): DoorKind => (rng.chance(0.45) ? 'arch' : rng.chance(0.75) ? 'door' : 'portcullis');
-    doors.push({ c: ec - dc, r: er - dr, dc, dr, kind: kind() });
-    if (len > 1 || rng.chance(0.5)) doors.push({ c: sc, r: sr, dc: -dc, dr: -dr, kind: kind() });
+    cameFrom.push(way);
+    doors.push({ c: ec - dc, r: er - dr, dc, dr, kind: doorKind() });
+    if (len > 1 || rng.chance(0.5)) doors.push({ c: sc, r: sr, dc: -dc, dr: -dr, kind: doorKind() });
+  }
+  // Ways round: corridors cut straight between rooms on one level that face each other across rock.
+  for (let loops = 0, tries = 0; loops < plan.loops && tries < 200; tries++) {
+    const a = rooms[rng.int(1, rooms.length - 1)], b = rooms[rng.int(1, rooms.length - 1)];
+    if (a === b || a.level !== b.level) continue;
+    const [dc, dr] = a.c0 + a.w < b.c0 ? [1, 0] : b.c0 + b.w < a.c0 ? [-1, 0] : a.r0 + a.h < b.r0 ? [0, 1] : b.r0 + b.h < a.r0 ? [0, -1] : [0, 0];
+    if (!dc && !dr) continue;
+    // (Along a row, or a column, that both rooms share.)
+    const lo = dc ? Math.max(a.r0, b.r0) : Math.max(a.c0, b.c0), hi = dc ? Math.min(a.r0 + a.h, b.r0 + b.h) - 1 : Math.min(a.c0 + a.w, b.c0 + b.w) - 1;
+    if (hi < lo) continue;
+    const line = rng.int(lo, hi), from = dc ? (dc > 0 ? a.c0 + a.w : a.c0 - 1) : dr > 0 ? a.r0 + a.h : a.r0 - 1, to = dc ? (dc > 0 ? b.c0 - 1 : b.c0 + b.w) : dr > 0 ? b.r0 - 1 : b.r0 + b.h;
+    const hall: [number, number][] = [];
+    for (let k = from; dc + dr > 0 ? k <= to : k >= to; k += dc + dr) hall.push(dc ? [k, line] : [line, k]);
+    if (!hall.length || hall.length > 5 || !hall.every(([c, r]) => solid(c, r) && solid(c + dr, r + dc) && solid(c - dr, r - dc))) continue;
+    for (const [c, r] of hall) { cells[at(c, r)] = 1; floor[at(c, r)] = low[at(c, r)] = a.level * DROP; }
+    const [c1, r1] = hall[hall.length - 1];
+    doors.push({ c: c1, r: r1, dc, dr, kind: doorKind() }, { c: hall[0][0], r: hall[0][1], dc: -dc, dr: -dr, kind: doorKind() });
+    loops++;
   }
   // How far each square is from the gate, through the open ones.
   const far = new Int16Array(n).fill(-1), queue = [ENTRY];
@@ -312,33 +415,25 @@ function growDungeon(rng: Rng): Layout {
     const k = queue.shift()!, c = k % COLS, r = (k / COLS) | 0;
     for (const [dc, dr] of WAYS) { const i = c + dc, j = r + dr; if (solid(i, j) || far[at(i, j)] >= 0) continue; far[at(i, j)] = far[k] + 1; queue.push(at(i, j)); }
   }
-  const reach = (r: Room) => far[at(r.c0 + (r.w >> 1), r.r0 + (r.h >> 1))] - 20 * r.level;
-  let tomb = 1;
-  rooms.forEach((r, i) => { if (i > 0 && reach(r) > reach(rooms[tomb])) tomb = i; });
-  rooms[tomb].kind = 'tomb';
-  for (const d of doors) if (roomAt[at(d.c + d.dc, d.r + d.dr)] === tomb) d.kind = 'portcullis';
+  // The last room (the deepest, and the furthest from the gate there), behind a portcullis; the hall; the rest as the theme deals them.
+  const reach = (r: Room) => far[at(r.c0 + (r.w >> 1), r.r0 + (r.h >> 1))] - 40 * r.level;
+  let last = 1;
+  rooms.forEach((r, i) => { if (i > 0 && r.w * r.h >= 4 && reach(r) > reach(rooms[last])) last = i; });
+  rooms[last].kind = theme.last;
+  for (const d of doors) if (roomAt[at(d.c + d.dc, d.r + d.dr)] === last) d.kind = 'portcullis';
   let hall = -1;
-  rooms.forEach((r, i) => { if (i > 0 && i !== tomb && r.w >= 3 && r.h >= 3 && (hall < 0 || r.w * r.h > rooms[hall].w * rooms[hall].h)) hall = i; });
+  if (theme.hall) rooms.forEach((r, i) => { if (i > 0 && i !== last && r.w >= 3 && r.h >= 3 && (hall < 0 || r.w * r.h > rooms[hall].w * rooms[hall].h)) hall = i; });
   if (hall >= 0) rooms[hall].kind = 'hall';
-  const kinds: RoomKind[] = ['crypt', 'ossuary', 'shrine', 'store', 'crypt'];
-  let next = rng.int(0, kinds.length - 1);
-  for (const r of rooms) if (r.kind === 'store') r.kind = kinds[next++ % kinds.length];
+  let next = rng.int(0, theme.kinds.length - 1);
+  for (const r of rooms) if (r.kind === 'store') r.kind = tags.theme === 'prison' && r.w * r.h <= 4 ? 'cell' : theme.kinds[next++ % theme.kinds.length];
   const top = new Float32Array(n);
   for (let k = 0; k < n; k++) if (cells[k]) top[k] = floor[k] + (cells[k] === 2 ? CAVE.room : CAVE.corridor);
   // The place named, and each room given its line.
   const who = rng.chance(0.6) ? `${rng.pick(NAMES)} ${rng.pick(EPITHETS)}` : `the ${rng.pick(['Frost', 'Winter', 'Mountain', 'Snow', 'Iron'])} ${rng.pick(['King', 'Queen', 'Jarl', 'Witch', 'Warden'])}`;
-  const name = `The ${rng.pick(PLACES)} of ${who}`, below = rooms.some((r) => r.level < 0);
-  const lines: Record<RoomKind, string[]> = {
-    gate: ['An antechamber, cut square; the air still and cold', 'An antechamber; old soot on its roof from torches long burnt'],
-    hall: ['A hall of pillars, their capitals worn smooth', 'A pillared hall, frost on its flagstones'],
-    store: ['A storeroom: barrels and crates, long rotted', 'Grave goods stacked in a storeroom'],
-    crypt: ['A crypt: stone coffins, their lids cracked', 'A crypt of the tomb-builders, laid out in rows'],
-    ossuary: ['An ossuary: bones heaped along the walls', 'Bones and skulls, sorted and stacked'],
-    shrine: ['A shrine: candles burning on its altar, lit by no one', 'A shrine, and a statue watching its altar'],
-    tomb: [`The tomb of ${who}: a great coffin, and a chest before it`],
-  };
-  for (const r of rooms) r.note = `${r.level < 0 ? 'Below: ' : ''}${rng.pick(lines[r.kind])}`;
-  return { cells, rooms, roomAt, far, floor, low, down, top, doors, name, about: `a small tomb${below ? ' on two levels' : ''}, ${rooms.length} rooms` };
+  const name = `The ${rng.pick(theme.places)} of ${who}`, levels = -Math.min(0, ...rooms.map((r) => r.level));
+  for (const r of rooms) r.note = `${r.level < 0 ? `${r.level < -1 ? 'Deeper still' : 'Below'}: ` : ''}${rng.pick(LINES[r.kind]).replace('WHO', who)}`;
+  const about = `a ${tags.size} ${theme.noun}, ${tags.layout}${levels ? `, on ${levels + 1} levels` : ''}, ${rooms.length} rooms`;
+  return { cols: COLS, rows: ROWS, entry: ENTRY, tags, cells, rooms, roomAt, far, floor, low, down, top, doors, name, about };
 }
 
 // ------------------------------------------------------------------------------------------------------------------ what it is made of
@@ -471,6 +566,14 @@ const paintsOf = () => {
   return paints;
 };
 
+/** What each stuff a prop is made of is painted with, and how it takes the light. */
+const STUFF_PAINT: Partial<Record<Stuff, 'wood' | 'wall' | 'rock' | 'earth'>> = { wood: 'wood', stone: 'wall', straw: 'earth', clay: 'rock' };
+const STUFF_LOOK: Record<Stuff, { color?: number; roughness: number; metalness?: number; side?: typeof DoubleSide }> = {
+  wood: { roughness: 0.85 }, iron: { color: 0x55555c, roughness: 0.45, metalness: 0.7 }, stone: { color: 0xd0c8bc, roughness: 0.9 },
+  bone: { color: 0xd8cfb8, roughness: 0.7 }, gold: { color: 0xffc040, roughness: 0.3, metalness: 1 }, cloth: { color: 0xf0f0f0, roughness: 0.95, side: DoubleSide },
+  wax: { color: 0xeee2c4, roughness: 0.6 }, straw: { color: 0xffe0a0, roughness: 1 }, clay: { color: 0xd09070, roughness: 0.8 }, coal: { color: 0x201812, roughness: 1 },
+};
+
 // ------------------------------------------------------------------------------------------------------------------------ shapes
 
 /** A shape put together a triangle at a time: where each point is, which way it faces, where it is on its picture, its light. */
@@ -523,9 +626,9 @@ class Shape {
 }
 
 /** A torch on a wall: where its flame is (in the cave's own frame), and which way the wall faces. */
-interface Torch { at: Vector3; facing: Vector3; kind: 'wall' | 'post' | 'candle'; power: number }
+interface Torch { at: Vector3; facing: Vector3; kind: 'wall' | 'post' | 'candle' | 'brazier'; power: number }
 /** Something in the way of one on foot, round, in the cave's own frame (across, along). */
-interface Post { lat: number; t: number; r: number }
+interface Post { lat: number; t: number; r: number; horse?: boolean }
 
 /** The tunnel's cross-section `phi` of the way round (0 to pi) from the foot of its right wall over its crown to the foot of its left. */
 const arch = (phi: number): [number, number] => [-CAVE.hw * Math.cos(phi), CAVE.tall * Math.pow(Math.sin(phi), 0.5)];
@@ -573,11 +676,13 @@ export class Cave {
   private readonly rng: Rng;
   private readonly m4 = new Matrix4();
   private chestTurn = 0;
+  /** Where a horse is left, across and along (`horseSpot`). */
+  private parking: [number, number] = [0, 0];
 
-  constructor(readonly site: CaveSite, private readonly base: BaseHeight, readonly seed: string) {
+  constructor(readonly site: CaveSite, private readonly base: BaseHeight, readonly seed: string, asked: string[] = []) {
     const P = paintsOf();
     this.rng = new Rng(`dungeon ${seed}`);
-    this.layout = layDungeon(this.rng.fork('layout'));
+    this.layout = layDungeon(this.rng.fork('layout'), tagsFor(this.rng.fork('tags'), asked));
     this.frame.position.set(site.mouth.x, 0, site.mouth.z);
     this.frame.rotation.y = Math.atan2(site.ax, site.az);
     this.group.add(this.frame);
@@ -677,13 +782,13 @@ export class Cave {
   /** The land's height (as it was before the hole) under a point of the cave's own frame. */
   private groundAt(lat: number, t: number): number { const p = sitePoint(this.site, t, lat); return this.base(p.x, p.z); }
   /** Across the way in, the middle of the dungeon's square `c`; along it, of row `r`. */
-  private latOf(c: number) { return (c - (COLS - 1) / 2) * CAVE.cell; }
+  private latOf(c: number) { return (c - (this.layout.cols - 1) / 2) * CAVE.cell; }
   private tOf(r: number) { return this.site.length + (r + 0.5) * CAVE.cell; }
-  private open(c: number, r: number) { return c >= 0 && r >= 0 && c < COLS && r < ROWS && this.layout.cells[r * COLS + c] > 0; }
+  private open(c: number, r: number) { return c >= 0 && r >= 0 && c < this.layout.cols && r < this.layout.rows && this.layout.cells[r * this.layout.cols + c] > 0; }
   /** The square a point of the cave's own frame is in, or none outside the lattice. */
   private cellAt(lat: number, t: number): [number, number] | null {
-    const c = Math.floor(lat / CAVE.cell + COLS / 2), r = Math.floor((t - this.site.length) / CAVE.cell);
-    return c < 0 || r < 0 || c >= COLS || r >= ROWS ? null : [c, r];
+    const c = Math.floor(lat / CAVE.cell + this.layout.cols / 2), r = Math.floor((t - this.site.length) / CAVE.cell);
+    return c < 0 || r < 0 || c >= this.layout.cols || r >= this.layout.rows ? null : [c, r];
   }
   private openAt(lat: number, t: number) { const k = this.cellAt(lat, t); return !!k && this.open(k[0], k[1]); }
   /** Open, in the dungeon, or through the gate's doorway into the tunnel's end. */
@@ -734,34 +839,34 @@ export class Cave {
       const o = new Vector3(x + dc * half - along.x * half, deep + y0, t + dr * half - along.z * half);
       walls.panel(o, along.clone().multiplyScalar(CAVE.cell), new Vector3(0, y1 - y0, 0), n, 3, Math.max(1, Math.ceil(y1 - y0)), 2, dc ? o.z * dc : -o.x * dr, y0);
     };
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-      const k = r * COLS + c;
+    for (let r = 0; r < this.layout.rows; r++) for (let c = 0; c < this.layout.cols; c++) {
+      const k = r * this.layout.cols + c;
       if (!cells[k]) continue;
       const x = this.latOf(c), t = this.tOf(r);
       if (down[k] < 0) floors.panel(new Vector3(x - half, deep + floor[k], t - half), new Vector3(CAVE.cell, 0, 0), new Vector3(0, 0, CAVE.cell), UP, 3, 3, 3, x - half, t - half);
       else {
-        // (A stair: six steps down its way, each a tread and the riser before it.)
+        // (A stair: six steps down its way, each a tread and the riser before it, facing down the stair, as it is seen from below.)
         const [dc, dr] = WAYS[down[k]], go = new Vector3(dc, 0, dr), side = new Vector3(-dr, 0, dc), steps = 6, rise = (floor[k] - low[k]) / steps;
         const tread = (s: number) => (s < 0 ? floor[k] : s >= steps ? low[k] : floor[k] - rise * (s + 0.5));
         for (let s = 0; s <= steps; s++) {
           const o = new Vector3(x, 0, t).addScaledVector(go, (s / steps - 0.5) * CAVE.cell).addScaledVector(side, -half);
           if (s < steps) floors.panel(o.clone().setY(deep + tread(s)), go.clone().multiplyScalar(CAVE.cell / steps), side.clone().multiplyScalar(CAVE.cell), UP, 1, 3, 3, 0, 0);
-          walls.panel(o.clone().setY(deep + tread(s)), side.clone().multiplyScalar(CAVE.cell), new Vector3(0, tread(s - 1) - tread(s), 0), go.clone().negate(), 3, 1, 2, 0, tread(s));
+          walls.panel(o.clone().setY(deep + tread(s)), side.clone().multiplyScalar(CAVE.cell), new Vector3(0, tread(s - 1) - tread(s), 0), go.clone(), 3, 1, 2, 0, tread(s));
         }
       }
       walls.panel(new Vector3(x - half, deep + top[k], t - half), new Vector3(CAVE.cell, 0, 0), new Vector3(0, 0, CAVE.cell), new Vector3(0, -1, 0), 3, 3, 2, x - half, t - half);
       for (const [dc, dr] of WAYS) {
-        if (c === ENTRY && r === 0 && dr === -1) continue;
+        if (c === this.layout.entry && r === 0 && dr === -1) continue;
         const mine = this.edgeFloor(c, r, dc, dr);
         if (!this.open(c + dc, r + dr)) { wall(c, r, dc, dr, Math.min(floor[k], low[k]), top[k]); continue; }
-        const n = (r + dr) * COLS + c + dc, theirs = this.edgeFloor(c + dc, r + dr, -dc, -dr);
+        const n = (r + dr) * this.layout.cols + c + dc, theirs = this.edgeFloor(c + dc, r + dr, -dc, -dr);
         if (theirs > mine + 0.01) wall(c, r, dc, dr, mine, theirs);
         if (top[n] < top[k] - 0.01) wall(c, r, dc, dr, Math.max(top[n], mine), top[k]);
       }
     }
     // Torches: along each side of a room two squares long or more, one or two; one to every fourth square of corridor.
     const torchOn = (c: number, r: number, dc: number, dr: number) => {
-      this.torches.push({ at: new Vector3(this.latOf(c) + dc * (half - 0.3), deep + floor[r * COLS + c] + 2.45, this.tOf(r) + dr * (half - 0.3)), facing: new Vector3(-dc, 0, -dr), kind: 'wall', power: 1 });
+      this.torches.push({ at: new Vector3(this.latOf(c) + dc * (half - 0.3), deep + floor[r * this.layout.cols + c] + 2.45, this.tOf(r) + dr * (half - 0.3)), facing: new Vector3(-dc, 0, -dr), kind: 'wall', power: 1 });
     };
     const doorAt = (c: number, r: number, dc: number, dr: number) => this.layout.doors.some((d) => (d.c + d.dc === c && d.r + d.dr === r && d.dc === -dc && d.dr === -dr));
     for (const room of rooms) {
@@ -774,8 +879,8 @@ export class Cave {
         for (const m of marks) { const [c, r, dc, dr] = line[Math.min(line.length - 1, Math.floor(m * line.length))]; if (!doorAt(c, r, dc, dr)) torchOn(c, r, dc, dr); }
       }
     }
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-      const k = r * COLS + c;
+    for (let r = 0; r < this.layout.rows; r++) for (let c = 0; c < this.layout.cols; c++) {
+      const k = r * this.layout.cols + c;
       if (cells[k] !== 1 || this.layout.far[k] % 4 !== 2 || down[k] >= 0) continue;
       const along = this.open(c, r - 1) || this.open(c, r + 1);
       const [dc, dr] = along ? (this.open(c - 1, r) ? [1, 0] : [-1, 0]) : (this.open(c, r - 1) ? [0, 1] : [0, -1]);
@@ -783,7 +888,7 @@ export class Cave {
     }
     // The doorways: a frame of dressed stone, jambs and a lintel, standing in the corridor's end where it opens into a room.
     for (const d of this.layout.doors) {
-      const k = d.r * COLS + d.c, x = this.latOf(d.c), t = this.tOf(d.r), go = new Vector3(d.dc, 0, d.dr), side = new Vector3(-d.dr, 0, d.dc);
+      const k = d.r * this.layout.cols + d.c, x = this.latOf(d.c), t = this.tOf(d.r), go = new Vector3(d.dc, 0, d.dr), side = new Vector3(-d.dr, 0, d.dc);
       const f = this.edgeFloor(d.c, d.r, d.dc, d.dr), roof = top[k], edge = new Vector3(x, 0, t).addScaledVector(go, half - 0.22);
       for (const s of [-1, 1]) {
         const at = edge.clone().addScaledVector(side, s * (half - 0.24));
@@ -816,7 +921,7 @@ export class Cave {
   }
   /** How high the floor of square (c, r) is at its edge toward (dc, dr), over the gate's: a stair's high end, or its low end. */
   private edgeFloor(c: number, r: number, dc: number, dr: number): number {
-    const k = r * COLS + c, d = this.layout.down[k];
+    const k = r * this.layout.cols + c, d = this.layout.down[k];
     if (d < 0) return this.layout.floor[k];
     const [a, b] = WAYS[d];
     return a === dc && b === dr ? this.layout.low[k] : a === -dc && b === -dr ? this.layout.floor[k] : Math.min(this.layout.floor[k], this.layout.low[k]);
@@ -825,7 +930,7 @@ export class Cave {
   private floorIn(lat: number, t: number): number {
     const at = this.cellAt(lat, t);
     if (!at) return 0;
-    const k = at[1] * COLS + at[0], d = this.layout.down[k];
+    const k = at[1] * this.layout.cols + at[0], d = this.layout.down[k];
     if (d < 0) return this.layout.floor[k];
     const [dc, dr] = WAYS[d], u = (lat - this.latOf(at[0])) / CAVE.cell, v = (t - this.tOf(at[1])) / CAVE.cell, s = clamp((dc ? dc * u : dr * v) + 0.5, 0, 1);
     return this.layout.floor[k] + (this.layout.low[k] - this.layout.floor[k]) * s;
@@ -842,14 +947,14 @@ export class Cave {
     return true;
   }
   /** The light at a point of the cave's own frame facing `n`: the torches' that reach it, the day's from the mouth, and the dark's. */
-  private lightAt(p: Vector3, n: Vector3, into: Color) {
+  private lightAt(p: Vector3, n: Vector3, into: Color, round = false) {
     into.copy(DARK);
     if (p.z < 14) addScaled(into, DAYLIGHT, 1.25 * Math.exp(-Math.max(0, p.z) / 3) * (0.5 + 0.5 * Math.max(0, -n.z)));
     const from = p.clone().addScaledVector(n, 0.2);
     for (const torch of this.torches) {
       const d = torch.at.distanceTo(p);
       if (d > TORCH_REACH) continue;
-      const dir = torch.at.clone().sub(p).divideScalar(Math.max(d, 1e-3)), face = clamp(n.dot(dir) * 0.8 + 0.2, 0, 1);
+      const dir = torch.at.clone().sub(p).divideScalar(Math.max(d, 1e-3)), face = round ? 0.75 : clamp(n.dot(dir) * 0.8 + 0.2, 0, 1);
       if (face <= 0 || !this.sees(torch.at, from)) continue;
       addScaled(into, TORCH_LIGHT, torch.power * Math.min(2.2, 1.9 / (1 + (d / 1.1) ** 2)) * smooth((TORCH_REACH - d) / 4) * face);
     }
@@ -863,13 +968,23 @@ export class Cave {
       s.light[i * 3] = c.r; s.light[i * 3 + 1] = c.g; s.light[i * 3 + 2] = c.b;
     }
   }
+  /** A material for a prop's parts of one stuff (tinted each part its own colour), not yet lit (`lit`). */
+  private stuffOf(stuff: Stuff): MeshStandardNodeMaterial {
+    const P = paintsOf(), paint = STUFF_PAINT[stuff], m = new MeshStandardNodeMaterial({ vertexColors: true, ...STUFF_LOOK[stuff] });
+    if (paint) { m.map = P[paint].map; m.normalMap = P[paint].normal; }
+    // (The coals in a brazier glow of themselves.)
+    if (stuff === 'coal') m.userData.glow = vec3(1.6, 0.5, 0.12).mul(sin(time.mul(3.1)).mul(0.15).add(0.85));
+    return m;
+  }
   /** A material for things in the dungeon, lit as its stone is: each at its own place (`at`, one to each of the shape's copies). */
-  private lit(m: MeshStandardNodeMaterial, shape: BufferGeometry, at: Vector3[], paint?: Texture): MeshStandardNodeMaterial {
+  private lit(m: MeshStandardNodeMaterial, shape: BufferGeometry, at: Vector3[], paint?: Texture, tinted = false): MeshStandardNodeMaterial {
     const light = new Float32Array(at.length * 3), c = new Color();
-    at.forEach((p, i) => { this.lightAt(p.clone().addScaledVector(UP, 0.4), UP, c); light.set([c.r * 0.8, c.g * 0.8, c.b * 0.8], i * 3); });
+    // (Each lit as a thing standing in the room is, from all round, at a metre up; and never as bright as a wall right by a torch, which
+    // a thing holding its own flame would otherwise be.)
+    at.forEach((p, i) => { this.lightAt(p.clone().addScaledVector(UP, 1), UP, c, true); const k = Math.min(1, 1.3 / Math.max(c.r, c.g, c.b, 1e-3)); light.set([c.r * k, c.g * k, c.b * k], i * 3); });
     shape.setAttribute('aThing', new InstancedBufferAttribute(light, 3));
-    const albedo = paint ? (texture(paint, uv()).rgb as N).mul(m.color) : vec3(m.color.r, m.color.g, m.color.b);
-    m.emissiveNode = (albedo as N).mul(attribute('aThing', 'vec3')).mul(this.flicker);
+    const plain = paint ? (texture(paint, uv()).rgb as N).mul(m.color) : vec3(m.color.r, m.color.g, m.color.b), albedo = tinted ? (plain as N).mul(attribute('color', 'vec3')) : plain;
+    m.emissiveNode = (albedo as N).mul(attribute('aThing', 'vec3')).mul(this.flicker).add(m.userData.glow ?? vec3(0, 0, 0));
     m.lightsNode = lights([this.lantern]);
     return m;
   }
@@ -939,6 +1054,7 @@ export class Cave {
     for (const s of [-0.95, 0.95]) put(new Mesh(post, barkPaint), rx, rt + s);
     put(new Mesh(bar, barkPaint), rx, rt, 1.32);
     this.rack.position.set(rx, this.groundAt(rx, rt), rt);
+    this.parking = [rx - 1.5, rt];
     this.frame.add(this.rack);
     this.posts.push({ lat: rx, t: rt - 0.95, r: 0.35 }, { lat: rx, t: rt, r: 0.35 }, { lat: rx, t: rt + 0.95, r: 0.35 });
     // (Wood stacked by the rack.)
@@ -956,132 +1072,205 @@ export class Cave {
   }
 
   /**
-   * What stands about the dungeon, room by room, as a tomb has it: barrels and crates in a store's corners; stone coffins in a crypt,
-   * and bones; skulls and bones heaped along an ossuary's walls; an altar in a shrine, candles on it, a statue behind; rubble in the
-   * hall and along corridors; and in the tomb, the great coffin on a dais, statues either side, and before it the chest, gold spilled
-   * about it. Gives back the treasure's glow.
+   * What stands about the dungeon, room by room, as its kind has it, of the props made for it (`slopeProps.ts`): barrels, crates and sacks
+   * in a store's corners; stone coffins in a crypt, urns, the dead; skulls and bones along an ossuary's walls; an altar in a shrine, its
+   * candles, a candelabrum, a statue; bookcases round a library, a table with books, a scroll and a candle, stools; in a cell a bedroll,
+   * a bucket, shackles on the wall and whoever was left there; in a guardroom a table and stools, a rack of spears, crates; crates and
+   * gold in a vault; banners and braziers in a hall; cobwebs in the corners of the oldest rooms; rubble here and there. And the last
+   * room's: a great coffin on its dais (a tomb), an altar on its dais (a sanctum), a desk (the warden's), heaps of gold (a hoard), and
+   * before it the chest. Gives back the treasure's glow.
    */
   private layThings(): Mesh {
-    const P = paintsOf(), rng = this.rng.fork('things'), deep = this.site.deep, half = CAVE.cell / 2;
-    const barrels: Matrix4[] = [], crates: Matrix4[] = [], coffins: Matrix4[] = [], bones: Matrix4[] = [], skulls: Matrix4[] = [], rubble: Matrix4[] = [], coins: Matrix4[] = [], blocks: Matrix4[] = [], robes: Matrix4[] = [], heads: Matrix4[] = [], candles: Matrix4[] = [];
-    const yaw = (a: number) => new Quaternion().setFromAxisAngle(UP, a), at = (x: number, y: number, t: number) => new Vector3(x, y, t), one = new Vector3(1, 1, 1);
-    const scatterBones = (x: number, t: number, n: number, r: number, f: number) => {
-      for (let i = 0; i < n; i++) {
-        const p = at(x + rng.range(-r, r), deep + f + 0.03, t + rng.range(-r, r));
-        if (!this.openAt(p.x, p.z) || Math.abs(this.floorIn(p.x, p.z) - f) > 0.01) continue;
-        if (rng.chance(0.3)) skulls.push(new Matrix4().compose(p.setY(deep + f + 0.09), yaw(rng.range(0, 6.3)), new Vector3(1, 0.9, 1.15)));
-        else bones.push(new Matrix4().compose(p, yaw(rng.range(0, 6.3)).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 2)), new Vector3(1, rng.range(0.6, 1.2), 1)));
-      }
+    const P = paintsOf(), rng = this.rng.fork('things'), deep = this.site.deep, half = CAVE.cell / 2, props = new Props();
+    const at = (x: number, y: number, t: number) => new Vector3(x, y, t);
+    /** A prop laid with its foot at (x, y, t), turned `turn`; in the way of one walking as far as it reaches, unless `free`. */
+    const put = (k: PropKind, x: number, y: number, t: number, turn = 0, scale: number | [number, number, number] = 1, free = false) => {
+      const r = props.put(k, at(x, y, t), turn, scale);
+      if (r > 0 && !free) this.posts.push({ lat: x, t, r });
     };
-    const scatterRubble = (x: number, t: number, n: number, r: number, f: number) => {
-      for (let i = 0; i < n; i++) { const p = at(x + rng.range(-r, r), deep + f + 0.06, t + rng.range(-r, r)); if (this.openAt(p.x, p.z) && Math.abs(this.floorIn(p.x, p.z) - f) < 0.01) rubble.push(new Matrix4().compose(p, yaw(rng.range(0, 6.3)), new Vector3(1, 0.6, 1).multiplyScalar(rng.range(0.5, 1.4)))); }
+    const onFloor = (x: number, t: number, f: number) => this.openAt(x, t) && Math.abs(this.floorIn(x, t) - f) < 0.01;
+    /** `n` small things of kind `k` strewn about (`x`, `t`), `r` either way, on the floor `f` (not in the way). */
+    const strew = (k: PropKind, x: number, t: number, n: number, r: number, f: number, scale: () => number = () => 1) => {
+      for (let i = 0; i < n; i++) { const px = x + rng.range(-r, r), pt = t + rng.range(-r, r); if (onFloor(px, pt, f)) put(k, px, deep + f, pt, rng.range(0, 6.3), scale(), true); }
     };
-    /** A statue on its plinth: a robed figure, hooded, its head bowed. */
-    const statue = (x: number, t: number, f: number, turn: number) => {
-      blocks.push(new Matrix4().compose(at(x, deep + f + 0.3, t), yaw(turn), new Vector3(0.95, 0.6, 0.95)));
-      robes.push(new Matrix4().compose(at(x, deep + f + 0.6, t), yaw(turn), one));
-      heads.push(new Matrix4().compose(at(x, deep + f + 2.35, t), yaw(turn), one));
-      this.posts.push({ lat: x, t, r: 0.62 });
+    /** Each square of a room's walls with rock behind it (not a way in): where its middle is against the wall, and which way it faces in. */
+    const walls_ = (x0: number, t0: number, x1: number, t1: number): [number, number, Vector3][] => {
+      const out: [number, number, Vector3][] = [];
+      for (let x = x0 + half; x < x1; x += CAVE.cell) { if (!this.openAt(x, t0 - 0.5)) out.push([x, t0, new Vector3(0, 0, 1)]); if (!this.openAt(x, t1 + 0.5)) out.push([x, t1, new Vector3(0, 0, -1)]); }
+      for (let t = t0 + half; t < t1; t += CAVE.cell) { if (!this.openAt(x0 - 0.5, t)) out.push([x0, t, new Vector3(1, 0, 0)]); if (!this.openAt(x1 + 0.5, t)) out.push([x1, t, new Vector3(-1, 0, 0)]); }
+      return out;
     };
+    /** Facing `n` (level): the turn about the upright that brings a prop's front (+z) round to it. */
+    const facing = (n: { x: number; z: number }) => Math.atan2(n.x, n.z);
+    /** Against a wall square: something of kind `k` with its back to it, `off` out from it. */
+    const onWall = (k: PropKind, [x, t, n]: [number, number, Vector3], y: number, off: number, free = false) => put(k, x + n.x * off, y, t + n.z * off, facing(n), 1, free);
+    /** A wall square no torch hangs on (a bookcase or a banner there would hide it, and stand dark in front of its light). */
+    const bare = ([x, t]: [number, number, Vector3]) => !this.torches.some((q) => q.kind === 'wall' && Math.hypot(q.at.x - x, q.at.z - t) < 0.8);
     // (Which way into each room its doorway leads, from the corridor: the room's far side is the way on from there.)
-    const into = (i: number): [number, number] => { const d = this.layout.doors.find((q) => this.layout.roomAt[(q.r + q.dr) * COLS + q.c + q.dc] === i); return d ? [d.dc, d.dr] : [0, 1]; };
+    const into = (i: number): [number, number] => { const d = this.layout.doors.find((q) => this.layout.roomAt[(q.r + q.dr) * this.layout.cols + q.c + q.dc] === i); return d ? [d.dc, d.dr] : [0, 1]; };
+    const theme = this.layout.tags.theme;
     this.layout.rooms.forEach((room, ri) => {
-      const f = room.level * DROP, x0 = this.latOf(room.c0) - half, t0 = this.tOf(room.r0) - half, x1 = x0 + room.w * CAVE.cell, t1 = t0 + room.h * CAVE.cell;
-      const cx = (x0 + x1) / 2, ct = (t0 + t1) / 2, small = Math.min(x1 - x0, t1 - t0) / 2, [dc, dr] = into(ri);
-      // (Its corners, those with wall on both sides, clear of the ways in.)
+      const f = room.level * DROP, y = deep + f, x0 = this.latOf(room.c0) - half, t0 = this.tOf(room.r0) - half, x1 = x0 + room.w * CAVE.cell, t1 = t0 + room.h * CAVE.cell;
+      const cx = (x0 + x1) / 2, ct = (t0 + t1) / 2, small = Math.min(x1 - x0, t1 - t0) / 2, [dc, dr] = into(ri), roof = y + CAVE.room;
+      // (Its corners, those with wall on both sides, clear of the ways in; its walls; the side across from the way in, a little in from it.)
       const corners = ([[x0, t0, 1, 1], [x1, t0, -1, 1], [x0, t1, 1, -1], [x1, t1, -1, -1]] as const).filter(([x, t, sx, st]) => !this.openAt(x - sx * 0.5, t + st * 1) && !this.openAt(x + sx * 1, t - st * 0.5));
-      // (The side across from the way in: halfway along it, a little in from it.)
-      const back = (inset: number) => [cx + dc * ((x1 - x0) / 2 - inset), ct + dr * ((t1 - t0) / 2 - inset)] as [number, number];
-      if (room.kind === 'store') {
-        for (const [x, t, sx, st] of corners.slice(0, 3)) for (let i = 0; i < 4; i++) {
-          const px = x + sx * (0.5 + (i % 2) * 0.75 + rng.range(-0.05, 0.05)), pt = t + st * (0.5 + (i >> 1) * 0.75 + rng.range(-0.05, 0.05));
-          if (rng.chance(0.55)) { barrels.push(new Matrix4().compose(at(px, deep + f + 0.43, pt), yaw(rng.range(0, 6.3)), one)); this.posts.push({ lat: px, t: pt, r: 0.4 }); }
-          else { crates.push(new Matrix4().compose(at(px, deep + f + 0.36, pt), yaw(rng.range(-0.3, 0.3)), new Vector3(0.9, 0.9, 0.9))); this.posts.push({ lat: px, t: pt, r: 0.45 }); if (rng.chance(0.4)) crates.push(new Matrix4().compose(at(px + rng.range(-0.1, 0.1), deep + f + 1.06, pt), yaw(rng.range(-0.6, 0.6)), new Vector3(0.75, 0.75, 0.75))); }
+      const sides = walls_(x0, t0, x1, t1), back = (inset: number) => [cx + dc * ((x1 - x0) / 2 - inset), ct + dr * ((t1 - t0) / 2 - inset)] as [number, number];
+      const toward = Math.atan2(-dc, -dr), side = new Vector3(-dr, 0, dc);
+      const cobwebs = (n: number) => { for (const [x, t, sx, st] of corners.slice(0, n)) put('cobweb', x + sx * 0.3, roof - 0.35, t + st * 0.3, Math.atan2(sx, st) + Math.PI, 1, true); };
+      switch (room.kind) {
+        case 'store':
+          for (const [x, t, sx, st] of corners.slice(0, 3)) for (let i = 0; i < 4; i++) {
+            const px = x + sx * (0.5 + (i % 2) * 0.8), pt = t + st * (0.5 + (i >> 1) * 0.8), pick = rng.next();
+            if (pick < 0.4) put('barrel', px, y, pt, rng.range(0, 6.3));
+            else if (pick < 0.8) { put('crate', px, y, pt, rng.range(-0.3, 0.3)); if (rng.chance(0.4)) put('crate', px, y + 0.7, pt, rng.range(-0.6, 0.6), 0.8, true); }
+            else put('sack', px, y, pt, rng.range(0, 6.3));
+          }
+          strew('rubble', cx, ct, 3, small - 0.6, f);
+          cobwebs(1);
+          break;
+        case 'crypt': {
+          const along = room.w >= room.h, n = Math.max(1, Math.min(3, Math.floor((along ? room.w : room.h) * 0.8)));
+          for (let i = 0; i < n; i++) {
+            const k = (i + 0.5) / n, px = along ? x0 + (x1 - x0) * k : cx, pt = along ? ct : t0 + (t1 - t0) * k, turn = along ? 0 : Math.PI / 2;
+            put('sarcophagus', px, y, pt, turn, 1, true);
+            for (const s of [-0.6, 0.6]) this.posts.push({ lat: px + (along ? 0 : s), t: pt + (along ? s : 0), r: 0.6 });
+          }
+          for (const [x, t, sx, st] of corners.slice(0, 2)) put('urn', x + sx * 0.45, y, t + st * 0.45, rng.range(0, 6.3));
+          if (rng.chance(0.5)) strew('skeleton', cx, ct, 1, small - 1.2, f);
+          strew('bones', cx, ct, 5, small - 0.4, f);
+          strew('skull', cx, ct, 3, small - 0.4, f);
+          cobwebs(3);
+          break;
         }
-        scatterRubble(cx, ct, 4, small - 0.5, f);
-      } else if (room.kind === 'crypt') {
-        const along = room.w >= room.h, n = Math.max(1, Math.min(3, Math.floor((along ? room.w : room.h) * 0.8)));
-        for (let i = 0; i < n; i++) {
-          const k = (i + 0.5) / n, px = along ? x0 + (x1 - x0) * k : cx, pt = along ? ct : t0 + (t1 - t0) * k;
-          coffins.push(new Matrix4().compose(at(px, deep + f + 0.4, pt), yaw(along ? 0 : Math.PI / 2), one));
-          for (const s of [-0.6, 0.6]) this.posts.push({ lat: px + (along ? 0 : s), t: pt + (along ? s : 0), r: 0.6 });
+        case 'ossuary':
+          // (Along every wall, a heap: skulls in rows over bones.)
+          for (const w of sides) for (const s of [-1.05, -0.35, 0.35, 1.05]) {
+            const [x, t, n] = w, along = new Vector3(-n.z, 0, n.x), px = x + n.x * 0.3 + along.x * s, pt = t + n.z * 0.3 + along.z * s;
+            put('bones', px, y, pt, facing(n) + rng.range(-0.3, 0.3), 1, true);
+            put('skull', px, y + 0.08, pt, facing(n) + rng.range(-0.4, 0.4), 1, true);
+            if (rng.chance(0.6)) put('skull', px + n.x * 0.05, y + 0.27, pt + n.z * 0.05, facing(n) + rng.range(-0.4, 0.4), 1, true);
+            this.posts.push({ lat: px, t: pt, r: 0.3 });
+          }
+          strew('skeleton', cx, ct, 1, small - 1.4, f);
+          strew('bones', cx, ct, 4, small - 0.8, f);
+          cobwebs(4);
+          break;
+        case 'shrine': {
+          const [ax, at_] = back(0.9);
+          put('altar', ax, y, at_, toward);
+          for (let i = 0; i < 4; i++) put('candlestick', ax + side.x * (i - 1.5) * 0.4, y + 0.98, at_ + side.z * (i - 1.5) * 0.4, 0, 1, true);
+          for (const s of [-1, 1]) put('candelabrum', ax + side.x * s * 1.5, y, at_ + side.z * s * 1.5 - dr * 0.2, toward);
+          if (corners.length) { const [x, t, sx, st] = corners[0]; put('statue', x + sx * 0.9, y, t + st * 0.9, Math.atan2(sx, st)); }
+          strew('rubble', cx, ct, 2, small - 0.8, f);
+          break;
         }
-        scatterBones(cx, ct, 10, small - 0.4, f);
-      } else if (room.kind === 'ossuary') {
-        // (Along every wall, a heap: skulls in rows on bones.)
-        for (let x = x0 + 0.4; x < x1 - 0.3; x += 0.3) for (const [t, st] of [[t0, 1], [t1, -1]] as const) if (!this.openAt(x, t - st * 0.4)) {
-          bones.push(new Matrix4().compose(at(x, deep + f + 0.05, t + st * 0.35), yaw(Math.PI / 2).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 2)), one));
-          if (rng.chance(0.75)) skulls.push(new Matrix4().compose(at(x + rng.range(-0.04, 0.04), deep + f + 0.16 + rng.range(0, 0.1), t + st * 0.3), yaw(st > 0 ? 0 : Math.PI), new Vector3(1, 0.9, 1.15)));
+        case 'library':
+          for (const w of sides.filter(bare)) onWall('bookcase', w, y, 0.22);
+          if (small >= 2.5) {
+            put('table', cx, y, ct, rng.range(-0.15, 0.15));
+            put('books', cx - 0.4, y + 0.82, ct + 0.1, rng.range(0, 6.3), 1, true);
+            put('scroll', cx + 0.2, y + 0.82, ct - 0.1, rng.range(0, 6.3), 1, true);
+            put('candlestick', cx + 0.6, y + 0.82, ct + 0.2, 0, 1, true);
+            for (const s of [-1, 1]) put('stool', cx + s * 0.4, y, ct + s * 0.75, rng.range(0, 6.3));
+          }
+          strew('books', cx, ct, 2, small - 1, f);
+          cobwebs(2);
+          break;
+        case 'cell': {
+          const w = sides[rng.int(0, Math.max(0, sides.length - 1))];
+          if (w) { const [x, t, n] = w; put('bedroll', x + n.x * 0.55, y, t + n.z * 0.55, facing(n) + Math.PI / 2); }
+          if (sides.length > 1) onWall('shackles', sides[(sides.indexOf(w) + 1) % sides.length], y, 0.02, true);
+          put('bucket', x0 + 0.45, y, t0 + 0.45, rng.range(0, 6.3));
+          if (rng.chance(0.4)) strew('skeleton', cx, ct, 1, 0.3, f); else strew('bones', cx, ct, 2, small - 0.5, f);
+          cobwebs(1);
+          break;
         }
-        for (let t = t0 + 0.4; t < t1 - 0.3; t += 0.3) for (const [x, sx] of [[x0, 1], [x1, -1]] as const) if (!this.openAt(x - sx * 0.4, t)) {
-          bones.push(new Matrix4().compose(at(x + sx * 0.35, deep + f + 0.05, t), new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 2), one));
-          if (rng.chance(0.75)) skulls.push(new Matrix4().compose(at(x + sx * 0.3, deep + f + 0.16 + rng.range(0, 0.1), t + rng.range(-0.04, 0.04)), yaw(sx > 0 ? Math.PI / 2 : -Math.PI / 2), new Vector3(1, 0.9, 1.15)));
+        case 'guard':
+          put('table', cx, y, ct, rng.range(-0.2, 0.2));
+          put('candlestick', cx + 0.5, y + 0.82, ct, 0, 1, true);
+          for (const s of [-1, 1]) put('stool', cx + s * 1.25, y, ct + rng.range(-0.3, 0.3), rng.range(0, 6.3));
+          if (sides.length) onWall('weaponRack', sides[0], y, 0.2);
+          for (const [x, t, sx, st] of corners.slice(0, 1)) for (let i = 0; i < 2; i++) put(i ? 'barrel' : 'crate', x + sx * (0.5 + i * 0.85), y, t + st * 0.5, rng.range(-0.3, 0.3));
+          break;
+        case 'vault':
+          for (const [x, t, sx, st] of corners.slice(0, 3)) for (let i = 0; i < 3; i++) put(i === 2 ? 'sack' : 'crate', x + sx * (0.5 + (i % 2) * 0.8), y, t + st * (0.5 + (i >> 1) * 0.8), rng.range(-0.2, 0.2));
+          strew('coins', cx, ct, 6, small - 0.7, f);
+          if (small >= 2.5) put('goldHeap', cx, y, ct, rng.range(0, 6.3), 0.6);
+          break;
+        case 'hall':
+          // (Banners down its walls, in a temple or a tomb; a brazier burning either side of its middle.)
+          if (theme === 'temple' || theme === 'tomb') for (const w of sides.filter(bare).filter((_, i) => i % 2 === 0)) onWall('banner', w, y, 0.02, true);
+          for (const s of [-1, 1]) put('brazier', cx + side.x * s * 1.5 + rng.range(-0.1, 0.1), y, ct + side.z * s * 1.5, 0);
+          strew('rubble', cx, ct, 4, small - 0.4, f);
+          cobwebs(2);
+          break;
+        case 'gate':
+          for (const [x, t, sx, st] of corners.slice(0, 2)) put(theme === 'tomb' || theme === 'temple' ? 'urn' : 'barrel', x + sx * 0.45, y, t + st * 0.45, rng.range(0, 6.3));
+          break;
+        default: {
+          // The last room: across from the way in, what it is for; and the chest before it.
+          const [bx, bt] = back(room.kind === 'hoard' || room.kind === 'warden' ? 1.2 : 1.6);
+          let ahead = 2.9;
+          if (room.kind === 'tomb' || room.kind === 'sanctum') {
+            put('dais', bx, y, bt, toward, room.kind === 'tomb' ? 1 : [1, 1, 0.8], true);
+            if (room.kind === 'tomb') put('sarcophagus', bx, y + 0.34, bt, toward, 1.2, true);
+            else {
+              put('altar', bx, y + 0.34, bt, toward, 1, true);
+              for (let i = 0; i < 5; i++) put('candlestick', bx + side.x * (i - 2) * 0.35, y + 1.32, bt + side.z * (i - 2) * 0.35, 0, 1, true);
+              for (const w of sides.filter(bare).filter(([x, t]) => Math.hypot(x - bx, t - bt) < 2.5)) onWall('banner', w, y, 0.02, true);
+            }
+            for (const s of [-1.1, 0, 1.1]) this.posts.push({ lat: bx + dc * s, t: bt + dr * s, r: 1.3 });
+            if ((dc ? t1 - t0 : x1 - x0) >= 6) for (const s of [-1, 1]) put('statue', bx + side.x * s * 2.2, y, bt + side.z * s * 2.2, toward);
+            for (const s of [-1, 1]) put('brazier', bx - dc * 2.6 + side.x * s * 1.7, y, bt - dr * 2.6 + side.z * s * 1.7, 0);
+            for (const [x, t, sx, st] of corners.slice(0, 2)) put('urn', x + sx * 0.45, y, t + st * 0.45, rng.range(0, 6.3));
+          } else if (room.kind === 'warden') {
+            put('desk', bx, y, bt, toward);
+            put('stool', bx + dc * 0.9, y, bt + dr * 0.9, 0);
+            put('candlestick', bx + side.x * 0.6, y + 0.84, bt + side.z * 0.6, 0, 1, true);
+            put('books', bx - side.x * 0.5, y + 0.84, bt - side.z * 0.5, rng.range(0, 6.3), 1, true);
+            for (const w of sides.filter((_, i) => i % 3 === 1)) onWall('shackles', w, y, 0.02, true);
+            for (const [x, t, sx, st] of corners.slice(0, 2)) put('barrel', x + sx * 0.55, y, t + st * 0.55, 0);
+            ahead = 1.9;
+          } else {
+            for (const [x, t, sx, st] of corners) put('goldHeap', x + sx * 0.8, y, t + st * 0.8, rng.range(0, 6.3), rng.range(0.8, 1.2));
+            for (const [x, t, sx, st] of corners.slice(0, 2)) put('crate', x + sx * 0.5 + (sx > 0 ? 1.3 : -1.3), y, t + st * 0.5, rng.range(-0.3, 0.3));
+            ahead = 1.4;
+          }
+          const cx2 = bx - dc * ahead, ct2 = bt - dr * ahead;
+          this.chest.at.copy(this.toLand(cx2, y, ct2));
+          this.chestTurn = Math.atan2(dc, dr);
+          this.posts.push({ lat: cx2, t: ct2, r: 0.72 });
+          for (let i = 0; i < (room.kind === 'hoard' ? 14 : 7); i++) {
+            const a = rng.range(0, 6.3), d = 0.75 + rng.range(0, room.kind === 'hoard' ? 1.5 : 1.0) ** 2, px = cx2 + Math.sin(a) * d, pt = ct2 + Math.cos(a) * d;
+            if (onFloor(px, pt, f) && Math.hypot(px - bx, pt - bt) > 1.4) put('coins', px, y, pt, rng.range(0, 6.3), 1, true);
+          }
+          strew('skeleton', cx - dc * 1.5, ct - dr * 1.5, room.kind === 'hoard' ? 0 : 1, 1, f);
+          strew('bones', cx, ct, 4, small - 0.6, f);
+          cobwebs(2);
         }
-        scatterBones(cx, ct, 14, small - 0.8, f);
-      } else if (room.kind === 'shrine') {
-        const [ax, at_] = back(0.9), turn = Math.atan2(-dc, -dr);
-        blocks.push(new Matrix4().compose(at(ax, deep + f + 0.48, at_), yaw(turn), new Vector3(1.7, 0.96, 0.85)));
-        this.posts.push({ lat: ax, t: at_, r: 0.85 });
-        for (let i = 0; i < 5; i++) {
-          const s = (i - 2) * 0.32, px = ax + -dr * s - dc * rng.range(-0.15, 0.15), pt = at_ + dc * s - dr * rng.range(-0.15, 0.15), tall = rng.range(0.12, 0.3);
-          candles.push(new Matrix4().compose(at(px, deep + f + 0.96 + tall / 2, pt), yaw(0), new Vector3(1, tall / 0.2, 1)));
-          this.torches.push({ at: at(px, deep + f + 0.96 + tall + 0.05, pt), facing: UP.clone(), kind: 'candle', power: 0.3 });
-        }
-        if (corners.length) { const [x, t, sx, st] = corners[0]; statue(x + sx * 0.9, t + st * 0.9, f, Math.atan2(sx, st)); }
-        scatterRubble(cx, ct, 3, small - 0.8, f);
-      } else if (room.kind === 'tomb') {
-        // The great coffin on its dais across from the way in, a statue either side of it, and the chest before it.
-        const [bx, bt] = back(1.6), turn = Math.atan2(dc, dr), side = new Vector3(-dr, 0, dc);
-        blocks.push(new Matrix4().compose(at(bx, deep + f + 0.17, bt), yaw(turn), new Vector3(2.6, 0.34, 3.2)));
-        coffins.push(new Matrix4().compose(at(bx, deep + f + 0.34 + 0.5, bt), yaw(turn), new Vector3(1.25, 1.25, 1.2)));
-        for (const s of [-1.1, 0, 1.1]) this.posts.push({ lat: bx + dc * s, t: bt + dr * s, r: 1.3 });
-        if ((dc ? x1 - x0 : t1 - t0) >= 6) for (const s of [-1, 1]) statue(bx + side.x * s * 2.2, bt + side.z * s * 2.2, f, Math.atan2(-dc, -dr));
-        const cx2 = bx - dc * 2.9, ct2 = bt - dr * 2.9;
-        this.chest.at.copy(this.toLand(cx2, deep + f, ct2));
-        this.chestTurn = Math.atan2(dc, dr);
-        this.posts.push({ lat: cx2, t: ct2, r: 0.72 });
-        for (let i = 0; i < 70; i++) {
-          const a = rng.range(0, 6.3), d = 0.7 + rng.range(0, 1.1) ** 2, px = cx2 + Math.sin(a) * d, pt = ct2 + Math.cos(a) * d;
-          if (this.openAt(px, pt) && Math.hypot(px - bx, pt - bt) > 1.8) coins.push(new Matrix4().compose(at(px, deep + f + 0.012 + rng.range(0, 0.02), pt), new Quaternion().setFromAxisAngle(new Vector3(rng.range(-1, 1), 1, rng.range(-1, 1)).normalize(), rng.range(0, 0.4)), one));
-        }
-        scatterBones(cx, ct, 8, small - 0.6, f);
-      } else if (room.kind === 'hall') {
-        scatterRubble(cx, ct, 6, small - 0.4, f);
-        scatterBones(cx, ct, 4, small - 0.6, f);
       }
     });
     // (Here and there in the corridors, rubble fallen from the roof.)
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-      const k = r * COLS + c;
-      if (this.layout.cells[k] === 1 && this.layout.down[k] < 0 && rng.chance(0.18)) scatterRubble(this.latOf(c), this.tOf(r), 3, 1.1, this.layout.floor[k]);
+    for (let r = 0; r < this.layout.rows; r++) for (let c = 0; c < this.layout.cols; c++) {
+      const k = r * this.layout.cols + c;
+      if (this.layout.cells[k] === 1 && this.layout.down[k] < 0 && rng.chance(0.18)) strew('rubble', this.latOf(c), this.tOf(r), 2, 1.1, this.layout.floor[k]);
     }
-    const many = (shape: BufferGeometry, list: Matrix4[], m: MeshStandardNodeMaterial, paint?: Texture) => {
-      if (!list.length) return;
-      const mesh = new InstancedMesh(shape, this.lit(m, shape, list.map((x) => new Vector3().setFromMatrixPosition(x)), paint), list.length);
+    // The flames the props hold (candles, braziers), each a little light; then the props drawn, lit by every light there is.
+    for (const flame of props.flames()) this.torches.push({ at: flame.at, facing: UP.clone(), kind: flame.power > 0.5 ? 'brazier' : 'candle', power: flame.power });
+    for (const { stuff, shape, at: list } of props.parts()) {
+      const mesh = new InstancedMesh(shape, this.lit(this.stuffOf(stuff), shape, list.map((x) => new Vector3().setFromMatrixPosition(x)), STUFF_PAINT[stuff] ? P[STUFF_PAINT[stuff]!].map : undefined, true), list.length);
       list.forEach((x, i) => mesh.setMatrixAt(i, x));
       mesh.receiveShadow = true;
+      mesh.castShadow = stuff !== 'cloth';
       this.inner.add(mesh);
-    };
-    const woodM = () => new MeshStandardNodeMaterial({ map: P.wood.map, normalMap: P.wood.normal, roughness: 0.85 });
-    const stoneM = () => new MeshStandardNodeMaterial({ map: P.wall.map, normalMap: P.wall.normal, roughness: 0.9 });
-    const boneM = () => new MeshStandardNodeMaterial({ color: 0xd8cfb8, roughness: 0.7 });
-    many(new CylinderGeometry(0.31, 0.31, 0.86, 14), barrels, woodM(), P.wood.map);
-    many(new BoxGeometry(0.8, 0.72, 0.8), crates, woodM(), P.wood.map);
-    many(new BoxGeometry(0.95, 0.8, 2.15), coffins, stoneM(), P.wall.map);
-    many(new BoxGeometry(1, 1, 1), blocks, stoneM(), P.wall.map);
-    many(new CylinderGeometry(0.2, 0.48, 1.9, 10).translate(0, 0.95, 0), robes, stoneM(), P.wall.map);
-    many(new SphereGeometry(0.2, 10, 8).scale(0.9, 1.1, 1), heads, stoneM(), P.wall.map);
-    many(new CylinderGeometry(0.022, 0.03, 0.42, 5), bones, boneM());
-    many(new SphereGeometry(0.105, 8, 6), skulls, boneM());
-    many(new CylinderGeometry(0.03, 0.032, 0.2, 8), candles, new MeshStandardNodeMaterial({ color: 0xe8dcc0, roughness: 0.6 }));
-    many(new DodecahedronGeometry(0.2, 0), rubble, new MeshStandardNodeMaterial({ map: P.rock.map, roughness: 0.95 }), P.rock.map);
+    }
+    const woodM = () => this.stuffOf('wood');
     const goldM = new MeshStandardNodeMaterial({ color: 0xffc040, roughness: 0.3, metalness: 1 });
-    many(new CylinderGeometry(0.035, 0.035, 0.008, 9), coins, goldM);
     // The doors left standing open against the walls, and the portcullises drawn up into their lintels.
     const iron = new MeshStandardNodeMaterial({ color: 0x3a3a3e, roughness: 0.5, metalness: 0.8 }), plank = woodM();
     for (const d of this.layout.doors) {
       if (d.kind === 'arch') continue;
-      const x = this.latOf(d.c), t = this.tOf(d.r), go = new Vector3(d.dc, 0, d.dr), side = new Vector3(-d.dr, 0, d.dc), f = this.edgeFloor(d.c, d.r, d.dc, d.dr), roof = this.layout.top[d.r * COLS + d.c];
+      const x = this.latOf(d.c), t = this.tOf(d.r), go = new Vector3(d.dc, 0, d.dr), side = new Vector3(-d.dr, 0, d.dc), f = this.edgeFloor(d.c, d.r, d.dc, d.dr), roof = this.layout.top[d.r * this.layout.cols + d.c];
       const edge = new Vector3(x, deep + f, t).addScaledVector(go, half - 0.22), c = new Color();
       this.lightAt(edge.clone().addScaledVector(UP, 1.5), UP, c);
       if (d.kind === 'door') {
@@ -1117,7 +1306,7 @@ export class Cave {
     chest.traverse((o) => { o.castShadow = true; o.receiveShadow = true; });
     this.inner.add(chest);
     const glowPaint = new MeshBasicNodeMaterial({ map: P.puff, transparent: true, depthWrite: false, blending: AdditiveBlending });
-    glowPaint.colorNode = (texture(P.puff, uv()).rgb as N).mul(vec3(1, 0.7, 0.25)).mul(sin(time.mul(2.3)).mul(0.15).add(0.85));
+    glowPaint.colorNode = vec3(1, 0.7, 0.25).mul(texture(P.puff, uv()).a).mul(0.8).mul(sin(time.mul(2.3)).mul(0.15).add(0.85));
     const glow = new Mesh(new PlaneGeometry(2.4, 2.4), glowPaint);
     glow.position.set(local.x, this.chest.at.y + 0.9, local.z);
     glow.visible = false;
@@ -1148,10 +1337,17 @@ export class Cave {
   }
   /** How far into the dark a point is: none outside, all of it some metres down the tunnel and in the dungeon. */
   darkness(p: Vector3): number {
-    const [t, lat] = siteLocal(this.site, p.x, p.z);
-    if (t <= 0 || (t <= this.site.length && Math.abs(lat) > MOUND_HALF)) return 0;
-    if (t > this.site.length && !this.openAt(lat, t) && p.y > this.site.deep + CAVE.room + 1) return 0;
-    return smooth((t - 0.8) / 7);
+    // (Only within the cave's own hollow, between its floor and its roof: not on the snow over it, nor anywhere else about it.)
+    const [t, lat] = siteLocal(this.site, p.x, p.z), L = this.site.length;
+    if (t <= 0) return 0;
+    if (t <= L) {
+      const floor = floorAt(this.site, t);
+      return Math.abs(lat) < CAVE.hw + CAVE.rough && p.y > floor - 0.5 && p.y < floor + CAVE.tall + CAVE.rough ? smooth((t - 0.8) / 7) : 0;
+    }
+    const k = this.cellAt(lat, t);
+    if (!k || !this.open(k[0], k[1])) return 0;
+    const floor = this.site.deep + this.floorIn(lat, t), roof = this.site.deep + this.layout.top[k[1] * this.layout.cols + k[0]];
+    return p.y > floor - 0.5 && p.y < roof + 0.5 ? smooth((t - 0.8) / 7) : 0;
   }
   /** The floor's height under one on foot inside; none outside (the snow's, then). */
   floorUnder(x: number, z: number): number | null {
@@ -1191,9 +1387,9 @@ export class Cave {
     if (t > L) {
       const k = this.cellAt(lat, t), cover = this.site.deep + CAVE.room + CAVE.cover;
       if (k && this.open(k[0], k[1])) {
-        const floor = this.site.deep + this.floorIn(lat, t), roof = this.site.deep + this.layout.top[k[1] * COLS + k[0]];
+        const floor = this.site.deep + this.floorIn(lat, t), roof = this.site.deep + this.layout.top[k[1] * this.layout.cols + k[0]];
         const room = [[-0.25, -0.25], [0.25, 0.25], [-0.25, 0.25], [0.25, -0.25]].every(([a, b]) => this.passAt(lat + a, t + b));
-        if (y > floor + 0.15 && y < roof - 0.25 && room) return !this.posts.some((q) => Math.hypot(lat - q.lat, t - q.t) < q.r - 0.1);
+        if (y > floor + 0.15 && y < roof - 0.25 && room) return y > floor + 1.9 || !this.posts.some((q) => Math.hypot(lat - q.lat, t - q.t) < q.r - 0.1);
         if (y < cover) return false;
       } else if (k && y < cover) return false;
     }
@@ -1233,7 +1429,7 @@ export class Cave {
     return Math.hypot(x - this.site.camp.x, z - this.site.camp.z) > CAVE.campR + 12 && !(t > -CAVE.campR * 2 - 6 && t < this.site.holeTo + 6 && Math.abs(lat) < MOUND_HALF + 8);
   }
   /** How many torches burn in it, and rooms it has (for a script). */
-  get counts() { return { seed: this.seed, name: this.layout.name, torches: this.torches.length, rooms: this.layout.rooms.map((r) => `${r.kind}${r.level < 0 ? ' (below)' : ''}`), doors: this.layout.doors.map((d) => d.kind), length: +this.site.length.toFixed(1), deep: +(this.site.y0 - this.site.deep).toFixed(1) }; }
+  get counts() { return { seed: this.seed, tags: Object.values(this.layout.tags).join(','), name: this.layout.name, torches: this.torches.length, rooms: this.layout.rooms.map((r) => `${r.kind}${r.level < 0 ? ' (below)' : ''}`), doors: this.layout.doors.map((d) => d.kind), length: +this.site.length.toFixed(1), deep: +(this.site.y0 - this.site.deep).toFixed(1) }; }
   /** Where the camp's fire is, in the land. */
   get fireSpot(): Vector3 { return this.toLand(this.fireAt.x, this.fireAt.y, this.fireAt.z); }
 
@@ -1242,16 +1438,41 @@ export class Cave {
   /** The room a point of the land is in, if it is in one: which, and what is said of it. */
   roomAt(x: number, z: number): { i: number; note: string; kind: string } | null {
     const [t, lat] = siteLocal(this.site, x, z), k = t > this.site.length ? this.cellAt(lat, t) : null;
-    const i = k ? this.layout.roomAt[k[1] * COLS + k[0]] : -1;
+    const i = k ? this.layout.roomAt[k[1] * this.layout.cols + k[0]] : -1;
     return i < 0 ? null : { i, note: this.layout.rooms[i].note, kind: this.layout.rooms[i].kind };
   }
-  /** Where to stand (in the land) and which way to face, for a script: in the camp facing the mouth, inside the gate, or before the chest. */
-  spot(where: 'camp' | 'gate' | 'tomb'): { x: number; z: number; heading: number } {
+  /** Where to stand (in the land) and which way to face, for a script: in the camp facing the mouth, inside the gate, before the chest, or in room `room`. */
+  spot(where: 'camp' | 'gate' | 'tomb' | 'room' | 'stair', room = 0): { x: number; z: number; heading: number } {
     const turn = Math.atan2(this.site.ax, this.site.az);
+    if (where === 'stair') {
+      // (At the head of the first stair down, looking down it; or, room 1, at its foot looking up.)
+      const k = this.layout.down.findIndex((d, i) => d >= 0 && this.layout.down[i] >= 0), c = k % this.layout.cols, r = (k / this.layout.cols) | 0;
+      if (k < 0) return this.spot('gate');
+      const [dc, dr] = WAYS[this.layout.down[k]], up = room === 1, back = up ? 3.3 * CAVE.cell / 2 + 1.5 : 1.5 + CAVE.cell / 2;
+      const lat = this.latOf(c) + (up ? dc : -dc) * back, t = this.tOf(r) + (up ? dr : -dr) * back;
+      return { ...sitePoint(this.site, t, lat), heading: Math.atan2(up ? -dc : dc, up ? -dr : dr) + turn };
+    }
+    if (where === 'room') {
+      // (Just inside its doorway, looking in.)
+      const r = this.layout.rooms[Math.min(room, this.layout.rooms.length - 1)], i = this.layout.rooms.indexOf(r), half = CAVE.cell / 2;
+      const d = this.layout.doors.find((q) => this.layout.roomAt[(q.r + q.dr) * this.layout.cols + q.c + q.dc] === i);
+      const lat = d ? this.latOf(d.c) + d.dc * (half + 0.8) : this.latOf(r.c0 + (r.w >> 1)), t = d ? this.tOf(d.r) + d.dr * (half + 0.8) : this.tOf(r.r0 + (r.h >> 1));
+      return { ...sitePoint(this.site, t, lat), heading: (d ? Math.atan2(d.dc, d.dr) : 0) + turn };
+    }
     if (where === 'camp') return { ...this.site.camp, heading: turn };
     if (where === 'gate') return { ...sitePoint(this.site, this.site.length + 1.5, 0), heading: turn };
     const [lat, , t] = this.localOf(this.chest.at), a = this.chestTurn, p = sitePoint(this.site, t - 2.4 * Math.cos(a), lat - 2.4 * Math.sin(a));
     return { ...p, heading: a + turn };
+  }
+  /** Where a horse is left while its rider goes in on foot: beside the rack, away from the way in, facing the mouth (in the land). */
+  get horseSpot(): { x: number; z: number; heading: number } {
+    const [lat, t] = this.parking, p = sitePoint(this.site, t, lat);
+    return { ...p, heading: Math.atan2(this.site.ax, this.site.az) };
+  }
+  /** The horse left there (in the way of one walking), or taken away again. */
+  parkHorse(on: boolean): void {
+    for (let i = this.posts.length - 1; i >= 0; i--) if (this.posts[i].horse) this.posts.splice(i, 1);
+    if (on) for (const d of [-0.8, 0, 0.8]) this.posts.push({ lat: this.parking[0], t: this.parking[1] + d, r: 0.45, horse: true });
   }
   /** The skis (and poles) left on the rack while their owner is on foot: of a person, a horse's long pair or its four short; or none. */
   rackSkis(kind: 'person' | 'pair' | 'four' | null, poles: number): void {
@@ -1297,7 +1518,7 @@ export class Cave {
     if (this.inner.visible || far < 140) {
       this.torches.forEach((torch, i) => {
         const f = flick(i + 1);
-        const k = torch.kind === 'candle' ? 0.22 : 1;
+        const k = torch.kind === 'candle' ? 0.22 : torch.kind === 'brazier' ? 1.5 : 1;
         this.flames.setMatrixAt(i, this.m4.compose(p.copy(torch.at).addScaledVector(UP, -0.1 * k), face(torch.at), s.set(0.26 * (2 - f) * k, 0.5 * f * k, 1)));
       });
       this.flames.count = this.torches.length;
