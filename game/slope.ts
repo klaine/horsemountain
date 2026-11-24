@@ -4758,7 +4758,8 @@ async function start() {
    */
   const RELEVEL = { still: deg(6), after: 2.5, over: 2, most: 0.35 };
   const canTilt = typeof DeviceOrientationEvent !== 'undefined';
-  let tiltWanted = true, tiltHeard = false, tiltAsking = false;
+  // (Off until chosen (asked: "disable tilt steering by default on mobile"): the stick steers at first.)
+  let tiltWanted = false, tiltHeard = false, tiltAsking = false;
   /** Whether tilting steers now: chosen, heard from, and no mouse. */
   const tilting = () => tiltWanted && tiltHeard && !document.body.classList.contains('mouse');
   const onTilt = (e: DeviceOrientationEvent) => {
@@ -4814,11 +4815,15 @@ async function start() {
   ];
   const backButtons = BACK_CHOICES.map(([w, label, title]) => button('waysSeg', label, () => setBackBy(w), title));
   showBackBy = () => backButtons.forEach((b, k) => b.classList.toggle('on', BACK_CHOICES[k][0] === backBy));
-  const tiltButtons = (['Stick', 'Tilt'] as const).map((label, k) => button('tiltSeg', label, () => setTilt(k === 1), k ? 'Tip the device to steer and to tuck, from however it is held as the run begins' : 'Steer by the stick at the lower left alone'));
+  const tiltButtons = (['Stick', 'Tilt'] as const).map((label, k) => button('tiltSeg', label, () => setTilt(k === 1, true), k ? 'Tip the device to steer and to tuck, from however it is held as the run begins' : 'Steer by the stick at the lower left alone'));
   $('tiltField').hidden = !canTilt;
-  const setTilt = (on: boolean) => {
+  /**
+   * Steering by tilting, or not; kept, `chosen` in the menu, as `steering`. (Not as `tilt`, which was kept as the page opened, chosen or
+   * not, while tilting was the first choice: every phone that had opened it kept tilting so, and would have gone on tilting.)
+   */
+  const setTilt = (on: boolean, chosen = false) => {
     tiltWanted = on;
-    keep('tilt', on ? '1' : '0');
+    if (chosen) keep('steering', on ? 'tilt' : 'stick');
     tiltButtons.forEach((b, k) => b.classList.toggle('on', (k === 1) === on));
     if (on) { levelTilt(); void listenTilt(); }
   };
@@ -6882,7 +6887,7 @@ async function start() {
   setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
   setSlowmo(query.has('slowmo') ? query.get('slowmo') !== '0' : kept('slowmo') === '1');
   resetScore();
-  setTilt(kept('tilt') !== '0');
+  setTilt(kept('steering') === 'tilt');
   {
     const k = kept('backBy');
     backBy = BACK_CHOICES.some(([w]) => w === k) ? (k as BackBy) : 'ask';

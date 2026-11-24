@@ -30,12 +30,12 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
 - **The orc hunt**, once *Orcs & weapons* is on in the menu (*Orc hunt* there, or `O`): a second demo run, the horse
   and its rider, the wildest trick each kicker will give them (a cork 720, a double backflip, a 900 and a switch 900, a superman whip
   backflip 360, a double cork 1080...), and the rider shooting down the orcs coming up the run with a tommy gun as they go.
-- **Riding it yourself**, seen from behind: on a phone or a tablet, tipping it steers, from however it is held as each run begins:
+- **Riding it yourself**, seen from behind: on a phone or a tablet, once *Tilt* is chosen under *Steering* in the menu (the stick at first), tipping it steers, from however it is held as each run begins:
   its right edge lowered (as a wheel is turned, or tipped lying flat) to turn right, further to skid; its top tipped away to tuck,
-  toward you to stand straight (*Steering* in the menu: *Tilt*, at first, or *Stick*); held still a few seconds a little off level, it
+  toward you to stand straight; held still a few seconds a little off level, it
   takes that as level again by itself. The stick at the lower left steers too, and
   takes over while a thumb is on it: to either side to turn (carved, or skidded out at its rim), up to tuck, down to stand straight
-  (an iPhone asks, at the first touch, whether the game may read how it is held). With a mouse or a touchpad, the pointer steers from wherever it is over
+  (an iPhone asks, as *Tilt* is chosen, whether the game may read how it is held). With a mouse or a touchpad, the pointer steers from wherever it is over
   the picture, no button held: to either side of the middle to turn (skidded out at the sides of the faint guide drawn about the skier),
   above it to tuck, below to stand straight; it takes the skier once it is brought within the guide, and lets it go, running straight,
   when it leaves the picture. Held down, its button brakes; a right click (a tap with two fingers) turns you round; scrolled or
