@@ -15,6 +15,7 @@ import { clone as cloneRigged } from 'three/addons/utils/SkeletonUtils.js';
 import { fbm3, hash1 } from '../src/core/rng';
 import type { FigureLibrary } from '../src/figures/library';
 import { dressAdventurer, type Look } from '../src/figures/outfit';
+import type { Dice } from './slopeDice';
 
 /** A body as the horde moves it: one of the figures' bodies with its clips (`Figure`), or one made here (`Wolf`). */
 export interface Gait {
@@ -67,9 +68,10 @@ export interface FoeKind {
   /**
    * In the cave's dungeon (`Horde.within`), if it comes there: how fast it comes at the one on foot (metres a second), how many come
    * together, how often a pack is of this kind (against the others; a great one, how likely it is to come alone in a pack's stead), and
-   * how hard it strikes (an orc's, 1).
+   * its skill, added to its d20 against the guard of the one on foot, and its damage dice
+   * (`slopeDice.ts`; the points lost to a blow struck home, thirty for each hit point).
    */
-  den?: { pace: [number, number]; pack: [number, number]; chance: number; blow: number };
+  den?: { pace: [number, number]; pack: [number, number]; chance: number; skill: number; dmg: Dice };
   /** Beaten, it goes down on its knees rather than falling, and the next blow sends it off far away (`Horde.strike`, `slope.ts`). */
   kneels?: boolean;
 }
@@ -81,13 +83,13 @@ export const FOES: FoeKind[] = [
     name: 'orc', size: [1.05, 1.2], pace: [0.9, 1.4], pack: [4, 9], hp: 2.4, worth: 1, guard: 11, chance: 5, from: 0, share: 0.35, spread: 9, hunt: 1,
     mid: 0.6, balls: [[0, 0.6, 0.42], [0, 1.1, 0.26]], bloody: true, lies: 3.6,
     body: (library) => rigged(library, orcBody, { walk: 'Crouch_Fwd_Loop', die: 'Death01' }),
-    den: { pace: [1.3, 1.9], pack: [2, 4], chance: 3, blow: 1 },
+    den: { pace: [1.3, 1.9], pack: [2, 4], chance: 3, skill: 3, dmg: { n: 1, d: 8, plus: 2 } },
   },
   {
     name: 'goblin', size: [0.66, 0.78], pace: [2.6, 3.6], pack: [5, 10], hp: 1.6, worth: 1, guard: 13, chance: 3, from: 0, share: 0.4, spread: 10, hunt: 1.3,
     mid: 1.0, balls: UPRIGHT, bloody: true, lies: 3.6,
     body: (library) => rigged(library, goblinBody, { walk: 'Jog_Fwd_Loop', die: 'Death01', speed: 5.2 }),
-    den: { pace: [2.3, 3.0], pack: [3, 5], chance: 2, blow: 0.6 },
+    den: { pace: [2.3, 3.0], pack: [3, 5], chance: 2, skill: 4, dmg: { n: 1, d: 6, plus: 0 } },
   },
   {
     name: 'wolf', size: [0.95, 1.15], pace: [4.2, 5.6], pack: [3, 6], hp: 2, worth: 1.5, guard: 14, chance: 2.5, from: 0.04, share: 0.3, spread: 7, hunt: 2.6,
@@ -98,7 +100,7 @@ export const FOES: FoeKind[] = [
     name: 'draugr', size: [1.0, 1.12], pace: [0.55, 0.8], pack: [3, 7], hp: 3.6, worth: 1.5, guard: 10, chance: 2, from: 0.1, share: 0.3, spread: 8, hunt: 0.5,
     mid: 1.0, balls: UPRIGHT, bloody: false, lies: 3.6,
     body: (library) => rigged(library, draugrBody, { walk: 'Zombie_Walk_Fwd_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }),
-    den: { pace: [0.9, 1.25], pack: [2, 4], chance: 2, blow: 1.4 },
+    den: { pace: [0.9, 1.25], pack: [2, 4], chance: 2, skill: 2, dmg: { n: 1, d: 10, plus: 4 } },
   },
   {
     name: 'yeti', size: [1.9, 2.25], pace: [1.4, 1.9], pack: [1, 2], hp: 10, worth: 5, guard: 12, chance: 1, from: 0.18, share: 0.1, spread: 6, hunt: 0.8,
@@ -117,7 +119,7 @@ export const FOES: FoeKind[] = [
     mid: 1.0, balls: [[0, 0.98, 0.45], [0, 1.58, 0.27]], bloody: false, lies: 5,
     body: (library) => rigged(library, kingBody, { walk: 'Zombie_Walk_Fwd_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }),
     titles: ['Sverre, the Barrow-King', 'Old Hrodna of the Mound', 'The Crowned Dead', 'Haldor Ice-Beard', 'Gunnvor, Who Keeps the Tomb', 'The Jarl Under the Snow'],
-    den: { pace: [1.0, 1.25], pack: [1, 1], chance: 0.2, blow: 2.6 },
+    den: { pace: [1.0, 1.25], pack: [1, 1], chance: 0.2, skill: 5, dmg: { n: 2, d: 8, plus: 7 } },
   },
 ];
 

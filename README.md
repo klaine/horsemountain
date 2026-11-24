@@ -105,7 +105,9 @@ ride on), and then one of the ways that carry you through the air (the one you k
   the view jolted, the blade's sweep turned red; and you can ride them down too; ten more down, a pistol, held out in both hands on straight arms, a shot a click; fifteen more, a shotgun, put to the shoulder, a spread
   of shot a click; twenty more, a flamethrower, held, a jet of burning fuel thrown some twenty metres that splashes over the snow and
   leaves it burning; twenty-five more, the tommy gun, put to the shoulder, held to fire; thirty more, a lightning gun, held, a bolt every
-  0.45 seconds, which leaps from orc to orc, four at the most; thirty-five more, a bazooka, laid on the shoulder, a rocket a click, which blows up all within seven metres of where it strikes, the run's end's
+  half second, which leaps from orc to orc, four at the most: white-hot and wrapped in a blue glow, forking and forking again, striking,
+  dimming and striking again as lightning does, the picture flashing blue-white with it, arcs crawling over each it struck and sparks
+  thrown off it, small arcs crackling about the gun's mouth while it is held, and a bolt out of the sky onto each it brings down; thirty-five more, a bazooka, laid on the shoulder, a rocket a click, which blows up all within seven metres of where it strikes, the run's end's
   explosion made small. How they are aimed is chosen in the menu, *Aiming* (kept in the browser; `?aim=free`): *Auto*, at first, the
   arms aim themselves, locked on a foe (the nearest they can reach and see ahead, the sword's at either side; kept until it falls or is
   lost, given up for one come much nearer), brackets about it and a thin bar of its strength under them; *Attack* strikes at it (Space,
@@ -115,9 +117,11 @@ ride on), and then one of the ways that carry you through the air (the one you k
   it, the 180 and *Skate* over it. Each attack at the foe locked on is rolled (`game/slopeDice.ts`), as a tabletop game rolls it: a
   twenty-sided die and the arm's skill (less in the air, and for each ten metres past where it strikes true) against how hard the foe
   is to strike, its guard (a goblin's and a wolf's higher than an orc's, the draugr's lower); a natural twenty always strikes and strikes
-  hard, a critical, its damage dice thrown twice, a natural one always misses. What strikes rolls its damage (the sword 4d6+14, the
+  hard, a critical, its damage dice thrown twice (the sword's on 18 and over, the pistol's, the lightning gun's and the bazooka's on 19),
+  a natural one always misses; and what is not rolled to strike (aimed by hand, a blast, fire, a leap of lightning, a ward) strikes hard
+  as often. A critical's number is thrown up large and gilt, *critical* under it, with a burst of golden sparks, a ring and a jolt. What strikes rolls its damage (the sword 4d6+14, the
   pistol 2d6+7, each of the shotgun's nine pellets 1d6+2, the tommy gun 1d8+3, the flamethrower 2d6+4 for each fifth of a second a foe
-  is kept in its fire, lightning 2d10+16 and four fifths as much at each leap, a rocket 8d8+50 at the heart of its blast), thrown up over
+  is kept in its fire, lightning 2d8+13 and seven tenths as much at each leap, a rocket 8d8+50 at the heart of its blast), thrown up over
   the foe as it is done (gold, a critical; *miss* where it missed); a round that misses goes wide of it, a rocket into the snow a few
   metres off, whose blast may catch it all the same. *Free*: each is aimed at the guide's mark, the button firing it (and Shift
   braking); on a phone or a tablet, a finger on the picture fires it there, an orc near the finger aimed at itself, while tilting or
@@ -180,8 +184,11 @@ at the gate, and each room said as you come into it. What has not been seen of i
 they come into sight (within eighteen metres, nothing solid between, through doorways too), and stay; foes in it are seen only while in
 sight. On foot in it, the minimap shows its plan as far as it has been seen, turned as the view is, you at its middle. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer), and foes come at you in the dungeon: out of rooms some way off and out of sight, a pack at a time, of orcs (two to four), goblins (three
 to five, quick, striking light) or the draugr (two to four, slow, striking hard), finding their way to you round the walls, through the
-doorways and up and down the stairs, striking at you as they come up to you (200 points lost for an orc's blow, less for a goblin's,
-more for one of the dead's, and you are thrown back a step); and now and then, alone and no sooner than a minute and a half after the
+doorways and up and down the stairs, striking at you as they come up to you, each blow rolled as yours are: its d20 and its skill against your guard of 12 (a goblin's
++4, an orc's +3, the dead's +2, the barrow-king's +5), *dodged* when it misses; struck home, its damage rolled (an orc 1d8+2, a goblin
+1d6, one of the dead 1d10+4, the barrow-king 2d8+7; a natural twenty a crushing blow, its dice thrown twice, the picture reddening at
+its edges), said in red over you, thirty points lost for each hit point of it, the meter's blocks as hard as it was against an orc's,
+and you are thrown back as far; and now and then, alone and no sooner than a minute and a half after the
 last, a barrow-king, a crowned draugr half as tall again as a man, named, its strength in the bar across the foot of the picture,
 of 160 hit points, striking two and a half times as hard as an orc; shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there (come in on the cart, too: down, the run carried on as before the cart came).

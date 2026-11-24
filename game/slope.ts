@@ -58,12 +58,12 @@ import { Rng } from '../src/core/rng';
 import { readSlice } from '../src/core/skiSlice';
 import { readRunMap, type RunMap } from '../src/core/runMap';
 import { RunMapView } from './slopeMap';
-import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sweep } from './slopeArms';
+import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sparks, Sweep } from './slopeArms';
 import { Drops, type Item, LootCard, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type Den, type FoeKind, Horde } from './slopeOrcs';
-import { ARM_DICE, attack as rollAttack, BURN_EVERY, CHARGED, damage as rollDamage, HP, LEAP, type Roll, rollSaid } from './slopeDice';
+import { ARM_DICE, attack as rollAttack, blow as rollBlow, BURN_EVERY, CHARGED, GUARD, HP, LEAP, type Roll, rollAt, rollSaid } from './slopeDice';
 import { Boosters, PIPE, Pipe } from './slopeArena';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
@@ -5222,6 +5222,18 @@ async function start() {
   const arms = new Map<ArmKind, Group>(LADDER.map((a): [ArmKind, Group] => [a.kind, a.kind === 'smg' ? gun : a.make()]));
   for (const [k, g] of arms) if (k !== 'smg') { rimAll(g); g.visible = false; }
   const flames = new Flames(scene, gunRng.fork('flames'), ground), bolts = new Bolts(scene, gunRng.fork('bolts'));
+  // (Sparks of gold where a blow strikes hard, a critical; of blue-white where lightning strikes.)
+  const sparks = new Sparks(scene, gunRng.fork('sparks'), [3.6, 2.4, 0.7]), zapSparks = new Sparks(scene, gunRng.fork('zap sparks'), [1.4, 2, 3.6]);
+  /**
+   * The picture flashed a moment: blue-white as lightning strikes (`zap`), the more the more it struck; red at its edges as a crushing
+   * blow is taken (`hurt`).
+   */
+  const flashEl = $('flash');
+  const flashScreen = (kind: 'zap' | 'hurt', strength = 1) => {
+    flashEl.className = ''; flashEl.style.setProperty('--strength', strength.toFixed(2));
+    void flashEl.offsetWidth; flashEl.className = kind;
+  };
+  const hurtFlash = () => flashScreen('hurt');
   const sweep = new Sweep(scene), rockets = new Rockets(scene, gunRng.fork('rockets'));
   // (Where the rockets go off, the run's end's blast made small: a few of them, each used again in turn, put away once its smoke has
   // gone.)
@@ -5390,19 +5402,35 @@ async function start() {
    */
   let dmgLive = 0;
   const missedAt = new Map<number, number>();
-  const dmgPop = (p: Vector3, text: string, kind: string) => {
+  const dmgPop = (p: Vector3, text: string, kind: string, small = '') => {
     if (dmgLive > 36) return;
     const at = overPictureAt(p);
     if (!at) return;
     const el = document.createElement('div');
     el.className = `pop dmg ${kind}`; el.textContent = text;
+    if (small) { const s = document.createElement('small'); s.textContent = small; el.appendChild(s); }
     el.style.left = `${(at[0] + gunRng.range(-14, 14)).toFixed(0)}px`; el.style.top = `${(at[1] - 18).toFixed(0)}px`;
     dmgLive++;
     el.addEventListener('animationend', () => { el.remove(); dmgLive--; });
     popsEl.appendChild(el);
   };
-  /** Damage done (hit points, as hard as a weapon found makes it) said over where it struck. */
-  const dmgSaid = (p: Vector3, dmg: number, crit: boolean, burn = false) => dmgPop(p, crit ? `${Math.round(dmg * horde.might)}!` : String(Math.round(dmg * horde.might)), crit ? 'crit' : burn ? 'burn' : '');
+  /**
+   * Damage done (hit points, as hard as a weapon found makes it) said over where it struck. A critical (asked: "we could have critical
+   * hits also") made much of: its number large and gilt, *critical* under it, a burst of sparks of gold where it struck, a ring of
+   * steel, and the view jolted; not more than one so every so often, as the tommy gun may strike hard several times a second.
+   */
+  let critAt = 0;
+  const dmgSaid = (p: Vector3, dmg: number, crit: boolean, burn = false) => {
+    const n = String(Math.round(dmg * horde.might));
+    if (!crit) { dmgPop(p, n, burn ? 'burn' : ''); return; }
+    dmgPop(p, n, 'crit', 'critical');
+    const now = performance.now();
+    if (now < critAt) return;
+    critAt = now + 250;
+    sparks.add(p, 26);
+    gunSound.hear('ring');
+    bladeJolt = Math.max(bladeJolt, 0.35);
+  };
   const missSaid = (orc: number, p: Vector3) => {
     const now = performance.now();
     if ((missedAt.get(orc) ?? 0) > now) return;
@@ -5410,9 +5438,10 @@ async function start() {
     dmgPop(p, 'miss', 'miss');
   };
   /** The last rolls, newest last, for the fight's line and for a script (`__slope.rolls`). */
-  const rolls: { foe: string; arm: ArmKind; say: string; roll: Roll }[] = [];
+  /** (`arm`, `foe` for a foe's roll at the one on foot.) */
+  const rolls: { foe: string; arm: ArmKind | 'foe'; say: string; roll: Roll }[] = [];
   let rollsMade = 0;
-  const noteRoll = (orc: number, arm: ArmKind, r: Roll, say = rollSaid(r)) => {
+  const noteRoll = (orc: number, arm: ArmKind | 'foe', r: Roll, say = rollSaid(r)) => {
     rollsMade++;
     rolls.push({ foe: horde.titleOf(orc), arm, say, roll: r });
     if (rolls.length > 16) rolls.shift();
@@ -5428,8 +5457,8 @@ async function start() {
    * struck and not brought down, the cross where it was struck all the same.
    */
   const roundStrikes = (orc: number, dir: Vector3, arm: ArmKind, r: Roll | null) => {
-    const at = horde.middle(orc), dmg = r ? r.dmg : rollDamage(diceRng, ARM_DICE[arm].dmg), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6), dmg / HP);
-    if (struck) dmgSaid(at, dmg, !!r?.crit);
+    const at = horde.middle(orc), b = r ? { dmg: r.dmg, crit: r.crit } : rollBlow(diceRng, arm), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6), b.dmg / HP);
+    if (struck) dmgSaid(at, b.dmg, b.crit);
     if (struck?.down) { gunSound.grunt(); orcDowned(at, 'shot', struck.kind); }
     else if (struck) { const on = overPictureAt(at); if (on) hitMark(on); }
     burst(at, 3, 10);
@@ -5524,7 +5553,7 @@ async function start() {
       inFire.add(o.orc);
       let h = (heat.get(o.orc) ?? BURN_EVERY * 0.6) + dt;
       // (The harder one is to bring down, the longer the fire must be kept on it: a yeti, near two seconds.)
-      if (h >= BURN_EVERY) { h -= BURN_EVERY; const dmg = rollDamage(diceRng, ARM_DICE.flamer.dmg); dmgSaid(o.at, dmg, false, true); burnDown(o.orc, o.at, dir, dmg / HP); }
+      if (h >= BURN_EVERY) { h -= BURN_EVERY; const b = rollBlow(diceRng, 'flamer'); dmgSaid(o.at, b.dmg, b.crit, true); burnDown(o.orc, o.at, dir, b.dmg / HP); }
       if (horde.coming(o.orc)) heat.set(o.orc, h);
     }
     // (Out of the fire, it cools: the fire must be kept on it.)
@@ -5552,9 +5581,9 @@ async function start() {
       if (far > BOOM.reach) continue;
       const near = 1 - far / BOOM.reach, out = far > 0.01 ? d.setY(0).normalize() : new Vector3(1, 0, 0);
       // (Its damage rolled, the more the nearer: nearly all in reach brought down; a yeti, only near where it went off, and not always.)
-      const dmg = rollDamage(diceRng, ARM_DICE.bazooka.dmg, false, 0.4 + 0.6 * near);
-      const struck = horde.strike(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near), dmg / HP);
-      if (struck) dmgSaid(o.at, dmg, false);
+      const b = rollBlow(diceRng, 'bazooka', 0.4 + 0.6 * near);
+      const struck = horde.strike(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near), b.dmg / HP);
+      if (struck) dmgSaid(o.at, b.dmg, b.crit);
       if (struck?.down) { gunSound.grunt(); orcDowned(o.at, 'blown', struck.kind); }
     }
   };
@@ -5617,11 +5646,20 @@ async function start() {
       struck.add(met);
       const at = horde.middle(met);
       through.push(at);
+      // (Arcs crackling over each it strikes a while after, sparks thrown off it.)
+      const big = horde.kindOf(met)?.titles ? 1.15 : 0.6;
+      bolts.crackle(at, big, 0.75); zapSparks.add(at, 14, 7);
       // (Each leap the weaker, `LEAP`.)
-      const dmg = first && struck.size === 1 ? first.dmg : rollDamage(diceRng, ARM_DICE.lightning.dmg, false, LEAP ** (struck.size - 1));
-      const hurt = horde.strike(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), dmg / HP, false);
-      if (hurt) dmgSaid(at, dmg, !!first?.crit && struck.size === 1);
-      if (hurt?.down) { gunSound.grunt(); orcDowned(at, 'zapped', hurt.kind); }
+      const b = first && struck.size === 1 ? { dmg: first.dmg, crit: first.crit } : rollBlow(diceRng, 'lightning', LEAP ** (struck.size - 1));
+      const hurt = horde.strike(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), b.dmg / HP, false);
+      if (hurt) dmgSaid(at, b.dmg, b.crit);
+      // (Brought down: a bolt out of the sky onto it, thick, as if the sky had answered.)
+      if (hurt?.down) {
+        gunSound.grunt(); orcDowned(at, 'zapped', hurt.kind);
+        const sky = at.clone().add(new Vector3(gunRng.range(-6, 6), gunRng.range(26, 34), gunRng.range(-6, 6))), foot = at.clone(); foot.y = ground(at.x, at.z);
+        bolts.strike([sky, sky.clone().lerp(foot, 0.5).add(new Vector3(gunRng.range(-2, 2), 0, gunRng.range(-2, 2))), foot], 0.5, 2.2);
+        zapSparks.add(foot, 24, 10); snowBurst(foot, 1.2, 40, 4);
+      }
       burst(at, 2, 6);
       met = -1;
       let near = ZAP.leap;
@@ -5629,7 +5667,9 @@ async function start() {
     }
     if (through.length === 1) { const end = from.clone().addScaledVector(dir, Number.isFinite(snowAt) ? Math.min(snowAt, 30) : 30); through.push(end); burst(end, 2, 8); }
     bolts.strike(through);
+    flashScreen('zap', Math.min(1, 0.35 + 0.18 * struck.size));
     gunSound.hear('zap');
+    bladeJolt = Math.max(bladeJolt, 0.12 + 0.05 * struck.size);
     kick = 1;
   };
   /**
@@ -5695,7 +5735,7 @@ async function start() {
           noteRoll(o.orc, 'sword', r);
           if (!r.hit) { missSaid(o.orc, o.at); continue; }
           dmg = r.dmg; crit = r.crit;
-        } else dmg = rollDamage(diceRng, ARM_DICE.sword.dmg, false, times);
+        } else ({ dmg, crit } = rollBlow(diceRng, 'sword', times));
         const push = out.clone().multiplyScalar(5 * (1 + 1.2 * power)).addScaledVector(ahead, 1.5).addScaledVector(vel, 0.35).addScaledVector(UP, 2.5 + 2 * power);
         const struck = horde.strike(o.orc, push, dmg / HP);
         if (!struck) continue;
@@ -6019,7 +6059,7 @@ async function start() {
   };
   horde.onTaken = (model, at, size) => startLaunch(model, at, size);
   clearGun = () => {
-    horde.clear(); gunfire.clear(); splatter.clear(); flames.clear(); bolts.clear(); heat.clear(); sweep.clear(); rockets.clear();
+    horde.clear(); gunfire.clear(); splatter.clear(); flames.clear(); bolts.clear(); sparks.clear(); zapSparks.clear(); heat.clear(); sweep.clear(); rockets.clear();
     endArena(true); boostLeft = 0; endLaunches();
     for (const b of booms) b.blast.hide();
     swing = null; pulls = 0;
@@ -6089,9 +6129,9 @@ async function start() {
    * Struck by a foe come up to it on foot: points lost, and thrown back a step from it; the more, the harder it strikes (a goblin, less
    * than an orc; one of the dead, more; the barrow-king, two and a half times as much: `FoeKind.den`).
    */
-  const struck = (from: Vector3, kind: FoeKind) => {
-    const f = foot, cave = caveNow();
-    if (!f || !cave || mode !== 'ride') return;
+  const struck = (from: Vector3, kind: FoeKind, who: number) => {
+    const f = foot, cave = caveNow(), den = kind.den;
+    if (!f || !cave || mode !== 'ride' || !den) return;
     // (A barrow ward worn: the blow turned aside, as often as it says.)
     if (kit().shield && wardRng.chance(kit().shield)) {
       const s = overPictureAt(rider.position.clone().addScaledVector(UP, 1.8));
@@ -6100,18 +6140,28 @@ async function start() {
       gunSound.hear('ring');
       return;
     }
-    const blow = kind.den?.blow ?? 1, lost = Math.round((200 * blow) / 10) * 10;
+    // (Rolled, as the arms' attacks are (asked: "enemies attacks against the player should also use rpg system"): its d20 and its skill
+    // against the guard of the one on foot, `GUARD`; missed, dodged; struck home, its damage rolled (a natural twenty, a crushing blow,
+    // its dice thrown twice), and as much lost as it did: thirty points a hit point, the meter's blocks by how hard it was against an
+    // orc's blow, thrown back as far.)
+    const name = horde.titleOf(who), r = rollAt(diceRng, den.skill, den.dmg, GUARD);
+    noteRoll(who, 'foe', r, `${name[0].toUpperCase()}${name.slice(1)} at you: ${rollSaid(r)}`);
+    const head = rider.position.clone().addScaledVector(UP, 1.8);
+    if (!r.hit) { dmgPop(head, 'dodged', 'miss'); gunSound.hear('swish'); return; }
+    const blow = r.dmg / 6.5, lost = r.dmg * 30;
     score = Math.max(0, score - lost);
     earnWild(-WILD.struck * blow);
     scoreEl.textContent = score.toLocaleString('en');
-    if (blow > 2) bladeJolt = Math.max(bladeJolt, 0.6);
-    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2 * Math.sqrt(blow)), o = land.group.position;
+    bladeJolt = Math.max(bladeJolt, r.crit ? 0.9 : blow > 2 ? 0.6 : 0.2);
+    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2 * Math.sqrt(blow) * (r.crit ? 1.4 : 1)), o = land.group.position;
     const [x, z] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + away.x, f.z - o.z + away.z, walks() ? FOOT.person : FOOT.horse);
     f.x = x + o.x; f.z = z + o.z;
-    const s = overPictureAt(rider.position.clone().addScaledVector(UP, 1.8));
-    if (s) popUp(s, `−${lost}`, 'run', 'struck');
-    const what = kind.titles ? 'the barrow-king' : `${/^[aeiou]/.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
-    tell('Struck!', `${what} came at you`, true, 1.2);
+    dmgPop(head.clone().addScaledVector(UP, 0.3), String(r.dmg), r.crit ? 'hurt crit' : 'hurt', r.crit ? 'crushing blow' : '');
+    const s = overPictureAt(head);
+    if (s) popUp([s[0], s[1] + 30], `−${lost}`, 'run', 'struck');
+    if (r.crit) hurtFlash();
+    const what = kind.titles ? name : `${/^[aeiou]/.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
+    tell(r.crit ? 'Crushing blow!' : 'Struck!', `${what} came at you`, true, 1.2);
     gunSound.hear('grunt');
   };
   // ---------------------------------------------------------------- loot
@@ -6204,8 +6254,8 @@ async function start() {
       burst(best.at, 2, 6);
       gunSound.hear('zap');
       wardRing.pulse();
-      const dmg = rollDamage(wardRng, ARM_DICE.lightning.dmg), struck = horde.strike(best.orc, new Vector3(0, 3, 0), dmg / HP, false);
-      if (struck) dmgSaid(best.at, dmg, false);
+      const b = rollBlow(wardRng, 'lightning'), struck = horde.strike(best.orc, new Vector3(0, 3, 0), b.dmg / HP, false);
+      if (struck) dmgSaid(best.at, b.dmg, b.crit);
       if (struck?.down) { gunSound.grunt(); orcDowned(best.at, 'zapped', struck.kind); }
     }
   };
@@ -6268,7 +6318,7 @@ async function start() {
     if (on && rollsMade !== fightRolls && rolls.length) {
       fightRolls = rollsMade; const r = rolls[rolls.length - 1];
       say(fightRoll, r.say);
-      fightRoll.classList.toggle('hit', r.roll.hit); fightRoll.classList.toggle('crit', r.roll.crit);
+      fightRoll.classList.toggle('hit', r.roll.hit); fightRoll.classList.toggle('crit', r.roll.crit); fightRoll.classList.toggle('against', r.arm === 'foe');
       fightRoll.classList.remove('new'); void fightRoll.offsetWidth; fightRoll.classList.add('new');
     }
   };
@@ -6468,7 +6518,10 @@ async function start() {
     kick *= Math.exp(-dt * 18);
     gunfire.step(going, camera.quaternion);
     flames.step(going, camera.quaternion);
-    bolts.step(going);
+    bolts.step(going, camera.quaternion);
+    sparks.step(going); zapSparks.step(going);
+    // (The lightning gun held firing: small arcs crackling about its mouth between bolts.)
+    if (arm.kind === 'lightning' && holding && firing && going > 0 && gunRng.chance(going * 14)) bolts.crackle(muzzle, 0.13, 0.12);
     sweep.step(going);
     rockets.step(going, camera.quaternion, rocketStrikes, boomAt, (at, v) => flames.trail(at, v));
     boomClock += going;

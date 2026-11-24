@@ -799,6 +799,19 @@
       body.touchhud.autoaim #skate { right: calc(var(--gutter-r) + 76px + 92px + 54px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 11px; }
       body.touchhud #fight .foe { width: 90px; }
     }
+    /* (Lightning striking flashes the picture blue-white a moment; a crushing blow taken reddens its edges. Criticals, gilt and larger,
+       *critical* under them; a blow taken, its number in red; a foe's roll at you, red in the fight's line.) */
+    #flash { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; }
+    #flash.zap { background: radial-gradient(ellipse at 50% 45%, rgba(170, 205, 255, .5), rgba(70, 110, 255, .3) 75%); animation: flashZap .28s ease-out forwards; }
+    #flash.hurt { background: radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(170, 10, 0, .65)); animation: flashZap .6s ease-out forwards; }
+    @keyframes flashZap { 0% { opacity: calc(var(--strength, 1) * .7); } 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { #flash { display: none; } }
+    #pops .pop.dmg.crit { font-size: 30px; letter-spacing: .01em; }
+    #pops .pop.dmg small { display: block; margin-top: 2px; font: 800 9px/1 var(--sans); letter-spacing: .2em; text-transform: uppercase; text-align: center; }
+    #pops .pop.dmg.hurt { color: #ff5a46; font-size: 20px; text-shadow: 0 1px 0 rgba(0, 0, 0, .7), 0 0 10px rgba(120, 0, 0, .7); }
+    #pops .pop.dmg.hurt.crit { font-size: 30px; color: #ff3a2a; }
+    #fight .roll.against { color: #ff8a7a; }
+    #fight .roll.against.hit { color: #ff5a46; }
   </style>
 </head>
 <body>
@@ -828,6 +841,7 @@
     <button id="attack" type="button" aria-label="Attack the foe locked on" title="Attack the foe locked on; held, fire on, or raise the sword to cut harder (Space, or the mouse button)">Attack</button>
     <button id="nextFoe" type="button" aria-label="Lock on the foe to the right" title="Lock on the foe to the right (E, or Tab)">▶</button>
   </div>
+  <div id="flash" aria-hidden="true"></div>
   <div id="pops" aria-hidden="true"></div>
   <div id="bosses" aria-live="polite"></div>
   <div id="felled" aria-hidden="true"><b>Felled</b><small></small></div>
