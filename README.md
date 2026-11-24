@@ -128,8 +128,8 @@ ride on), and then one of the ways that carry you through the air (the one you k
   moment before it drains; brought down, a *Felled* banner. Where yetis come, riding, an arena is laid for the fight
   (`game/slopeArena.ts`): a quarter-pipe across the run some way below them, its face curving up to near upright at a blue lip with a
   flag at either end. Ridden into, it carries the skier up its face and throws it straight up off the lip, as a halfpipe's wall does
-  (spins and flips can be made up there), and it comes down onto the face again going back up the run; up the run, its speed run out,
-  it turns round and comes down again, so that it passes the yeti again and again. The yeti is kept between the pipe and some fifty
+  (spins and flips can be made up there), and it comes down onto the face again going back up the run, to the yeti; up there
+  you steer and skate as anywhere (only on the pipe's face, its speed run out, are you turned back down it). The yeti is kept between the pipe and some fifty
   metres above where it came, coming after the skier; four boosters, amber crystals over the snow, lie up the run from the pipe's foot,
   each a push of some thirteen metres a second taken by riding through it (and back nine seconds later). Kickers are taken away about
   it while it stands. A yeti beaten does not fall: it goes down on its knees, its name pulsing gold on its bar, and the next blow, of

@@ -1378,8 +1378,9 @@ async function start() {
     const can = mode === 'ride' && !flyingDemo && !carting && !ride.ended && ride.brake < 0.3 && !ride.turn180 && !(ride.down < -2 && Math.cos(ride.way) < 0);
     const boost = can && skateHeld && !rideTrick;
     if (!can || (!boost && ride.speed >= SKATE.until)) ride.skating = false;
-    // (Not of itself going up the snow about an arena: there the skier is to run out of speed and turn, and come back down at the great one.)
-    else if (boost || (ride.speed < SKATE.below && !(against > 0 && inArena()))) ride.skating = true;
+    // (About an arena too, up the snow to the great one, as anywhere (asked: "Arena fights feel bad .. the player character keeps on
+    // turning towards the quarterpipe with little speed"): it had not skated of itself there, so as to run out of speed and be turned.)
+    else if (boost || ride.speed < SKATE.below) ride.skating = true;
     ride.skate += ((ride.skating ? 1 : 0) - ride.skate) * ease(dt, 4);
     const quick = 1 + SKATE_BOOST.quicker * smooth((ride.speed - SKATE.below) / (SKATE_BOOST.full * 1.2));
     if (ride.skate > 0.005) ride.stride = (ride.stride + dt * SKATE.rate * quick) % 1;
@@ -3705,9 +3706,10 @@ async function start() {
     const stones = stonesNow(dt), deep = deepNow(dt) * (1 - Math.min(0.9, g.powder)), lift = carting || ride.ended ? 0 : g.accel * ACCEL_PUSH * Math.max(0, 1 - ride.speed / 25) * (1 - ride.brake);
     const pull = lift + push + shoveNow() + boostNow(dt) + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * (1 - Math.min(0.6, g.stones / 30)) * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - (stopping ? 6 * ride.brake : 0) - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
     ride.speed = Math.max(0, ride.speed + pull * dt);
-    // (About an arena, its speed run out going up the snow (the pipe's face, or the run back up to the great one): turned round where
-    // it stands, to come back down. Elsewhere it stops, as it always did.)
-    if (ride.speed < 0.4 && rise > 0.05 && inArena()) ride.way = wrapAngle(ride.way + Math.PI);
+    // (Its speed run out going up an arena's pipe, turned round where it stands to come back down its face, as a halfpipe's wall turns a
+    // skier. Elsewhere it stops, as it always did; on the snow up to the great one too, which it had turned round on as well, and the
+    // skier, steering up to it, was turned back to the pipe each time it slowed.)
+    if (ride.speed < 0.4 && rise > 0.05 && inArena() && arenaRaise(ride.x, ride.z) > 0.05) ride.way = wrapAngle(ride.way + Math.PI);
     ride.x += go.x * ride.speed * level * dt; ride.z += go.z * ride.speed * level * dt;
     ride.time += dt;
     if (intoTree(go) || intoRock(go)) return stepFallen(dt);
