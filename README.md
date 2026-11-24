@@ -114,7 +114,7 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
 beside it where there is one (Silent Warden, Warden's Spur, Balestead), elsewhere in a knoll raised for it near the edge of the run's
 snow, the piste drawn in beside it so that the knoll and its camp stand off the run. Two torches at its mouth and a camp before it: a fire in a ring of stones smoking, logs to sit on, a rack, wood
 stacked. Ride into the camp and the skier brakes to a stop and takes its skis off, leaving them (and the poles) on the rack; the horse's
-rider gets down and leaves the horse standing by the rack. On foot the view is from above, as a dungeon game's is (Diablo, Minecraft
+rider gets down and leaves the horse standing by the rack. Drive the rocket cart up into the camp and it is left there, put away, and you get off and go on foot as from skis. On foot the view is from above, as a dungeon game's is (Diablo, Minecraft
 Dungeons), and the controls are its own: W A S D (or the arrows) go up, down, left and right across the picture, running (Shift,
 walking); the mouse aims, and a click attacks (with nothing carried, walks to where it is; the right button always walks there, held, after
 the pointer); by touch, the stick goes, and a tap attacks there (or walks there); the wheel, or *Distance*, brings the view nearer or
@@ -134,7 +134,7 @@ bedrolls, buckets, a rack of spears, heaps of gold, cobwebs. Furthest from the g
 at the gate, and each room said as you come into it. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer), and orcs come at you in the dungeon: out of rooms some way off and out of sight, two to four at a time, finding their
 way to you round the walls, through the doorways and up and down the stairs, striking at you as they come up to you (200 points lost,
 and you are thrown back a step); shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
-you ride on down from there.
+you ride on down from there (come in on the cart, too: down, the run carried on as before the cart came).
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
 the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, riding, *Restart run* first, at its

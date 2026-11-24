@@ -5179,6 +5179,23 @@ async function start() {
   /** Into the cave's camp, riding: braked to a stop, and the skis off. Out of it on foot: the skis on again, and away. */
   const stepCamp = () => {
     const cave = caveNow();
+    // (Driving the rocket cart back up the run into the camp: the cart left there, gone, the run the right way about again, and the
+    // skis off, to go on into the cave on foot or to ride on down from there.)
+    if (cave && carting && !foot && mode === 'ride' && !air && !crash && !cat) {
+      const p = toCave(ride);
+      if (cave.inCamp(p.x, p.z)) {
+        const go = along(ride.way, here);
+        unflip();
+        here = land.frame(ride.x, ride.z);
+        ride.down = here.s; ride.left = here.left;
+        ride.way = Math.atan2(go.dot(runLeft(here)), go.dot(runDir(here)));
+        ride.facing = skier.facing * ride.way; ride.ended = false;
+        placeKickers(ride.down);
+        if (!walks() || walkerNow()) skisOff();
+        tell('The camp', 'the cart left behind: on foot into the cave, or out of the camp and on down', false, 3.5);
+      }
+      return;
+    }
     if (!cave || foot || mode !== 'ride' || air || crash || cat || carting || inside || flyingDemo || trip?.started) { stopping = false; return; }
     // (Braking from as far back as it takes to stop in the camp, if the way it goes leads into it: not riding on past beside it.)
     const p = toCave(ride), was = stopping, go = along(ride.way, here), reach = 3 + ride.speed ** 2 / 14;
@@ -6401,11 +6418,13 @@ async function start() {
     cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), knoll: !!c.site.knoll, camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
     // the gate, before the chest, or in room `back` (by its number).)
-    goCave: (where: 'ride' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' = 'camp', back = 50) => {
+    goCave: (where: 'ride' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' = 'camp', back = 50) => {
       const c = caveNow();
       if (!c) return false;
       if (mode !== 'ride') setMode('ride');
       const o = land.group.position;
+      // (`cart`: stopped `back` metres down the run from the camp, its end the rocket cart, to be driven back up into it.)
+      if (where === 'cart') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s + back, f.left); placeKickers(ride.down); Object.assign(ride, { way: 0, speed: 0, ended: true }); ending = 'cart'; return true; }
       if (where === 'ride') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s - back, f.left); placeKickers(ride.down); ride.way = 0; ride.speed = 8; placed = false; return true; }
       const sp = c.spot(where, back);
       if (!foot) { const f = land.frame(sp.x + o.x, sp.z + o.z); putAt(f.s, f.left); ride.speed = 0; skisOff(); }
