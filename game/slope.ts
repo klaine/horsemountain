@@ -384,9 +384,6 @@ async function start() {
     if (asked !== null) { try { localStorage.removeItem(SAFE.key); } catch { /* (not kept) */ } return { level: clamp(Number(asked) || 0, 0, SAFE.most), why: 'asked for in the address' }; }
     try {
       const k = JSON.parse(localStorage.getItem(SAFE.key) ?? 'null');
-      // (Fallen back for WebGPU on an iPhone or an iPad, which now draws by WebGL 2 from the first: forgotten.)
-      const apple = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 0);
-      if (k && apple && !k.gl && !query.has('webgpu')) { localStorage.removeItem(SAFE.key); return { level: 0, why: '' }; }
       if (k && typeof k.level === 'number') return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') };
     } catch { /* (none kept) */ }
     return { level: 0, why: '' };
@@ -398,13 +395,9 @@ async function start() {
   // floating-point number tells apart alike near and far (asked: "i see flickering materials along the edges of the near and far land
   // types"): kept the usual way, from a tenth of a metre out to five kilometres, two surfaces less than half a metre apart a kilometre
   // off could not be told apart, and the land at its three grains, where one lies over another, flickered through each other.)
-  // (On an iPhone or an iPad, by WebGL 2 from the first, whatever the browser, all of which draw there as Safari does (asked, of the
-  // picture gone black on an iPad, riding: "it went black first, then reloaded"): its WebGPU stopped drawing now and then, after a while
-  // riding or the land turned inside out, the page going on under a black picture, and the device never said lost. `?webgpu` asks for
-  // it all the same. An iPad says it is a Mac, but one with a touch screen.)
-  const appleTouch = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 0);
-  const webglFirst = appleTouch && !query.has('webgpu');
-  const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl') || safe.level >= 2 || webglFirst, reversedDepthBuffer: true });
+  // (By WebGPU on an iPhone or an iPad too, as everywhere: drawn there by WebGL 2 for a while, the picture gone black on an iPad was
+  // found to go black by WebGL as well, from a number gone bad, not from WebGPU (`keepSane`).)
+  const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl') || safe.level >= 2, reversedDepthBuffer: true });
   await renderer.init();
   /** When the page was opened, to the moment: what fails while it opens, or in the seconds after, is the device's; later, it is let be. */
   let openedAt = Infinity, fallingBack = false;
@@ -419,7 +412,7 @@ async function start() {
   };
   const fallBack = (why: string, late = false) => {
     if (fallingBack || (!late && performance.now() > openedAt + SAFE.within)) return;
-    const webglAlready = query.has('webgl') || safe.level >= 2 || webglFirst, next = safe.level + 1;
+    const webglAlready = query.has('webgl') || safe.level >= 2, next = safe.level + 1;
     if (late) noteLost(why);
     // (Already as simple as it is drawn: nothing more to fall back on; once open, opened again all the same, rather than left black.)
     if (late && (next > SAFE.most || (next === 2 && webglAlready && snowLook === 'plain'))) { fallingBack = true; loading.fail('The graphics failed: opening again…'); setTimeout(() => location.reload(), 1200); return; }
