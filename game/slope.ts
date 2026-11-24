@@ -1737,7 +1737,7 @@ async function start() {
     const rng = endRng.fork(`trip ${kind} ${ride.time.toFixed(2)}`), flying = ENDINGS.filter(carries);
     const way: Ending = backBy !== 'ask' && backBy !== 'random' && carries(backBy) ? backBy : rng.pick(flying);
     const mine = (trip = { kind, land: null, base: null, from, way, top: new Vector3(), downhill: new Vector3(), started: false, swapped: false, start: new Vector3() });
-    tell(`Off to ${label}`, 'making the mountain ready', false, 2.5);
+    tell(`Off to ${label}`, 'making the mountain ready', false, 60);
     loading.hush(true);
     let base: Land;
     try { base = await landOf(kind); } finally { loading.hush(false); }
@@ -1763,6 +1763,7 @@ async function start() {
     if (!t.started && !cat && !air && !carting && !inside) {
       t.started = true; backOnto = null; ending = t.way;
       if (asking) hideAsk();
+      told.until = 0;
       t.start.copy(focus());
       WAYS[t.way].begin();
       return;
@@ -1793,6 +1794,7 @@ async function start() {
     trip = null;
     t.land?.group.removeFromParent();
     t.from.group.visible = true;
+    if (!t.started) told.until = 0;
   };
   /** Down at the new run's top: it the run ridden now, the old one let go of. */
   const arrive = () => {
@@ -5638,9 +5640,15 @@ async function start() {
     // (Riding a world's run, another of them chosen: ridden off to it, `travelTo`.)
     // (During a run's end, the trip waits for it to be over, and begins from where it set the rider down; not driving the cart back up
     // or riding the land turned inside out, which are rides of their own.)
-    const riding = mode === 'ride' && landKind !== 'groomed' && id !== 'groomed' && id !== landKind && !trip && !carting && !inside;
+    // (And, asked of these: "its not consistent": chosen while the cart was driven back up or the land was turned inside out, or again
+    // while the run first chosen was being made ready, the run had been laid at once, no way there ridden. Now the cart put away, or the
+    // land turned back, the rider on the snow where it is, and ridden off from there; or the run first chosen let be for this one.)
+    const world = mode === 'ride' && landKind !== 'groomed' && id !== 'groomed';
+    if (world && trip && !trip.started) abortTrip();
+    const riding = world && id !== landKind && !trip;
     heldRide = false; playing = true;
     chosen(); setMode('ride');
+    if (riding && (carting || inside)) { const x = ride.x, z = ride.z; unflip(); const f = land.frame(x, z); resumeAt({ s: f.s, left: f.left }); }
     if (riding) void travelTo(id);
     else if (id !== landKind) void setLand(id); else restart();
   };
@@ -5929,6 +5937,7 @@ async function start() {
     ending: (kind?: Ending | null) => { if (kind !== undefined) { endingAsked = kind; if (kind) ending = kind; } return ending; },
     // (The way back as the player has it, or to set it; whether it is being asked, and to answer.)
     backBy: (w?: BackBy) => { if (w) setBackBy(w); return backBy; }, asking: () => asking, takeWay: (w: Dealt | 'random', remember = false) => { rememberWay.checked = remember; takeWay(w); },
+    carting: () => !!carting,
     inside: () => inside && { pivot: +inside.pivot.toFixed(1), reversed: inside.reversed, front: fold && (fold.front === Infinity ? 'all' : +fold.front.toFixed(0)) },
     whirl: () => ({ shown: whirl.group.visible, strength: +whirl.strength.toFixed(2), at: whirl.base.toArray().map((v) => +v.toFixed(1)), height: +whirl.height().toFixed(0) }),
     arm: () => cat && { by: cat.by, t: +cat.t.toFixed(2), at: cat.at.toArray().map(Math.round), eye: camera.position.toArray().map(Math.round), rider: rider.position.toArray().map(Math.round), carry: cat.saucer && { flies: +cat.saucer.flies.toFixed(2), climb: +cat.saucer.climb.toFixed(0), far: +Math.hypot(cat.saucer.over.x - cat.saucer.hover.x, cat.saucer.over.z - cat.saucer.hover.z).toFixed(0) }, held: cat.held, flown: +cat.flown.toFixed(2), free: cat.fly && +cat.fly.free.toFixed(2), total: cat.fly && +cat.fly.total.toFixed(2), open: cat.fly && +cat.fly.open.toFixed(1) },
