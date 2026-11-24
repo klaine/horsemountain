@@ -395,8 +395,8 @@ async function start() {
   await renderer.init();
   /** When the page was opened, to the moment: what fails while it opens, or in the seconds after, is the device's; later, it is let be. */
   let openedAt = Infinity, fallingBack = false;
-  const fallBack = (why: string) => {
-    if (fallingBack || performance.now() > openedAt + SAFE.within) return;
+  const fallBack = (why: string, late = false) => {
+    if (fallingBack || (!late && performance.now() > openedAt + SAFE.within)) return;
     const webglAlready = query.has('webgl') || safe.level >= 2, next = safe.level + 1;
     // (Already as simple as it is drawn: nothing more to fall back on.)
     if (next > SAFE.most || (next === 2 && webglAlready && snowLook === 'plain')) { console.warn(`Grand Horse Mountain could not draw everything here: ${why}`); return; }
@@ -412,7 +412,20 @@ async function start() {
     }, 900);
   };
   const gpu = (renderer.backend as unknown as { device?: EventTarget }).device;
-  gpu?.addEventListener('uncapturederror', (e) => fallBack(String((e as Event & { error?: { message?: string } }).error?.message ?? 'a graphics error').split(/\r?\n/)[0].slice(0, 160)));
+  /**
+   * The graphics' errors: as the page opens, drawn more simply at once (`fallBack`); once open, only if they keep coming, five within
+   * three seconds (asked: "Ipad chrome: screen turned black after upside down world transition"): one failing every frame leaves every
+   * frame black, and the page had gone on drawing nothing with nothing said. One now and then, only told of in the console.
+   */
+  let lateErrors: number[] = [];
+  gpu?.addEventListener('uncapturederror', (e) => {
+    const why = String((e as Event & { error?: { message?: string } }).error?.message ?? 'a graphics error').split(/\r?\n/)[0].slice(0, 160), now = performance.now();
+    if (now <= openedAt + SAFE.within) { fallBack(why); return; }
+    console.warn(`Grand Horse Mountain: a graphics error: ${why}`);
+    lateErrors = lateErrors.filter((t) => now - t < 3000);
+    lateErrors.push(now);
+    if (lateErrors.length >= 5) fallBack(`the graphics kept failing: ${why}`, true);
+  });
   const lost = renderer.onDeviceLost.bind(renderer);
   renderer.onDeviceLost = (info) => {
     lost(info);
@@ -7340,7 +7353,10 @@ async function start() {
         const done = made.then(() => { if (warming === done) warming = null; });
         warming = done;
         const inTime = await Promise.race([made.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), opening ? WARM_WAIT_OPENING : WARM_WAIT))]);
-        if (!inTime) { console.warn('Grand Horse Mountain went on without waiting longer for its shaders'); renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context; }
+        // (Given up on, no longer waited on at all: what was taken out of the scene let go of as ever, and what is wanted made ready next
+        // time. Waited on until it came, which on an iPad it might never, nothing let go of was let go of, and the land turned inside out,
+        // which is the whole land made again, piled up behind it each time.)
+        if (!inTime) { console.warn('Grand Horse Mountain went on without waiting longer for its shaders'); renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context; warming = null; }
       }
       if (!opening) { unwarm(); unwarm = null; }
     }
