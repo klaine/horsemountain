@@ -5312,9 +5312,25 @@ async function start() {
       const met = horde.hit(eye, look, far);
       if (met) far = met.t;
       target = eye.clone().addScaledVector(look, far);
-      // (On foot, at the floor pointed to and no orc: at chest height over it, so that what is fired goes level across the room.)
-      if (foot && !met) target.y = Math.max(target.y, foot.y + 1.1);
-      if (target.distanceTo(muzzle) < 3) target = muzzle.clone().addScaledVector(look, 30);
+      // (Fired the way it is aimed, not at the very point (asked: "make the guns fire to the direction of the aim, not exactly to the
+      // aim. Now when i try to shoot enemies close to me, the player shoots at the ground, not their direction"): a foe pointed at, at
+      // its middle, not where the line from the eye first touched it, its feet as often as not, seen from above; on foot, one standing
+      // within a stride of the floor pointed to as well; and the floor pointed to and none there, at chest height over it, so that what
+      // is fired goes level across the room.)
+      let foe: Vector3 | null = met ? horde.middle(met.orc) : null;
+      if (foot && !foe) {
+        let near = 1.6;
+        for (const p of horde.aims()) { const d = Math.hypot(p.x - target.x, p.z - target.z); if (d < near) { near = d; foe = p; } }
+      }
+      if (foe) target = foe.clone();
+      else if (foot) target.y = Math.max(target.y, foot.y + 1.1);
+      // (Aimed nearer than three metres: on along the same way from the muzzle, thirty metres; it had been on along the line from the eye,
+      // which from behind, from beside or from above looks down at the skier, and fired into the snow, or the floor, at its feet.)
+      if (target.distanceTo(muzzle) < 3) {
+        const way = target.clone().sub(muzzle);
+        if (foot || way.lengthSq() < 0.04) way.y = Math.max(way.y, -0.1 * Math.hypot(way.x, way.z));
+        target = muzzle.clone().addScaledVector(way.lengthSq() > 1e-4 ? way.normalize() : go.clone(), 30);
+      }
       // (By touch, a finger held low on the picture is over snow between the eye and the skier, or under it, which the gun cannot be
       // turned to, and it fired somewhere else altogether: then it fires at the snow some way ahead the way the finger points, as near
       // to it across the run as the arms let the gun turn.)
@@ -5338,6 +5354,8 @@ async function start() {
     const right = new Vector3(-1, 0, 0).applyQuaternion(hq).setY(0).normalize(), ahead = new Vector3(0, 0, 1).applyQuaternion(hq).setY(0).normalize();
     const d = target.sub(muzzle).normalize().applyQuaternion(hq.clone().invert());
     let yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
+    // (On foot the floor is level, and the gun with it: tipped down no more than it takes to reach a foe fallen low, nor up much.)
+    if (foot && arm.firing !== 'swing') pitch = clamp(pitch, -0.3, 0.35);
     // (The sword, ready, held out towards what is aimed at, its point down; swung, at one side and then the other, `Rider.slash`, its
     // sweep drawn behind it as it cuts.)
     if (arm.firing === 'swing') pitch = Math.min(pitch, -0.3);
