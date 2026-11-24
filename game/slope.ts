@@ -102,14 +102,15 @@ const blot = (g: CanvasRenderingContext2D, size: number, colour: string, x: numb
 
 /**
  * The kickers on the ridden slope: the foot of the first so far down it, one every so far after it, each set across the piste at its
- * own place; a ramp so long, rising to a lip so high, curving up as the power of the way along it (steepest at the lip, some twenty
- * degrees over the slope), and behind the lip a steep back down to the snow; so broad across its top, its sides sloping down. On a
+ * own place; a ramp so long, rising to a lip so high, curving up as the power of the way along it (steepest at the lip, some 23
+ * degrees over the slope; asked: "I feel the kickers are a bit limiting somehow the vertical of the jumps": it had been 20, which off
+ * a slope of twenty degrees threw a skier out level, not up), and behind the lip a steep back down to the snow; so broad across its top, its sides sloping down. On a
  * world's run, each is put where the land after it falls away enough to land on, up to `shift` further down than its turn.
  *
  * Each built to its own size (asked: "make so that the jump/kicker sizes can vary! when the landing allows for a larger jump, make the
  * jump larger"): as big as the land after it gives room to land, `kickSize`. `KICK` is a kicker of size 1, the one size they all were.
  */
-const KICK = { first: 70, every: 130, length: 7, height: 1.5, power: 1.7, back: 2.4, half: 2.5, side: 1.2, shift: 60 };
+const KICK = { first: 70, every: 130, length: 7, height: 1.5, power: 2.0, back: 2.4, half: 2.5, side: 1.2, shift: 60 };
 /**
  * The sizes a kicker is built at, the biggest first: from four fifths of `KICK` (a lip a metre high) to nearly twice it (a lip of three
  * and a half metres at the end of a ramp of thirteen). And the speed it is sized for, about what a run is taken at (some 72 km/h); how
@@ -119,7 +120,7 @@ const KICK = { first: 70, every: 130, length: 7, height: 1.5, power: 1.7, back: 
 const KICK_SIZES = [1.8, 1.55, 1.35, 1.15, 1, 0.88, 0.78], KICK_SPEED = 20, KICK_BLOW = 10, KICK_HARD = 11;
 /**
  * A kicker's measures at a size: its ramp and its back as much longer as it is bigger; its lip higher still, so that a bigger kicker
- * throws a little steeper as well as from higher (some 18 degrees over the slope at the least, 25 at the most, against 20 at size 1);
+ * throws a little steeper as well as from higher (some 21 degrees over the slope at the least, 28 at the most, against 23 at size 1);
  * a little broader.
  */
 interface KickDims { size: number; L: number; H: number; B: number; half: number; side: number }
