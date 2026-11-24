@@ -7079,7 +7079,21 @@ async function start() {
     if (overSide) camera.rotateY(-overSide);
     if (overUp) camera.rotateX(overUp);
   };
-  const placeView = (now: Now, dt: number) => {
+  /**
+   * What the views are given, kept sane (asked, of the eye gone to no number riding, "the eye went to no number: begun again (eye bad,
+   * rider ok, view behind, blur 0.5)"): the view's own easing (`across`, `ahead`, `travel`, `eyeOff`, `lookOff`, `isoTurn`) eases on from
+   * itself, and one step given no number had it so for good. So a step's numbers gone bad are taken as the last good ones, said once a
+   * while (`noteProblem`), and the easing gone bad anyway is begun again from behind the skier.
+   */
+  let goodNow: Now | null = null, viewSaidAt = -1e9;
+  const saneNow = (now: Now): Now => {
+    const bad = (['down', 'left', 'way', 'speed'] as const).filter((k) => !Number.isFinite(now[k]));
+    if (!bad.length) { goodNow = now; return now; }
+    if (performance.now() - viewSaidAt > 5000) { viewSaidAt = performance.now(); noteProblem(`the view was given no number (${bad.join(', ')}; ${pictureState()})`); }
+    return { ...now, ...(goodNow ? { down: goodNow.down, left: goodNow.left, way: goodNow.way, speed: goodNow.speed } : { down: 0, left: 0, way: 0, speed: 0 }) };
+  };
+  const placeView = (given: Now, dt: number) => {
+    const now = saneNow(given);
     const at = focus(), f = land.at(now.down, 0);
     across += ((mode === 'ride' ? 1 : 0.35) * now.left - across) * (placed ? ease(dt, 3) : 1);
     const p = land.at(now.down, across), follow = new Vector3(p.x, at.y, p.z), down = runDir(f), aside = runLeft(f);
@@ -7136,6 +7150,16 @@ async function start() {
         camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j));
         camera.rotateZ(Math.sin(w * 53) * 0.02 * bladeJolt);
       }
+    }
+    // (The easing gone to no number all the same, from the snow under the eye, or what it looks at: begun again, behind the skier.)
+    const fine = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    if (view !== 'cinema' && view !== 'free' && (!fine(camera.position) || !fine(eyeOff) || !fine(lookOff) || !fine(ahead) || !fine(travel) || !Number.isFinite(across)) && fine(at)) {
+      const what = [!fine(eyeOff) && 'eyeOff', !fine(lookOff) && 'lookOff', !fine(ahead) && 'ahead', !fine(travel) && 'travel', !Number.isFinite(across) && 'across', !fine(isoTurn) && 'isoTurn'].filter(Boolean).join(', ');
+      if (performance.now() - viewSaidAt > 5000) { viewSaidAt = performance.now(); noteProblem(`the view's easing went to no number (${what || 'the eye'}; ${pictureState()})`); }
+      const d0 = runDir(f).setY(0).normalize();
+      across = Number.isFinite(now.left) ? now.left : 0; ahead.copy(d0); travel.copy(d0); isoTurn.copy(d0);
+      eyeOff.set(0, 3.4, 0).addScaledVector(d0, -9); lookOff.set(0, 0.6, 0).addScaledVector(d0, 6);
+      camera.position.copy(at).add(eyeOff); camera.lookAt(at.clone().add(lookOff));
     }
     if (view !== 'free') keepInPicture(at);
     lastRider.copy(at);
@@ -7862,7 +7886,7 @@ async function start() {
     if (rideOk && ok(rider.position) && ok(camera.position)) return;
     const what = `${rideOk ? '' : 'the ride '}${ok(rider.position) ? '' : 'the rider '}${ok(camera.position) ? '' : 'the eye'}`.trim();
     const bad = ['x', 'y', 'z', 'speed', 'way', 'down', 'left'].filter((k) => !Number.isFinite((ride as unknown as Record<string, number>)[k]));
-    noteProblem(`${what} went to no number${bad.length ? ` (${bad.join(', ')})` : ''}: begun again (${pictureState()})`);
+    noteProblem(`${what} went to no number${bad.length ? ` (${bad.join(', ')})` : ''}: ${!rideOk || !ok(rider.position) ? 'begun again' : 'the eye put back'} (${pictureState()})`);
     if (!insaneSaid) { insaneSaid = true; tell('Something went wrong', `${what} went to no number: set right`, true, 6); }
     if (!rideOk || !ok(rider.position)) { restart(); return; }
     camera.position.copy(rider.position).add(new Vector3(0, 4, -8));
@@ -8154,6 +8178,8 @@ async function start() {
     },
     // (Whether the picture has been seen drawn, and how many times over since it came out black: `probeBlack`.)
     blackProbe: () => ({ seen: probeSeen, black: blackFor }),
+    // (The view's easing sent to no number, as it was seen to go on an iPad, for a script to see it set right: `placeView`.)
+    spoilView: () => { eyeOff.set(NaN, NaN, NaN); },
     // (What it draws by, WebGPU or WebGL 2, and how simply.)
     graphics: () => ({ webgpu, safe: safe.level }),
     pack: () => pack && { items: pack.items.map((i) => ({ name: i.name, slot: i.slot, rarity: i.rarity, mods: i.mods, worn: pack!.worn[i.slot] === i.id })), read: [...pack.read], kit: { ...worn }, carried: carried().name, drops: drops.count },
