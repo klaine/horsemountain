@@ -9,8 +9,13 @@
 import { BufferGeometry, ConeGeometry, CylinderGeometry, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three';
 import type { Rng } from '../src/core/rng';
 
-/** The in-run's measures: how long its steep part is and how steeply it falls; the curve out and the table's own slope and length; how broad its deck is. */
-export const ICE = { inrun: 55, steep: (33 * Math.PI) / 180, curve: 14, table: (10 * Math.PI) / 180, flat: 5, deck: 5.6, web: 2.4, column: 3.4, below: 30 };
+/**
+ * The in-run's measures: how long its steep part is and how steeply it falls; the curve out and the table's own slope (down, more than
+ * nothing) and length; how broad its deck is. (Its table turned up at its lip (asked: "the lip needs to be angled to look like it gives a
+ * higher jump"), the curve longer to come round to it: it had fallen at ten degrees to its lip, as a ski jump's does, and looked to
+ * throw the skier out flat, under the great arch it flies.)
+ */
+export const ICE = { inrun: 55, steep: (33 * Math.PI) / 180, curve: 20, table: (-14 * Math.PI) / 180, flat: 6, deck: 5.6, web: 2.4, column: 3.4, below: 30 };
 
 export class IceJump {
   readonly group = new Group();

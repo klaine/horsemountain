@@ -2181,7 +2181,9 @@ async function start() {
    * gathers speed down the in-run (metres a second, each second); and how high over its foot the tower is built at the least, and
    * clear of the land under the table at the least.
    */
-  const ICE_T = { rises: 3.0, waits: 0.7, pull: 7.5, least: 55, clear: 14 };
+  // (Twice as tall as it need be for its table to stand clear of the land, and a hundred and ten metres at the least (asked: "the ski
+  // jump transition needs to be 2x higher"); rising the longer for it.)
+  const ICE_T = { rises: 4.0, waits: 0.7, pull: 7.5, least: 110, clear: 14, taller: 2 };
   /** The ice jump's tower risen under what it takes, its in-run toward the top of the run, so tall that the table stands clear of the land under it. */
   const beginIce = () => {
     const { on, begun, toTop, side } = takenFor();
@@ -2189,7 +2191,7 @@ async function start() {
     const reach = ICE.inrun * Math.cos(ICE.steep) + ICE.curve + ICE.flat, drop = ICE.inrun * Math.sin(ICE.steep) + ICE.curve * Math.sin((ICE.steep + ICE.table) / 2) + ICE.flat * Math.sin(ICE.table);
     let rises = 0;
     for (let k = 0.2; k <= 1.001; k += 0.2) { const q = on.clone().addScaledVector(toTop, reach * k); rises = Math.max(rises, ground(q.x, q.z) - on.y); }
-    iceJump.build(Math.max(ICE_T.least, rises + drop + ICE_T.clear));
+    iceJump.build(Math.max(ICE_T.least, ICE_T.taller * (rises + drop + ICE_T.clear)));
     iceJump.place(on, toTop, 0);
     const risen = ICE_T.rises, drops = risen + ICE_T.waits, off = drops + Math.sqrt((2 * iceJump.length) / ICE_T.pull);
     cat = { ...begun, by: 'ice', ...NONE, ice: { foot: on.clone(), toward: toTop.clone(), side, risen, drops, off }, takes: 0.15, gather: [0.15, 0.7] };
