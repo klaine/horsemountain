@@ -39,9 +39,9 @@
  * land as it lies. The run's line is only for the edges, the views and where the kickers stand.
  */
 import {
-  ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
+  ACESFilmicToneMapping, AdditiveBlending, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
   Group, HemisphereLight, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
-  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, SRGBColorSpace, Vector2, Vector3,
+  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, Sphere, SRGBColorSpace, Vector2, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
 import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, fract, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
@@ -981,7 +981,7 @@ async function start() {
   // in a tree's or the skier's shadow as in the sun.
   const trackPaint = new MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.9, depthWrite: false });
   const groove = new Color(0x8ea5c2), scraped = new Color(0xd3dde9);
-  const strip = (n: number) => {
+  const strip = (n: number, parent: Object3D = scene) => {
     const g = new BufferGeometry(), index: number[] = [];
     for (let j = 1; j < n; j++) index.push(j * 2 - 2, j * 2 - 1, j * 2, j * 2 - 1, j * 2 + 1, j * 2);
     g.setAttribute('position', new BufferAttribute(new Float32Array(n * 6), 3));
@@ -995,7 +995,7 @@ async function start() {
     mesh.renderOrder = 1;
     // (Not drawn until something of it is laid: a strip of nothing was a draw of nothing each frame, eight of them, and a warning.)
     mesh.visible = false;
-    scene.add(mesh);
+    parent.add(mesh);
     return mesh;
   };
   /** So much of a strip shown, from its start: none of it, and it is not drawn at all. */
@@ -1019,41 +1019,120 @@ async function start() {
   // skier has skis: two, or a horse's four short ones. (Room for four minutes of it.)
   const watchTracks = [0, 1, 2, 3].map(() => strip(3600));
   let watchSkis = 2;
-  // The ridden run's: laid as the skier goes, a step every thirty centimetres; the oldest let go of when the strip is full.
-  const RIDE_STEPS = 2400, rideTracks = [0, 1, 2, 3].map(() => strip(RIDE_STEPS));
-  let rideLaid = 0, rideSkis = 2;
-  const lastLaid = new Vector3();
+  // The ridden runs' tracks, laid as the skier goes, a step every thirty centimetres; and kept run after run on the same slope (asked:
+  // "would it be expensive to keep the laid tracks accumulating run after run while in the same location"), let go of only as the
+  // slope changes (`clearRideTracks`). Laid in chunks of `TRACKS.chunk` steps, a strip a ski each, so that a chunk out of sight is not
+  // drawn; and each step sent to the graphics card alone as it is laid (every strip had been sent whole at each step, some seventy
+  // kilobytes, which run after run would have grown to megabytes a step). Past `TRACKS.runs` runs, or `TRACKS.most` steps a ski, the
+  // oldest chunk let go of; the runs before this one fainter, the older the fainter (`TRACKS.fade`), so that the slope ridden over and
+  // over shows the last run plainest. Not drawn while the demo run is watched, which has its own (`watchTracks`).
+  const TRACKS = { chunk: 600, runs: 5, most: 24000, fade: [0.9, 0.7, 0.55, 0.45, 0.35], gap: 8 };
+  interface TrackChunk { meshes: Mesh[]; laid: number; run: number; box: Box3 }
+  const rideTrackGroup = new Group();
+  rideTrackGroup.name = 'ride tracks';
+  scene.add(rideTrackGroup);
+  const rideChunks: TrackChunk[] = [], chunkPool: Mesh[] = [];
+  const runPaint = TRACKS.fade.map((o) => { const m = trackPaint.clone(); m.opacity = o; return m; });
+  /** Which run is being ridden (counted on the slope), and whether the next step begins the tracks anew where it is: after the air, a fall, a throw. */
+  let rideRun = 0, rideBreak = true;
+  const lastLaid = new Vector3(), corner = new Vector3();
+  const TRACK_ATTRS = ['position', 'color', 'normal'] as const;
+  const chunkMesh = () => {
+    const m = chunkPool.pop() ?? strip(TRACKS.chunk, rideTrackGroup);
+    // (Drawn only when its chunk is in sight: what it covers, kept as it is laid, `showChunk`.)
+    m.frustumCulled = true;
+    m.geometry.boundingSphere ??= new Sphere();
+    showStrip(m, 0);
+    return m;
+  };
+  const dropChunk = (c: TrackChunk) => { for (const m of c.meshes) { showStrip(m, 0); chunkPool.push(m); } };
+  /** Steps `from` to `to` of a chunk sent to the graphics card, and what it covers grown to take them in. */
+  const sendSteps = (c: TrackChunk, from: number, to: number) => {
+    for (const m of c.meshes) {
+      for (const name of TRACK_ATTRS) { const a = m.geometry.getAttribute(name) as BufferAttribute; a.addUpdateRange(from * 6, (to - from) * 6); a.needsUpdate = true; }
+      const p = m.geometry.getAttribute('position') as BufferAttribute;
+      for (let i = from * 2; i < to * 2; i++) c.box.expandByPoint(corner.fromBufferAttribute(p, i));
+    }
+  };
+  const showChunk = (c: TrackChunk) => { for (const m of c.meshes) { c.box.getBoundingSphere(m.geometry.boundingSphere!); showStrip(m, Math.max(0, c.laid - 1) * 6); } };
+  /** The oldest chunks let go of, past so many runs or so many steps. */
+  const trimTracks = () => {
+    let steps = rideChunks.reduce((n, c) => n + c.laid, 0);
+    while (rideChunks.length > 1 && (rideChunks[0].run <= rideRun - TRACKS.runs || steps > TRACKS.most)) { const c = rideChunks.shift()!; steps -= c.laid; dropChunk(c); }
+  };
+  /** A chunk begun, of so many skis' strips: going on from the last step of `from`, or anew. */
+  const newChunk = (skis: number, from: TrackChunk | null) => {
+    const c: TrackChunk = { meshes: Array.from({ length: skis }, chunkMesh), laid: 0, run: rideRun, box: new Box3() };
+    for (const m of c.meshes) m.material = runPaint[0];
+    if (from) {
+      c.meshes.forEach((m, k) => { for (const name of TRACK_ATTRS) (m.geometry.getAttribute(name) as BufferAttribute).set((from.meshes[k].geometry.getAttribute(name) as BufferAttribute).array.subarray((from.laid - 1) * 6, from.laid * 6), 0); });
+      c.laid = 1;
+      sendSteps(c, 0, 1);
+    }
+    rideChunks.push(c);
+    trimTracks();
+    return c;
+  };
+  /** The `j`th step of a strip made as narrow as nothing, where the step before it ended: a break in the strip begins so. */
+  const pinch = (mesh: Mesh, j: number) => {
+    const p = mesh.geometry.getAttribute('position') as BufferAttribute, i = (j - 1) * 2;
+    corner.fromBufferAttribute(p, i).add(new Vector3().fromBufferAttribute(p, i + 1)).multiplyScalar(0.5);
+    p.setXYZ(j * 2, corner.x, corner.y, corner.z); p.setXYZ(j * 2 + 1, corner.x, corner.y, corner.z);
+    for (const name of ['color', 'normal'] as const) { const a = mesh.geometry.getAttribute(name) as BufferAttribute; a.array.copyWithin(j * 6, (j - 1) * 6, j * 6); }
+  };
   const layRide = (now: Now) => {
     const at = skier.skis().map(onSnow);
-    if (rideLaid && at[0].distanceTo(lastLaid) < 0.3) return;
+    let c = rideChunks[rideChunks.length - 1];
+    const fresh = !c || c.run !== rideRun || c.meshes.length !== at.length;
+    if (!fresh && !rideBreak && at[0].distanceTo(lastLaid) < 0.3) return;
+    // (Moved further than a step can go, put down somewhere else: not joined to where it was.)
+    if (!fresh && at[0].distanceTo(lastLaid) > TRACKS.gap) rideBreak = true;
     lastLaid.copy(at[0]);
-    rideSkis = at.length;
-    if (rideLaid === RIDE_STEPS) {
-      for (const m of rideTracks) for (const name of ['position', 'color', 'normal']) { const arr = (m.geometry.getAttribute(name) as BufferAttribute).array as Float32Array; arr.copyWithin(0, (RIDE_STEPS / 2) * 6); }
-      rideLaid = RIDE_STEPS / 2;
+    if (fresh) c = newChunk(at.length, null);
+    else if (c.laid + (rideBreak ? 3 : 1) > TRACKS.chunk) c = newChunk(at.length, rideBreak ? null : c);
+    const from = c.laid;
+    // (A break in the strip, as it goes on: a step of no breadth where it ended, and another here, so that nothing is drawn between them.)
+    if (rideBreak && c.laid) {
+      c.meshes.forEach((m, k) => { pinch(m, c.laid); lay(m, c.laid + 1, at[k], now.way, 0, here, 0); });
+      c.laid += 2;
     }
-    at.forEach((p, k) => lay(rideTracks[k], rideLaid, p, now.way, halfOf(now.skid), here, ride.deep));
-    rideLaid++;
-    rideTracks.forEach((m, k) => { m.geometry.getAttribute('position').needsUpdate = true; m.geometry.getAttribute('color').needsUpdate = true; m.geometry.getAttribute('normal').needsUpdate = true; showStrip(m, k < rideSkis ? Math.max(0, rideLaid - 1) * 6 : 0); });
+    rideBreak = false;
+    at.forEach((p, k) => lay(c.meshes[k], c.laid, p, now.way, halfOf(now.skid), here, ride.deep));
+    c.laid++;
+    sendSteps(c, from, c.laid);
+    showChunk(c);
   };
-  const clearRideTracks = () => { rideLaid = 0; for (const m of rideTracks) showStrip(m, 0); };
+  /** A run begun again on the same slope: its tracks laid anew, the ones before kept, a little fainter, and the oldest let go of. */
+  const newRideRun = () => {
+    rideBreak = true;
+    // (Nothing laid since the last one began: no run to count.)
+    if (rideChunks[rideChunks.length - 1]?.run !== rideRun) return;
+    rideRun++;
+    for (const c of rideChunks) for (const m of c.meshes) m.material = runPaint[Math.min(rideRun - c.run, runPaint.length - 1)];
+    trimTracks();
+  };
+  /** Every ridden track let go of: the slope changed, or turned over. */
+  const clearRideTracks = () => { for (const c of rideChunks.splice(0)) dropChunk(c); rideBreak = true; };
   /**
    * The ridden tracks within `box` (in the scene: x from, to, z from, to) laid down on the snow again: those ridden over an arena's
    * pipe, as it sinks back into the snow, else they were left hanging in the air where it had stood.
    */
   const settleRideTracks = (box: readonly [number, number, number, number]) => {
-    for (const m of rideTracks) {
-      const p = m.geometry.getAttribute('position') as BufferAttribute, n = m.geometry.getAttribute('normal') as BufferAttribute;
+    for (const c of rideChunks) {
+      if (c.box.isEmpty() || c.box.max.x < box[0] || c.box.min.x > box[1] || c.box.max.z < box[2] || c.box.min.z > box[3]) continue;
       let moved = false;
-      for (let i = 0; i < rideLaid * 2; i++) {
-        const x = p.getX(i), z = p.getZ(i);
-        if (x < box[0] || x > box[1] || z < box[2] || z > box[3]) continue;
-        p.setY(i, ground(x, z) + 0.02);
-        const up = normalAt(x, z);
-        n.setXYZ(i, up.x, up.y, up.z);
-        moved = true;
+      for (const m of c.meshes) {
+        const p = m.geometry.getAttribute('position') as BufferAttribute, n = m.geometry.getAttribute('normal') as BufferAttribute;
+        for (let i = 0; i < c.laid * 2; i++) {
+          const x = p.getX(i), z = p.getZ(i);
+          if (x < box[0] || x > box[1] || z < box[2] || z > box[3]) continue;
+          p.setY(i, ground(x, z) + 0.02);
+          const up = normalAt(x, z);
+          n.setXYZ(i, up.x, up.y, up.z);
+          moved = true;
+        }
       }
-      if (moved) p.needsUpdate = n.needsUpdate = true;
+      if (moved) { c.box.makeEmpty(); sendSteps(c, 0, c.laid); showChunk(c); }
     }
   };
 
@@ -1912,7 +1991,7 @@ async function start() {
     resetRide();
     levelTilt();
     endCatapult();
-    clearRideTracks();
+    newRideRun();
     clearSpray();
     clearGun?.();
     pushOff();
@@ -1995,6 +2074,7 @@ async function start() {
       t.from.group.visible = false;
       t.land.group.visible = true;
       land = t.land;
+      clearRideTracks();
       sunFrom.set(...land.sun).normalize();
       sky.intensity = land.sky;
       uFogNear.value = land.fog[0]; uFogFar.value = land.fog[1];
@@ -3148,6 +3228,7 @@ async function start() {
     }
     if (!inside) return;
     land = inside.base; inside = null; fold = null;
+    clearRideTracks();
     folding.show(false); land.group.visible = true;
     dropKickers();
   };
@@ -4448,6 +4529,7 @@ async function start() {
     // (Laid at the middle of the scene again: whatever land was stood elsewhere, ridden off to, taken out of it.)
     land.group.removeFromParent();
     land = next;
+    clearRideTracks();
     landShift = new Vector3(); landTop = topOf.get(next) ?? null;
     showLand();
     // Every run left behind let go of (asked: "can we add new runs without much performance impact"): its land, the demo runs flown on
@@ -4569,7 +4651,7 @@ async function start() {
       Object.assign(ask, { x: 0, y: s.tuck });
       Object.assign(want, { x: 0, y: s.tuck, brake: false, brakeKey: false });
       showWatchTracks(null);
-      clearRideTracks();
+      newRideRun();
       levelTilt();
       playing = true;
       // (On the snow where the demo run had got to; on a kicker's, if one stands there.)
@@ -4580,7 +4662,7 @@ async function start() {
       ride.out = bumpAt(ride.x, ride.z);
       ride.absorb = ride.skid = ride.sink = ride.pop = 0;
       ride.settle = { spin: 0, flip: 0, left: 0 };
-    } else clearRideTracks();
+    } else newRideRun();
     air = null; crash = null; joints = jointsBefore = null;
     told = { text: '', small: '', bad: false, until: 0 };
     mode = m;
@@ -4623,7 +4705,7 @@ async function start() {
     if (mode === 'ride' && (crash || cat)) restart();
     if (air) { air = null; ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); }
     if (mode === 'watch') void useDemo();
-    clearRideTracks();
+    newRideRun();
     clearSpray();
     placed = false;
     reflect();
@@ -6173,7 +6255,7 @@ async function start() {
     under = on;
     for (const c of cave.group.parent?.children ?? []) if (c !== cave.group) c.visible = !on;
     for (const k of kicks) if (k.group) k.group.visible = !on;
-    for (const m of [...rideTracks, ...watchTracks]) m.visible = !on && ((m.geometry.drawRange.count ?? 0) > 0);
+    for (const m of watchTracks) m.visible = !on && ((m.geometry.drawRange.count ?? 0) > 0);
   };
   /** How far into the cave's dark the eye is (0 to 1): the sun and the sky dimmed by as much, and the picture drawn brighter. */
   let caveDark = 0;
@@ -7004,6 +7086,7 @@ async function start() {
       stepOffPiste(playing && !menuOpen ? dt : 0);
       const onSnow = !air && !crash && !cat && !foot;
       if (playing && onSnow) layRide(at);
+      else if (!onSnow) rideBreak = true;
       stepSpray(playing && !menuOpen ? dt : 0, playing && onSnow ? at : null, !!air);
       const doing = doingNow();
       if (doing !== shownPart) { shownPart = doing; $('part').textContent = doing; }
@@ -7019,6 +7102,7 @@ async function start() {
     const where = cat ? cat.at.clone() : focus();
     land.keepAbout(where.x, where.z);
     stepCave(dt, now / 1000);
+    rideTrackGroup.visible = mode === 'ride' && !under;
     gloom(dt);
     land.lod?.(camera.position.x, camera.position.z);
     land.trees?.(camera.position, now / 1000);
@@ -7244,6 +7328,8 @@ async function start() {
     // (With the tommy gun: how many orcs are about, and how many have been brought down.)
     // (The arena laid for a great one, if there is one: where its pipe's foot, lip and end are along the run, its middle and half its
     // breadth across it, how far it has sunk; its pen; how many boosters are still to be taken.)
+    // (The ridden tracks kept: the run being ridden, and of each chunk its run, its steps, and how faint it is drawn.)
+    tracks: () => ({ run: rideRun, pooled: chunkPool.length, chunks: rideChunks.map((c) => ({ run: c.run, laid: c.laid, skis: c.meshes.length, opacity: (c.meshes[0].material as Material).opacity })) }),
     slowmo: (on?: boolean) => { if (on !== undefined) setSlowmo(on); return { on: slowmoOn, scale: timeScale, jump: !!slowJump, was: slowJump?.was ?? null, view }; },
     arena: () => arena && { foot: arena.pipe.foot, lip: arena.pipe.foot + arena.pipe.lip, top: arena.pipe.top, end: arena.pipe.foot + arena.pipe.end, mid: arena.pipe.mid, half: arena.pipe.half, sunk: arena.pipe.sunk, sinking: arena.sinking, pen: horde.pen, penned: horde.penned, boosters: boosters.where().length },
     // (The great one being sent off, if one is: by what, how far through; and `by`, what the next is sent off by.)
