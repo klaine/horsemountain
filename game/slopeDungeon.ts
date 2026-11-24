@@ -22,11 +22,11 @@
  */
 import {
   AdditiveBlending, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DodecahedronGeometry, DoubleSide,
-  Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, PlaneGeometry, PointLight, Quaternion, RepeatWrapping, SphereGeometry, SRGBColorSpace,
-  Texture, Vector3,
+  DataTexture, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, NearestFilter, PlaneGeometry, PointLight, Quaternion, RepeatWrapping, RGBAFormat,
+  SphereGeometry, SRGBColorSpace, Texture, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
-import { attribute, float, lights, mix, positionWorld, select, sin, texture, time, uniform, uv, vec3 } from 'three/tsl';
+import { attribute, float, lights, mix, normalWorld, positionWorld, select, sin, texture, time, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng, valueNoise2 } from '../src/core/rng';
 import { type PropKind, Props, type Stuff } from './slopeProps';
@@ -756,6 +756,19 @@ export class Cave {
   private readonly posts: Post[] = [];
   private readonly flicker = uniform(1);
   /** Seen from above (`overhead`): how high over each stone's own floor it is cut away, and the height over which what stands about is (none, far off). */
+  /**
+   * What of the dungeon has been seen (asked: "can we have darkness/fog of uncovered halls and rooms in the dungeons and a dungeon minimap
+   * and inkmap that updates accordingly?"): each square of its lattice, seen or not, kept as a picture of the lattice for its stone and
+   * all in it to look up (`fog`), unseen not drawn, the dark under the snow showing in its stead; and whether that is so now (only on foot
+   * inside, seen from above: from outside none of it is seen anyway). The scene's frame taken to the cave's own, for the look-up.
+   */
+  private readonly seen: Uint8Array;
+  private readonly fogMap: DataTexture;
+  private readonly fogOn = uniform(0);
+  private readonly toFrame = uniform(new Matrix4());
+  /** When the squares in sight were last looked over, and from which. */
+  private lookedAt = -1;
+  private lookedFrom = '';
   private readonly cutOver = uniform(1e5);
   private readonly cutAt = uniform(1e5);
   /** The dark caps over the cut stone, and the mound and rock face over it all: shown or hidden as it is seen from above. */
@@ -782,6 +795,10 @@ export class Cave {
     const P = paintsOf();
     this.rng = new Rng(`dungeon ${seed}`);
     this.layout = layDungeon(this.rng.fork('layout'), tagsFor(this.rng.fork('tags'), asked));
+    this.seen = new Uint8Array(this.layout.cols * this.layout.rows);
+    this.fogMap = new DataTexture(new Uint8Array(this.layout.cols * this.layout.rows * 4), this.layout.cols, this.layout.rows, RGBAFormat);
+    this.fogMap.magFilter = this.fogMap.minFilter = NearestFilter;
+    this.fogMap.needsUpdate = true;
     this.frame.position.set(site.mouth.x, 0, site.mouth.z);
     this.frame.rotation.y = Math.atan2(site.ax, site.az);
     this.group.add(this.frame);
@@ -806,7 +823,7 @@ export class Cave {
       m.emissiveNode = (texture(paint.map, uv()).rgb as N).mul(attribute('aLight', 'vec3')).mul(this.flicker);
       m.lightsNode = lights([this.lantern, this.fireLight]);
       // (Seen from above, gone over the height it is cut at: its roof and the tops of its walls.)
-      m.opacityNode = select(positionWorld.y.greaterThan((attribute('aFloor', 'float') as N).add(this.cutOver)), float(0), float(1));
+      m.opacityNode = select(positionWorld.y.greaterThan((attribute('aFloor', 'float') as N).add(this.cutOver)), float(0), float(1)).mul(this.fog());
       m.alphaTestNode = float(0.5);
       return m;
     };
@@ -819,6 +836,8 @@ export class Cave {
     // (The caps: the rock's cut face, dark, seen only from above.)
     const capPaint = new MeshBasicNodeMaterial();
     capPaint.colorNode = (texture(P.rock.map, uv()).rgb as N).mul(0.07);
+    capPaint.opacityNode = this.fog();
+    capPaint.alphaTestNode = float(0.5);
     this.capMesh = new Mesh(this.caps.geometry(false), capPaint);
     this.capMesh.visible = false;
     this.inner.add(this.capMesh);
@@ -899,6 +918,8 @@ export class Cave {
     const c = Math.floor(lat / CAVE.cell + this.layout.cols / 2), r = Math.floor((t - this.site.length) / CAVE.cell);
     return c < 0 || r < 0 || c >= this.layout.cols || r >= this.layout.rows ? null : [c, r];
   }
+  /** Whether a point of the cave's own frame has been seen (or is short of the lattice, in the tunnel). */
+  private seenAt(lat: number, t: number): boolean { const k = this.cellAt(lat, t); return t < this.site.length || (!!k && this.seen[k[1] * this.layout.cols + k[0]] > 0); }
   private openAt(lat: number, t: number) { const k = this.cellAt(lat, t); return !!k && this.open(k[0], k[1]); }
   /** Open, in the dungeon, or through the gate's doorway into the tunnel's end. */
   private passAt(lat: number, t: number) { return t > this.site.length ? this.openAt(lat, t) : t > this.site.length - 2 && Math.abs(lat) < CAVE.cell / 2; }
@@ -1670,8 +1691,74 @@ export class Cave {
   }
   /** What stands about cut away, seen from above, over the height of the floor the one on foot is on (`overhead`). */
   private cutAway(m: MeshStandardNodeMaterial) {
-    m.opacityNode = select(positionWorld.y.greaterThan(this.cutAt), float(0), float(1));
+    m.opacityNode = select(positionWorld.y.greaterThan(this.cutAt), float(0), float(1)).mul(this.fog());
     m.alphaTestNode = float(0.5);
+  }
+  /**
+   * Whether a point drawn is in a square seen (1) or not (0), while the fog is on: the point taken a hand along its surface's normal,
+   * so that a wall, which stands on the line between two squares, is the open square's it faces, and the top of a wall the rock's beside
+   * it (which is seen as the open squares beside it are). The tunnel and the camp, short of the lattice, always seen.
+   */
+  private fog(): N {
+    const L = this.layout, p = (this.toFrame as N).mul(vec4((positionWorld as N).add((normalWorld as N).mul(0.35)), 1)).xyz;
+    const c = p.x.div(CAVE.cell).add(L.cols / 2).floor(), r = p.z.sub(this.site.length).div(CAVE.cell).floor();
+    const seen = (texture(this.fogMap, vec2(c.add(0.5).div(L.cols), r.add(0.5).div(L.rows))) as N).r;
+    return select(r.lessThan(0), float(1), mix(float(1), seen, this.fogOn));
+  }
+  /** A square seen, and the rock about it with it (its walls' tops, its caps), the picture of what is seen made again. */
+  private see(c: number, r: number): boolean {
+    const L = this.layout;
+    let more = false;
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      const cc = c + dc, rr = r + dr;
+      if (cc < 0 || rr < 0 || cc >= L.cols || rr >= L.rows) continue;
+      const k = rr * L.cols + cc;
+      if (this.seen[k] || ((dc || dr) && L.cells[k] > 0)) continue;
+      this.seen[k] = 1; more = true;
+      (this.fogMap.image.data as Uint8Array).set([255, 255, 255, 255], k * 4);
+    }
+    return more;
+  }
+  /**
+   * What the one on foot at `at` (in the land) sees of the lattice, seen from now on: every open square within eighteen metres that a line
+   * from it reaches across the plan (`sees`), and the one it stands in. Looked over a few times a second, and only as it moves.
+   */
+  private lookAbout(at: Vector3, seconds: number): void {
+    const [lat, , t] = this.localOf(at), here = this.cellAt(lat, t), key = here ? `${here[0]},${here[1]},${Math.round(lat)},${Math.round(t)}` : '';
+    if (!here || (key === this.lookedFrom && seconds - this.lookedAt < 1)) return;
+    if (seconds - this.lookedAt < 0.15) return;
+    this.lookedAt = seconds; this.lookedFrom = key;
+    const L = this.layout, from = new Vector3(lat, 0, t), R = 6;
+    let more = this.see(here[0], here[1]);
+    for (let r = here[1] - R; r <= here[1] + R; r++) for (let c = here[0] - R; c <= here[0] + R; c++) {
+      if (!this.open(c, r) || this.seen[r * L.cols + c]) continue;
+      const to = new Vector3(this.latOf(c), 0, this.tOf(r));
+      if (Math.hypot(to.x - lat, to.z - t) > 18) continue;
+      // (Any of its middle and its corners in sight: a doorway seen through shows the near side of the room beyond.)
+      const h = CAVE.cell * 0.42;
+      if ([[0, 0], [-h, -h], [h, -h], [-h, h], [h, h]].some(([dx, dz]) => this.sees(from, to.clone().add(new Vector3(dx, 0, dz))))) more = this.see(c, r) || more;
+    }
+    if (more) this.fogMap.needsUpdate = true;
+  }
+  /** Whether a point of the land in the dungeon is in sight of the one on foot at `from` now: near enough, and nothing solid between. */
+  inSight(from: Vector3, p: Vector3): boolean {
+    const [la, , ta] = this.localOf(from), [lb, , tb] = this.localOf(p);
+    return Math.hypot(lb - la, tb - ta) < 22 && this.sees(new Vector3(la, 0, ta), new Vector3(lb, 0, tb));
+  }
+  /**
+   * The dungeon's plan as it has been seen, for a map: its lattice's size, what each square is (0 rock, 1 hall, 2 room, 3 stair), which
+   * room, and whether seen; its rooms (kind and what is said of each); the square a point of the land is in, and where in it; and the way
+   * the lattice lies in the land (radians, from the land's +z to the cave's way in).
+   */
+  plan(): { cols: number; rows: number; kind: Uint8Array; room: Int16Array; seen: Uint8Array; rooms: { kind: string; note: string }[]; name: string; turn: number } {
+    const L = this.layout, kind = new Uint8Array(L.cols * L.rows);
+    for (let k = 0; k < kind.length; k++) kind[k] = L.cells[k] === 1 && L.down[k] >= 0 ? 3 : L.cells[k];
+    return { cols: L.cols, rows: L.rows, kind, room: L.roomAt, seen: this.seen, rooms: L.rooms.map((r) => ({ kind: r.kind, note: r.note })), name: L.name, turn: Math.atan2(this.site.ax, this.site.az) };
+  }
+  /** Where a point of the land lies on the plan: in squares, across (`c`) and in (`r`), as fractions; none outside the lattice. */
+  onPlan(x: number, z: number): { c: number; r: number } | null {
+    const [lat, , t] = this.localOf({ x, z }), c = lat / CAVE.cell + this.layout.cols / 2, r = (t - this.site.length) / CAVE.cell;
+    return r < 0 || c < 0 || c >= this.layout.cols || r >= this.layout.rows ? null : { c, r };
   }
   /**
    * Seen from above on foot (asked: "Lets have the view top down / isometric like minecraft dungeons or diablo 4 etc. ... adapting the
@@ -1725,6 +1812,11 @@ export class Cave {
     this.flicker.value = flick(0);
     const [lat, , t] = this.localOf(eye), far = Math.hypot(lat, t);
     this.inner.visible = far < 90 || this.inside(eye.x, eye.z) || this.seenFromAbove;
+    // (The fog over what has not been seen, only on foot inside, seen from above; what is in sight of the one on foot seen.)
+    this.inner.updateMatrixWorld();
+    (this.toFrame.value as Matrix4).copy(this.inner.matrixWorld).invert();
+    this.fogOn.value = this.seenFromAbove && player ? 1 : 0;
+    if (player && this.inside(player.x, player.z)) this.lookAbout(player, seconds);
     this.plug.visible = far > 118;
     // (Each flame turned about the upright to face the eye, tall and narrow, flickering.)
     const local = new Vector3(lat, eye.y, t), q = new Quaternion(), s = new Vector3(), p = new Vector3();
@@ -1733,7 +1825,9 @@ export class Cave {
       this.torches.forEach((torch, i) => {
         const f = flick(i + 1);
         const k = torch.kind === 'candle' ? 0.22 : torch.kind === 'brazier' ? 1.5 : 1;
-        this.flames.setMatrixAt(i, this.m4.compose(p.copy(torch.at).addScaledVector(UP, -0.1 * k), face(torch.at), s.set(0.26 * (2 - f) * k, 0.5 * f * k, 1)));
+        // (Not where it has not been seen, under the fog: a flame there would have shone out of the dark.)
+        const hid = this.fogOn.value > 0 && !this.seenAt(torch.at.x + torch.facing.x * 0.5, torch.at.z + torch.facing.z * 0.5);
+        this.flames.setMatrixAt(i, this.m4.compose(p.copy(torch.at).addScaledVector(UP, -0.1 * k), face(torch.at), hid ? s.set(0, 0, 0) : s.set(0.26 * (2 - f) * k, 0.5 * f * k, 1)));
       });
       this.flames.count = this.torches.length;
       this.flames.instanceMatrix.needsUpdate = true;

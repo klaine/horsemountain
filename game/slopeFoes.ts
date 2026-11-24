@@ -27,13 +27,15 @@ export interface Gait {
   flinch(): void;
   /** Brought down. */
   fall(): void;
+  /** Brought to its knees, beaten, waiting for the last blow (`FoeKind.kneels`). */
+  kneel?(): void;
   stop(): void;
   update(dt: number): void;
 }
 /** How a body of a kind is made, its size given, and which of its coats (where it has more than one, by a number from 0 to 1). */
 export type Maker = (size: number, coat: number) => Gait;
 
-export type FoeName = 'orc' | 'goblin' | 'wolf' | 'draugr' | 'yeti';
+export type FoeName = 'orc' | 'goblin' | 'wolf' | 'draugr' | 'yeti' | 'barrow-king';
 export interface FoeKind {
   name: FoeName;
   /** How large, against the skier; how fast it comes up the run (metres a second); how many come together. */
@@ -57,6 +59,14 @@ export interface FoeKind {
    * comes to it (`Horde.bosses`).
    */
   titles?: string[];
+  /**
+   * In the cave's dungeon (`Horde.within`), if it comes there: how fast it comes at the one on foot (metres a second), how many come
+   * together, how often a pack is of this kind (against the others; a great one, how likely it is to come alone in a pack's stead), and
+   * how hard it strikes (an orc's, 1).
+   */
+  den?: { pace: [number, number]; pack: [number, number]; chance: number; blow: number };
+  /** Beaten, it goes down on its knees rather than falling, and the next blow sends it off far away (`Horde.strike`, `slope.ts`). */
+  kneels?: boolean;
 }
 
 /** A standing body's balls: its trunk and its head. */
@@ -66,11 +76,13 @@ export const FOES: FoeKind[] = [
     name: 'orc', size: [1.05, 1.2], pace: [0.9, 1.4], pack: [4, 9], hp: 1, worth: 1, chance: 5, from: 0, share: 0.35, spread: 9, hunt: 1,
     mid: 0.6, balls: [[0, 0.6, 0.42], [0, 1.1, 0.26]], bloody: true, lies: 3.6,
     body: (library) => rigged(library, orcBody, { walk: 'Crouch_Fwd_Loop', die: 'Death01' }),
+    den: { pace: [1.3, 1.9], pack: [2, 4], chance: 3, blow: 1 },
   },
   {
     name: 'goblin', size: [0.66, 0.78], pace: [2.6, 3.6], pack: [5, 10], hp: 1, worth: 1, chance: 3, from: 0, share: 0.4, spread: 10, hunt: 1.3,
     mid: 1.0, balls: UPRIGHT, bloody: true, lies: 3.6,
     body: (library) => rigged(library, goblinBody, { walk: 'Jog_Fwd_Loop', die: 'Death01', speed: 5.2 }),
+    den: { pace: [2.3, 3.0], pack: [3, 5], chance: 2, blow: 0.6 },
   },
   {
     name: 'wolf', size: [0.95, 1.15], pace: [4.2, 5.6], pack: [3, 6], hp: 1, worth: 1.5, chance: 2.5, from: 0.04, share: 0.3, spread: 7, hunt: 2.6,
@@ -81,22 +93,33 @@ export const FOES: FoeKind[] = [
     name: 'draugr', size: [1.0, 1.12], pace: [0.55, 0.8], pack: [3, 7], hp: 2, worth: 1.5, chance: 2, from: 0.1, share: 0.3, spread: 8, hunt: 0.5,
     mid: 1.0, balls: UPRIGHT, bloody: false, lies: 3.6,
     body: (library) => rigged(library, draugrBody, { walk: 'Zombie_Walk_Fwd_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }),
+    den: { pace: [0.9, 1.25], pack: [2, 4], chance: 2, blow: 1.4 },
   },
   {
     name: 'yeti', size: [1.9, 2.25], pace: [1.4, 1.9], pack: [1, 2], hp: 8, worth: 5, chance: 1, from: 0.18, share: 0.1, spread: 6, hunt: 0.8,
     mid: 1.0, balls: [[0, 0.95, 0.48], [0, 1.55, 0.3]], bloody: true, lies: 5,
-    body: (library) => rigged(library, yetiBody, { walk: 'Walk_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }, 1.14),
+    body: (library) => rigged(library, yetiBody, { walk: 'Walk_Loop', die: 'Death01', hit: 'Hit_Chest', kneel: 'Fixing_Kneeling', speed: 1.0 }, 1.14),
+    kneels: true,
     titles: [
       'Skarn, Who Walks the Cornice', 'The Old Man of the Drifts', 'Hrimmal, the White Hunger', 'Mother of Whiteouts',
       'Ymmar, Frost Under the Pass', 'Grey Maw of the Upper Snows', 'Ulvgard the Avalanche-Born', 'The Hermit of the Col',
     ],
+  },
+  {
+    // (Only in the dungeon (asked: "maybe the dungeons can have other than orcs as well now. Possible single stronger opponent some times
+    // also"): a great one of the dead, half as tall again as a man, crowned, alone; never on the snow, `from` past the run's foot.)
+    name: 'barrow-king', size: [1.5, 1.6], pace: [1, 1.2], pack: [1, 1], hp: 14, worth: 6, chance: 0, from: 2, share: 0.04, spread: 0, hunt: 0,
+    mid: 1.0, balls: [[0, 0.98, 0.45], [0, 1.58, 0.27]], bloody: false, lies: 5,
+    body: (library) => rigged(library, kingBody, { walk: 'Zombie_Walk_Fwd_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }),
+    titles: ['Sverre, the Barrow-King', 'Old Hrodna of the Mound', 'The Crowned Dead', 'Haldor Ice-Beard', 'Gunnvor, Who Keeps the Tomb', 'The Jarl Under the Snow'],
+    den: { pace: [1.0, 1.25], pack: [1, 1], chance: 0.2, blow: 2.6 },
   },
 ];
 
 // ------------------------------------------------------------------------------------------------ the figures' bodies made over
 
 /** Which clips a figure plays, coming, falling and struck; and how fast its coming clip carries a body of size one, if that is known. */
-interface Clips { walk: string; die: string; hit?: string; speed?: number }
+interface Clips { walk: string; die: string; hit?: string; kneel?: string; speed?: number }
 
 /** A figure's body, made once, and a maker of copies of it, `broad` times broader than it is tall (a yeti is bulky). */
 async function rigged(library: FigureLibrary, make: (bare: Object3D) => Object3D, clips: Clips, broad = 1): Promise<Maker> {
@@ -115,6 +138,7 @@ class Figure implements Gait {
   private readonly walk: AnimationAction;
   private readonly die: AnimationAction;
   private readonly hit: AnimationAction | null;
+  private readonly down: AnimationAction | null;
   private scale = 1;
   private reeling = 0;
   constructor(readonly model: Object3D, readonly meshes: Mesh[], moves: Map<string, { clip: AnimationClip }>, private readonly clips: Clips, private readonly size: number) {
@@ -125,12 +149,19 @@ class Figure implements Gait {
     this.die.clampWhenFinished = true;
     this.hit = clips.hit ? this.mixer.clipAction(moves.get(clips.hit)!.clip) : null;
     if (this.hit) { this.hit.setLoop(LoopOnce, 1); this.hit.clampWhenFinished = true; }
+    this.down = clips.kneel && moves.get(clips.kneel) ? this.mixer.clipAction(moves.get(clips.kneel)!.clip) : null;
+  }
+  kneel() {
+    if (!this.down) return;
+    this.reeling = 0;
+    this.down.reset().setEffectiveTimeScale(0.8).setEffectiveWeight(1).play();
+    for (const a of [this.walk, this.hit]) if (a?.isRunning()) a.crossFadeTo(this.down, 0.3, false);
   }
   go(pace: number, phase: number) {
     // (Its stride played as fast as it goes, where how far one carries it is known, that its feet do not slide over the snow.)
     this.scale = this.clips.speed ? pace / (this.clips.speed * this.size) : pace;
     this.reeling = 0;
-    this.hit?.stop(); this.die.stop();
+    this.hit?.stop(); this.die.stop(); this.down?.stop();
     this.walk.reset().setEffectiveTimeScale(this.scale).setEffectiveWeight(1).play();
     this.walk.time = phase * this.walk.getClip().duration;
   }
@@ -142,12 +173,12 @@ class Figure implements Gait {
     this.reeling = (this.hit.getClip().duration / 1.5) * 0.55;
   }
   fall() {
-    const from = this.reeling > 0 && this.hit ? this.hit : this.walk;
+    const from = this.down?.isRunning() ? this.down : this.reeling > 0 && this.hit ? this.hit : this.walk;
     this.reeling = 0;
     this.die.reset().setEffectiveTimeScale(1.2).setEffectiveWeight(1).play();
     from.crossFadeTo(this.die, 0.12, false);
   }
-  stop() { this.walk.stop(); this.die.stop(); this.hit?.stop(); this.reeling = 0; }
+  stop() { this.walk.stop(); this.die.stop(); this.hit?.stop(); this.down?.stop(); this.reeling = 0; }
   update(dt: number) {
     if (this.reeling > 0 && (this.reeling -= dt) <= 0 && this.hit) {
       // (Faded out as it reeled, its coming clip is taken up again where it was left.)
@@ -213,6 +244,26 @@ function draugrBody(bare: Object3D): Object3D {
   for (const [x, h] of [[-0.03, 0.05], [-0.012, 0.075], [0.008, 0.06], [0.026, 0.045]] as const) pieces.push([icicle(0.008, h), turned(x, -0.06, 0.07, 0, 0)]);
   for (const [x, h] of [[-0.045, 0.03], [0.04, 0.035]] as const) pieces.push([icicle(0.006, h), turned(x, 0.075, 0.09, 0, 0)]);
   hang(body, pieces, ICE);
+  return body;
+}
+
+/** The barrow-king's grave-clothes: a king's, gone dark, a cloak the blue of deep ice, its iron gilt. */
+const KING: Look = { tunic: 0x3d4652, trousers: 0x2c3138, boots: 0x1d1f22, leather: 0x4a3a2a, cloak: 0x2e5a7a, metal: 0xc9a24a, grip: 0x2a2018 };
+const GILT = new MeshStandardMaterial({ color: 0xd4a83c, roughness: 0.3, metalness: 0.85 });
+/** The barrow-king: a draugr dressed as a king of old, an iron crown gilt and spiked about its brow, icicles in its beard. */
+function kingBody(bare: Object3D): Object3D {
+  const body = dressAdventurer(bare, KING, { sword: 'back' });
+  tint(body, { SuperHero_Male: 0xc8e4f2, Eyebrows: 0xeef6fa }, { Eyes: 0x9ff0ff });
+  const pieces: [BufferGeometry, Matrix4, MeshStandardMaterial?][] = [];
+  // (The crown: a band about the head, as broad as the hood, and a spike standing up from it every so far round.)
+  pieces.push([new CylinderGeometry(0.118, 0.112, 0.045, 20, 1, true), turned(0, 0.13, -0.01, 0, 0)]);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2, spike = new ConeGeometry(0.016, i % 2 ? 0.06 : 0.09, 5).translate(0, i % 2 ? 0.03 : 0.045, 0);
+    pieces.push([spike, turned(Math.sin(a) * 0.115, 0.15, Math.cos(a) * 0.115 - 0.01, 0, 0)]);
+  }
+  const icicle = (r: number, h: number) => new ConeGeometry(r, h, 5).translate(0, -h / 2, 0).rotateX(Math.PI);
+  for (const [x, h] of [[-0.034, 0.08], [-0.014, 0.11], [0.008, 0.09], [0.028, 0.07]] as const) pieces.push([icicle(0.01, h), turned(x, -0.06, 0.07, 0, 0), ICE]);
+  hang(body, pieces, GILT);
   return body;
 }
 

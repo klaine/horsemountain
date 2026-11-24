@@ -2611,7 +2611,7 @@ async function start() {
     eye.lerp(watching, atTop);
     target.lerp(mid.clone().addScaledVector(UP, 1.5), atTop);
     const end = smooth((c.t - (p.down - 1.2)) / 1.4), own = end > 0 ? viewAtTop(c) : null;
-    if (own) { eye.lerp(own.eye, end); target.lerp(own.look, end); if (view === 'above') camera.up.lerp(c.downhill, end).normalize(); }
+    if (own) { eye.lerp(own.eye, end); target.lerp(own.look, end); }
     e.at.copy(eye);
     if (!e.started) e.rel.copy(e.look).sub(mid);
     e.rel.lerp(target.sub(mid), ease(dt, 4) * turnIn(c));
@@ -4172,11 +4172,11 @@ async function start() {
 
   // ---------------------------------------------------------------- what is shown, and how it is moved about in
   type Mode = 'watch' | 'ride';
-  type View = 'cinema' | 'behind' | 'beside' | 'above' | 'free';
+  type View = 'cinema' | 'behind' | 'beside' | 'iso' | 'free';
   let mode = 'watch' as Mode;
   let t = 0, playing = true, rate = 1, view = 'cinema' as View, scrubbing = false;
   const rates: [string, number][] = [['¼×', 0.25], ['½×', 0.5], ['1×', 1]];
-  const views: [string, View, string][] = [['Cinema', 'cinema', 'C'], ['Behind', 'behind', 'B'], ['Beside', 'beside', 'S'], ['Above', 'above', 'A'], ['Free', 'free', 'F']];
+  const views: [string, View, string][] = [['Cinema', 'cinema', 'C'], ['Behind', 'behind', 'B'], ['Beside', 'beside', 'S'], ['Iso', 'iso', 'A'], ['Free', 'free', 'F']];
   const modes: [string, Mode, string][] = [['Watch demo', 'watch', 'Watch the demo run, a trick off every kicker (R)'], ['Ride', 'ride', 'Ride it yourself: you steer, and each kicker gives you a trick (R)']];
   /** A button in the menu, in the bar or the cards of `parent`; a card says what it is under its name (`detail`). */
   const button = (parent: string, label: string, onclick: () => void, title?: string, detail?: string) => {
@@ -4227,6 +4227,14 @@ async function start() {
    */
   const stepMini = (where: Vector3, at: Now) => {
     const show = miniOn && landKind !== 'groomed';
+    // (On foot in the dungeon, its plan as seen so far in the run's stead.)
+    const cave = caveNow(), o = land.group.position, onPlan = show && foot && cave && mode === 'ride' ? cave.onPlan(foot.x - o.x, foot.z - o.z) : null;
+    if (onPlan && cave && foot && mini.has) {
+      if (miniEl.hidden) miniEl.hidden = false;
+      const p = cave.plan();
+      mini.plan(p, onPlan, foot.heading, isoYaw(), p.seen.reduce((n, v) => n + v, 0));
+      return;
+    }
     if (show && !carting && !inside) {
       const tall = innerHeight <= 500 && innerWidth > innerHeight ? 84 : 140;
       if (mini.of !== land || tall !== miniTall) {
@@ -4630,9 +4638,11 @@ async function start() {
     // (Asked the way back, by its number: 1 to 9, and 0 for the tenth.)
     const nth = e.key === '0' ? 9 : /^[1-9]$/.test(e.key) ? +e.key - 1 : -1;
     if (asking && nth >= 0 && nth < wayButtons.length && !wayButtons[nth].hidden) { takeWay(WAY_NAMES[nth][0]); e.preventDefault(); return; }
+    // (A view's key only as it is pressed, not as it repeats held: walking out of the camp with A or S held, the skis on and the keys no
+    // longer the walker's, their repeats chose the view from above, or beside, as it rode on.)
     const k = e.key.toLowerCase(), v = views.find((x) => x[2].toLowerCase() === k);
     if (e.target instanceof HTMLInputElement) return;
-    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v) setView(v[1]);
+    if (k === ' ') { playing = !playing; reflect(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v && !e.repeat) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
   window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (WASD[e.code]) want.keys[WASD[e.code]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
@@ -5070,7 +5080,7 @@ async function start() {
    * across the picture (*Felled*, and its name), and the bar gone; gone by, or no longer carried, the bar fades away.
    */
   const bossesEl = $('bosses'), felledEl = $('felled');
-  const bossShown = new Map<string, { el: HTMLElement; bar: HTMLElement; hp: number; felled: boolean }>();
+  const bossShown = new Map<string, { el: HTMLElement; bar: HTMLElement; hp: number; felled: boolean; knelt: boolean }>();
   const showBosses = (list: Boss[]) => {
     const now = new Set(list.map((b) => b.id));
     for (const b of list) {
@@ -5082,7 +5092,7 @@ async function start() {
         bar.setAttribute('role', 'meter'); bar.setAttribute('aria-label', b.title); bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', String(b.most));
         el.append(name, bar);
         bossesEl.appendChild(el);
-        e = { el, bar, hp: -1, felled: false };
+        e = { el, bar, hp: -1, felled: false, knelt: false };
         bossShown.set(b.id, e);
       }
       if (b.hp !== e.hp) {
@@ -5091,6 +5101,12 @@ async function start() {
         e.bar.style.setProperty('--hp', String(b.hp / b.most));
         e.bar.style.setProperty('--was', String(b.hp / b.most));
         e.bar.setAttribute('aria-valuenow', String(Math.ceil(b.hp)));
+      }
+      // (Beaten, on its knees: said, and its name pulsing, waiting for the last blow.)
+      if (b.kneeling && !e.knelt) {
+        e.knelt = true;
+        e.el.classList.add('kneeling');
+        tell(`${b.title.split(',')[0]} is beaten`, 'strike once more to send it off', false, 2.8);
       }
       if (b.down && !e.felled) {
         e.felled = true;
@@ -5177,9 +5193,194 @@ async function start() {
       addScore(50);
     }
   };
+  /**
+   * A great one beaten and struck once more (asked: "when health reaches zero, the boss goes down to kneeled position and after next
+   * hit a random transition (not the invert world or rocket sled or any other possible that requires active steering) activates and
+   * launches the boss into faraway lands (and it disappears and the battle is considered won)"): sent off by one of the run's ends that
+   * wants no steering, drawn by chance: the robot arm up out of the snow beside it, which takes it in its claw and throws it; a
+   * whirlwind, which comes over and carries it round and up; a blast under the snow at its side; the saucer, which draws it up in its
+   * beam and flies off with it; the snowman, which drives it off with its fir; or the plane, which snatches it on its hook and climbs
+   * away with it. Thrown, it goes on up and away over the far valleys, tumbling, dwindling, gone with a glint; and the fight is won
+   * (`horde.release`: its bar *Felled*, the arena sinking). (A second beaten while the first is being sent off, or while the run's own
+   * end is at its work, which has the same pieces: knocked straight off by the blow itself, in a burst of snow, `plain`.)
+   */
+  type LaunchBy = 'arm' | 'whirl' | 'blast' | 'saucer' | 'snowman' | 'plane' | 'plain';
+  const LAUNCHES: LaunchBy[] = ['arm', 'whirl', 'blast', 'saucer', 'snowman', 'plane'];
+  /** Thrown: how fast it goes off (along `away`, and up), how little it falls, how long until it is gone. */
+  const FLUNG = { on: 80, up: 42, fall: 5, gone: 3.6 };
+  const launchRng = new Rng('launch');
+  interface Launch {
+    by: LaunchBy; t: number; model: Object3D; at: Vector3; mid: number; away: Vector3; side: Vector3;
+    /** When it was thrown, from where, how fast; how far it has tumbled. */
+    thrown: number; from: Vector3; fly: Vector3; tumble: number; gone: boolean;
+    /** Each piece's own: where the arm stands and how it reaches; where the whirlwind came from; where the blast is; the saucer's way; the snowman's swing; the plane's hook. */
+    base?: Vector3; grip?: Vector3; yaw?: { take: number; throw: number }; over?: { upper: number; fore: number }; on?: { upper: number; fore: number };
+    a0?: number; r0?: number; spot?: Vector3; hover?: Vector3; sky?: Vector3; ship?: Vector3;
+    sm?: { base: Vector3; grip: Vector3; length: number; u: Vector3; v: Vector3; meets: number; turn: number }; hook0?: Vector3;
+  }
+  const launches: Launch[] = [];
+  /** The next launch's piece, if a script has chosen it (`__slope.launch`). */
+  let launchNext: LaunchBy | null = null;
+  /** Where the body is put, its middle at `middle`, turned by `q` (else upright, facing the way it goes off, tumbling over). */
+  const putFlung = (l: Launch, middle: Vector3, q?: Quaternion) => {
+    const turn = q ?? uprightTo(l.away).premultiply(new Quaternion().setFromAxisAngle(l.side, l.tumble));
+    l.model.quaternion.copy(turn);
+    l.model.position.copy(middle).addScaledVector(UP.clone().applyQuaternion(turn), -l.mid);
+  };
+  /** Thrown from `from` going `fly`: from now on it goes off by itself. */
+  const throwOff = (l: Launch, from: Vector3, fly: Vector3) => { l.thrown = l.t; l.from.copy(from); l.fly.copy(fly); };
+  const startLaunch = (model: Object3D, at: Vector3, size: number) => {
+    const mid = 1.0 * size, fromSkier = at.clone().sub(rider.position).setY(0);
+    const f = land.frame(at.x, at.z, ride.down), toTop = runDir(f).negate();
+    // (Away from the skier and on up the run, over the far side of the valley.)
+    const away = (fromSkier.lengthSq() > 1 ? fromSkier.normalize() : toTop.clone()).add(toTop).setY(0).normalize(), side = UP.clone().cross(away).normalize();
+    const busy = !!cat || launches.some((x) => x.by !== 'plain');
+    const l: Launch = { by: busy ? 'plain' : launchNext ?? launchRng.pick(LAUNCHES), t: 0, model, at: at.clone(), mid, away, side, thrown: -1, from: new Vector3(), fly: new Vector3(), tumble: 0, gone: false };
+    launches.push(l);
+    if (l.by !== 'plain') launchNext = null;
+    tell('Sent flying', 'into the far lands', false, 2.4);
+    const rng = launchRng.fork(`${l.by} ${ride.time.toFixed(2)}`), middle = at.clone().addScaledVector(UP, mid);
+    if (l.by === 'plain') {
+      snowBurst(at, 3, 90, 7); bladeJolt = Math.max(bladeJolt, 0.8);
+      throwOff(l, at.clone().addScaledVector(UP, mid), away.clone().multiplyScalar(FLUNG.on).addScaledVector(UP, FLUNG.up));
+    } else if (l.by === 'blast') {
+      l.spot = at.clone().addScaledVector(away, -4.5); l.spot.y = ground(l.spot.x, l.spot.z);
+      blast.lay(l.spot, ground, rng, 0.8);
+    } else if (l.by === 'whirl') {
+      const p = at.clone().addScaledVector(side, rng.range(24, 30));
+      whirl.hide(); whirl.strength = 0.02; whirl.place(p.setY(ground(p.x, p.z)));
+      l.base = p.clone();
+    } else if (l.by === 'saucer') {
+      l.hover = middle.clone().addScaledVector(UP, 24);
+      l.sky = l.hover.clone().addScaledVector(side, rng.range(200, 260) * (rng.chance(0.5) ? 1 : -1)).addScaledVector(away, -60).addScaledVector(UP, 150);
+      l.ship = l.sky.clone();
+    } else if (l.by === 'snowman') {
+      const base = at.clone().addScaledVector(side, 11); base.y = ground(base.x, base.z);
+      const facing = at.clone().sub(base).setY(0).normalize(), grip = base.clone().addScaledVector(UP, 10).addScaledVector(facing, 3.6);
+      const reach = middle.clone().sub(grip), length = reach.length(), u = reach.divideScalar(length), v = away.clone().addScaledVector(u, -away.dot(u)).normalize();
+      l.sm = { base, grip, length, u, v, meets: -1.7 / length, turn: Math.sign(away.dot(UP.clone().cross(facing))) || 1 };
+      snowman.place(base, facing, length);
+    } else if (l.by === 'arm') {
+      const grip = middle.clone().addScaledVector(UP, 0.12), base = grip.clone().addScaledVector(side, 7.6).addScaledVector(away, -2);
+      base.y = ground(base.x, base.z);
+      const ahead = Math.hypot(grip.x - base.x, grip.z - base.z), shoulder = base.y + ARM.shoulder;
+      l.base = base; l.grip = grip;
+      l.yaw = { take: Math.atan2(grip.x - base.x, grip.z - base.z), throw: Math.atan2(away.x, away.z) };
+      l.over = reachFor(ahead, grip.y + ARM.grip + 1.8 - shoulder); l.on = reachFor(ahead, grip.y + ARM.grip - shoulder);
+      robot.place(base, ground, rng);
+    } else {
+      // (The plane's hook comes in low from behind it, the way it is to go, and passes just over it.)
+      l.hook0 = middle.clone().addScaledVector(UP, mid * 0.9 + 0.4);
+    }
+  };
+  /** The great one let go of, gone: a glint where it went, and the fight won. */
+  const endLaunch = (l: Launch) => {
+    const i = launches.indexOf(l);
+    if (i < 0) return;
+    launches.splice(i, 1);
+    if (!l.gone && l.thrown >= 0) { const on = overPictureAt(l.model.position); if (on) popUp(on, '✦', 'trick', 'gone'); gunSound.hear('ring'); }
+    horde.release(l.model);
+    // (Its piece put away, unless the run's own end has it now.)
+    if (!cat) ({ arm: robot, whirl, blast, saucer, snowman, plane, plain: null })[l.by]?.hide();
+  };
+  const endLaunches = () => { for (const l of [...launches]) endLaunch(l); };
+  /** The arm a moment on, as `armPose`, for the launch. */
+  const launchArm = (l: Launch): ArmPose => {
+    const T = ARM_T, t = l.t, k = (from: number, to: number) => smooth((t - from) / (to - from));
+    const mix3 = (p: { upper: number; fore: number; claw: number }, q: { upper: number; fore: number; claw: number }, w: number) => ({ upper: p.upper + (q.upper - p.upper) * w, fore: p.fore + (q.fore - p.fore) * w, claw: p.claw + (q.claw - p.claw) * w });
+    let j = mix3(FOLDED, { ...l.over!, claw: -Math.PI / 2 }, k(T.risen - 0.15, T.over));
+    j = mix3(j, { ...l.on!, claw: -Math.PI / 2 }, k(T.over, T.down));
+    j = mix3(j, HIGH, k(T.closed, T.lifted));
+    j = mix3(j, DRAWN, k(T.lifted, T.drawn));
+    const sweep = clamp((t - T.drawn) / T.sweep, 0, 1);
+    j = mix3(j, THROWN, sweep * sweep * (3 - 2 * sweep));
+    const rise = smooth(t / T.risen) * (1 - k(T.drawn + 0.9, T.drawn + 2.8)), yaw = turnTo(l.yaw!.take, l.yaw!.throw, k(T.lifted, T.drawn - 0.1));
+    const grip = t < T.risen ? 1 - k(0.6, T.risen) : 1 - k(T.risen, T.over) + k(T.down, T.closed) - k(T.drawn + T.letGo, T.drawn + T.letGo + 0.2);
+    return { rise, yaw, ...j, roll: 0, grip: clamp(grip, 0, 1), hold: 1 };
+  };
+  /** The launch a moment on (`dt`): its piece at its work, the great one where it has it; thrown, going off; gone, let go of. */
+  const launchStep = (dt: number) => { for (const l of [...launches]) launchOn(l, dt); };
+  const launchOn = (l: Launch, dt: number) => {
+    // (The run's own end begun: the pieces are its own; what was being sent off is gone at once.)
+    if (cat && l.by !== 'plain') { l.gone = true; endLaunch(l); return; }
+    const was = l.t;
+    l.t += dt;
+    const t = l.t, middle = l.at.clone().addScaledVector(UP, l.mid), past = (m: number) => was < m && t >= m;
+    if (l.by === 'plain') {
+      // (Thrown by the blow at once: below.)
+    } else if (l.by === 'blast') {
+      const booms = 1.1;
+      if (t < booms) { blast.cracking(clamp(t / (booms - 0.1), 0, 1)); bladeJolt = Math.max(bladeJolt, 0.15 * t); }
+      if (past(booms)) { blast.boom(); snowBurst(l.spot!, 8, 180, 14); bladeJolt = 1.2; gunSound.hear('boom'); throwOff(l, middle, l.away.clone().multiplyScalar(FLUNG.on).addScaledVector(UP, FLUNG.up)); }
+      blast.step(dt, camera, ground);
+    } else if (l.by === 'whirl') {
+      const reaches = 2.2, lifts = 2.6;
+      whirl.strength = l.thrown < 0 ? 0.02 + 0.98 * smooth(t / reaches) : whirl.strength * Math.exp(-dt * 0.9);
+      if (t < reaches) { whirl.base.copy(l.base!).lerp(l.at, smooth(t / reaches)); whirl.base.y = ground(whirl.base.x, whirl.base.z); }
+      if (past(reaches)) { const rel = middle.clone().sub(whirl.axisAt(l.mid)).setY(0); l.r0 = rel.length(); l.a0 = Math.atan2(-rel.z, rel.x); }
+      if (t >= reaches && l.thrown < 0) {
+        const u = clamp((t - reaches) / lifts, 0, 1), h = l.mid + 34 * u ** 1.6, wide = Math.max(2.5, whirl.radiusAt(h) * 1.2), a = l.a0! + 2.4 * TURN * u ** 1.35;
+        const at = whirl.about(h, a, l.r0! + (wide - l.r0!) * smooth(u / 0.35));
+        l.tumble += TURN * (0.3 + u) * dt;
+        putFlung(l, at);
+        if (u >= 1) throwOff(l, at, whirl.round(a).multiplyScalar(45).addScaledVector(l.away, FLUNG.on * 0.7).addScaledVector(UP, FLUNG.up * 0.7));
+      }
+      whirl.step(dt, camera, ground);
+      if (l.thrown >= 0 && t > l.thrown + 4) whirl.hide();
+    } else if (l.by === 'saucer') {
+      const arrives = 2.6, beams = 0.45, rises = 2.2, leaves = rises + arrives + beams + 0.3, k = clamp(t / arrives, 0, 1);
+      const ship = t < leaves ? l.sky!.clone().lerp(l.hover!, 1 - (1 - k) ** 3) : l.hover!.clone().addScaledVector(l.away.clone().addScaledVector(UP, 1.6).normalize(), 20 * (t - leaves) + 70 * (t - leaves) ** 2);
+      ship.y += Math.sin(t * 2.1) * 0.35 * smooth((t - arrives) / 0.6);
+      l.ship!.copy(ship);
+      saucer.place(ship, new Quaternion().setFromAxisAngle(UP.clone().cross(l.hover!.clone().sub(l.sky!).setY(0).normalize()).normalize(), 0.5 * (1 - k)));
+      const reach = saucer.belly().y - ground(ship.x, ship.z), up = clamp((t - arrives - beams) / rises, 0, 1);
+      saucer.shine(smooth((t - arrives) / beams) * (1 - smooth((t - leaves) / 0.3)), reach);
+      saucer.step(dt, camera);
+      if (up > 0 && up < 1) { l.tumble += 0.4 * dt; const top = saucer.belly().addScaledVector(UP, -(l.mid + 0.6)); putFlung(l, middle.clone().lerp(top, smooth(up)), uprightTo(l.away).premultiply(new Quaternion().setFromAxisAngle(UP, 2 * (t - arrives)))); }
+      if (up >= 1 && l.model.visible) { l.model.visible = false; l.thrown = t; l.gone = true; }
+      if (t > leaves + 2.4) { saucer.hide(); const on = overPictureAt(ship); if (on) popUp(on, '✦', 'trick', 'gone'); gunSound.hear('ring'); endLaunch(l); return; }
+      return;
+    } else if (l.by === 'snowman') {
+      const T = SNOWMAN_T, sm = l.sm!, set = sm.meets - 0.25;
+      const a = t < T.address ? set : t < T.top ? set + (-2.3 - set) * smooth((t - T.address) / (T.top - T.address)) : t < T.contact ? -2.3 + (sm.meets + 2.3) * ((t - T.top) / (T.contact - T.top)) ** 2.2 : sm.meets + (2.1 - sm.meets) * (1 - (1 - clamp((t - T.contact) / (T.through - T.contact), 0, 1)) ** 3);
+      const rise = smooth(t / T.risen) * (1 - smooth((t - T.sinks) / (T.gone - T.sinks)));
+      if (dt > 0 && ((rise > 0.05 && rise < 0.97 && t < T.risen) || (t > T.sinks && rise > 0.03))) snowBurst(sm.base, 5, Math.round(dt * 500), 9);
+      if (t > T.gone) snowman.hide();
+      else snowman.pose({ rise, twist: 0.3 * a * sm.turn, grip: sm.grip.clone().addScaledVector(UP, -(1 - rise) * SNOWMAN.depth), club: sm.u.clone().multiplyScalar(Math.cos(a)).addScaledVector(sm.v, Math.sin(a)) });
+      if (past(T.contact)) { snowBurst(l.at, 2.4, 110, 7); bladeJolt = 0.9; gunSound.hear('chop'); throwOff(l, middle, l.away.clone().multiplyScalar(FLUNG.on).addScaledVector(UP, FLUNG.up)); }
+    } else if (l.by === 'arm') {
+      const T = ARM_T;
+      robot.pose(launchArm(l));
+      if (dt > 0 && t < T.risen) snowBurst(l.base!, 2.8, Math.round(dt * 420), 7);
+      if (t >= T.closed && l.thrown < 0) { const q = robot.clawTurn(); putFlung(l, robot.holding(), q); }
+      if (past(T.drawn + T.letGo)) throwOff(l, robot.holding(), l.away.clone().multiplyScalar(FLUNG.on).addScaledVector(UP, FLUNG.up));
+      if (t > T.drawn + 2.8) robot.hide();
+    } else {
+      const catches = 3, speed = 55, w = t - catches, hook = l.hook0!.clone().addScaledVector(l.away, speed * w).addScaledVector(UP, w > 0 ? 7 * w * w : 0);
+      const fwd = l.away.clone().addScaledVector(UP, w > 0 ? (14 * w) / speed : 0).normalize(), left = UP.clone().cross(fwd).normalize(), up = fwd.clone().cross(left).normalize();
+      const at = hook.clone().addScaledVector(up, PLANE.line * Math.cos(0.3)).addScaledVector(fwd, PLANE.line * Math.sin(0.3)).sub(PLANE.belly.clone().applyMatrix4(new Matrix4().makeBasis(left, up, fwd)));
+      plane.place(at, new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(left, up, fwd)), hook);
+      plane.step(dt);
+      if (w > 0) {
+        const swing = 0.5 * Math.exp(-w / 1.4) * Math.sin(3.1 * w);
+        putFlung(l, hook.clone().addScaledVector(UP, -(l.mid * 0.9 + 0.4)).addScaledVector(l.away, -0.9 * Math.sin(0.35 + swing)), uprightTo(l.away).premultiply(new Quaternion().setFromAxisAngle(l.side, -0.35 - swing)));
+      }
+      if (past(catches)) gunSound.hear('chop');
+      if (w > FLUNG.gone) { plane.hide(); const on = overPictureAt(hook); if (on) popUp(on, '✦', 'trick', 'gone'); gunSound.hear('ring'); l.gone = true; endLaunch(l); }
+      return;
+    }
+    // Thrown: on up and away, falling only a little, tumbling; gone once far enough off.
+    if (l.thrown >= 0) {
+      const u = t - l.thrown;
+      l.tumble += TURN * 1.4 * dt;
+      putFlung(l, l.from.clone().addScaledVector(l.fly, u).addScaledVector(UP, -0.5 * FLUNG.fall * u * u));
+      if (u > FLUNG.gone) endLaunch(l);
+    }
+  };
+  horde.onTaken = (model, at, size) => startLaunch(model, at, size);
   clearGun = () => {
     horde.clear(); gunfire.clear(); splatter.clear(); flames.clear(); bolts.clear(); heat.clear(); sweep.clear(); rockets.clear();
-    endArena(true); boostLeft = 0;
+    endArena(true); boostLeft = 0; endLaunches();
     for (const b of booms) b.blast.hide();
     swing = null; pulls = 0;
   };
@@ -5238,10 +5439,14 @@ async function start() {
       way: (p, to) => { const w = cave.orcWay({ x: p.x - o.x, z: p.z - o.z }, { x: to.x - o.x, z: to.z - o.z }); return new Vector3(w.x, 0, w.z); },
       floor: (x, z) => cave.floorUnder(x - o.x, z - o.z) ?? land.height(x, z),
       walk: (x, z, tx, tz, r) => { const [a, b] = cave.walk(x - o.x, z - o.z, tx - o.x, tz - o.z, r); return [a + o.x, b + o.z]; },
+      shows: (p) => !foot || cave.inSight({ x: foot.x - o.x, z: foot.z - o.z, y: 0 } as Vector3, new Vector3(p.x - o.x, p.y, p.z - o.z)),
     };
   };
-  /** Struck by an orc come up to it on foot: points lost, and thrown back a step from it. */
-  const struck = (from: Vector3) => {
+  /**
+   * Struck by a foe come up to it on foot: points lost, and thrown back a step from it; the more, the harder it strikes (a goblin, less
+   * than an orc; one of the dead, more; the barrow-king, two and a half times as much: `FoeKind.den`).
+   */
+  const struck = (from: Vector3, kind: FoeKind) => {
     const f = foot, cave = caveNow();
     if (!f || !cave || mode !== 'ride') return;
     // (A barrow ward worn: the blow turned aside, as often as it says.)
@@ -5252,14 +5457,17 @@ async function start() {
       gunSound.hear('ring');
       return;
     }
-    score = Math.max(0, score - 200);
+    const blow = kind.den?.blow ?? 1, lost = Math.round((200 * blow) / 10) * 10;
+    score = Math.max(0, score - lost);
     scoreEl.textContent = score.toLocaleString('en');
-    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2), o = land.group.position;
+    if (blow > 2) bladeJolt = Math.max(bladeJolt, 0.6);
+    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2 * Math.sqrt(blow)), o = land.group.position;
     const [x, z] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + away.x, f.z - o.z + away.z, walks() ? FOOT.person : FOOT.horse);
     f.x = x + o.x; f.z = z + o.z;
     const s = overPictureAt(rider.position.clone().addScaledVector(UP, 1.8));
-    if (s) popUp(s, '−200', 'run', 'struck');
-    tell('Struck!', 'an orc came at you', true, 1.2);
+    if (s) popUp(s, `−${lost}`, 'run', 'struck');
+    const what = kind.titles ? 'the barrow-king' : `${/^[aeiou]/.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
+    tell('Struck!', `${what} came at you`, true, 1.2);
     gunSound.hear('grunt');
   };
   // ---------------------------------------------------------------- loot
@@ -5449,9 +5657,25 @@ async function start() {
       const met = horde.hit(eye, look, far);
       if (met) far = met.t;
       target = eye.clone().addScaledVector(look, far);
-      // (On foot, at the floor pointed to and no orc: at chest height over it, so that what is fired goes level across the room.)
-      if (foot && !met) target.y = Math.max(target.y, foot.y + 1.1);
-      if (target.distanceTo(muzzle) < 3) target = muzzle.clone().addScaledVector(look, 30);
+      // (Fired the way it is aimed, not at the very point (asked: "make the guns fire to the direction of the aim, not exactly to the
+      // aim. Now when i try to shoot enemies close to me, the player shoots at the ground, not their direction"): a foe pointed at, at
+      // its middle, not where the line from the eye first touched it, its feet as often as not, seen from above; on foot, one standing
+      // within a stride of the floor pointed to as well; and the floor pointed to and none there, at chest height over it, so that what
+      // is fired goes level across the room.)
+      let foe: Vector3 | null = met ? horde.middle(met.orc) : null;
+      if (foot && !foe) {
+        let near = 1.6;
+        for (const p of horde.aims()) { const d = Math.hypot(p.x - target.x, p.z - target.z); if (d < near) { near = d; foe = p; } }
+      }
+      if (foe) target = foe.clone();
+      else if (foot) target.y = Math.max(target.y, foot.y + 1.1);
+      // (Aimed nearer than three metres: on along the same way from the muzzle, thirty metres; it had been on along the line from the eye,
+      // which from behind, from beside or from above looks down at the skier, and fired into the snow, or the floor, at its feet.)
+      if (target.distanceTo(muzzle) < 3) {
+        const way = target.clone().sub(muzzle);
+        if (foot || way.lengthSq() < 0.04) way.y = Math.max(way.y, -0.1 * Math.hypot(way.x, way.z));
+        target = muzzle.clone().addScaledVector(way.lengthSq() > 1e-4 ? way.normalize() : go.clone(), 30);
+      }
       // (By touch, a finger held low on the picture is over snow between the eye and the skier, or under it, which the gun cannot be
       // turned to, and it fired somewhere else altogether: then it fires at the snow some way ahead the way the finger points, as near
       // to it across the run as the arms let the gun turn.)
@@ -5475,6 +5699,8 @@ async function start() {
     const right = new Vector3(-1, 0, 0).applyQuaternion(hq).setY(0).normalize(), ahead = new Vector3(0, 0, 1).applyQuaternion(hq).setY(0).normalize();
     const d = target.sub(muzzle).normalize().applyQuaternion(hq.clone().invert());
     let yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
+    // (On foot the floor is level, and the gun with it: tipped down no more than it takes to reach a foe fallen low, nor up much.)
+    if (foot && arm.firing !== 'swing') pitch = clamp(pitch, -0.3, 0.35);
     // (The sword, ready, held out towards what is aimed at, its point down; swung, at one side and then the other, `Rider.slash`, its
     // sweep drawn behind it as it cuts.)
     if (arm.firing === 'swing') pitch = Math.min(pitch, -0.3);
@@ -5493,7 +5719,6 @@ async function start() {
     // (The force gathered in a held cut, a ring filling about the guide's mark.)
     const charging = swing?.held && swing.k >= SLASH_MARKS.up ? Math.round(swing.charge * 50) / 50 : -1;
     if (charging !== shownCharge) { shownCharge = charging; aimEl.style.setProperty('--charge', String(Math.max(0, charging))); aimEl.classList.toggle('charging', charging >= 0); aimEl.classList.toggle('charged', charging >= 1); }
-    bladeJolt *= Math.exp(-dt * 14);
     // Fired on the snow, each arm as it is fired: the tommy gun while the button is held (or an orc is in its sights, watching), the
     // first round as it is pressed; the pistol and the shotgun a round, or a blast, a click; the flamethrower pouring fire while held;
     // the lightning gun a bolt every third of a second while held; the sword a swing a click.
@@ -5535,6 +5760,7 @@ async function start() {
     wardStep(going, !watching);
     showBosses(horde.bosses(rider.position));
     arenaOn(going);
+    launchStep(going);
     say($('orcs'), String(horde.downed));
     // (Riding, what is carried: how many more until the next, the bar beside the picture says.)
     say($('armSay'), watching ? '' : ` · ${arm.name}`);
@@ -5547,6 +5773,13 @@ async function start() {
   // and above look most of the way along the way it goes.
   let placed = false, distance = 1;
   const eyeOff = new Vector3(), lookOff = new Vector3(), lastRider = new Vector3(), ahead = new Vector3(0, 0, 1);
+  /**
+   * The isometric view riding: how far off it is (further than on foot, for the speed), and which way it looks across the land, level:
+   * down the run turned forty-five degrees to the skier's left, as the cave's view is turned across its lattice.
+   */
+  const ISO_RIDE = { far: 30 };
+  const isoWay = (down: Vector3, aside: Vector3) => down.clone().multiplyScalar(Math.SQRT1_2).addScaledVector(aside, Math.SQRT1_2).setY(0).normalize();
+  const isoTurn = new Vector3(0, 0, 1);
   /** How hard the view is jolted by a blow of the sword struck home, dying away (`swingOn`); the charge last shown about the guide's mark. */
   let bladeJolt = 0, shownCharge = -1;
   /** What the free view is held looking at, for a picture of what is not the skier (`__slope.lookAt`); none, the skier. */
@@ -5770,6 +6003,9 @@ async function start() {
     // (Swung from the view it rode in, as it takes its skis off.)
     const k = smooth(iso.since / ISO.swing);
     if (k < 1) { camera.position.lerpVectors(iso.from, eye, k); camera.quaternion.slerpQuaternions(iso.turn, camera.quaternion.clone(), k); }
+    // (A blow struck home, or a great one's struck on it, felt: the view jolted a moment.)
+    bladeJolt *= Math.exp(-dt * 14);
+    if (bladeJolt > 0.003) { const w = performance.now() / 1000, j = 0.12 * bladeJolt; camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j)); }
     const fov = FOV + (ISO.fov - FOV) * k;
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fovNow = fov; camera.updateProjectionMatrix(); }
     lastRider.copy(target);
@@ -5976,7 +6212,7 @@ async function start() {
     // (Riding from behind, a little wider the faster it goes, up to eight degrees at a hundred kilometres an hour: the snow beside
     // streams by further out, and speed is felt. Eased, so that it is not seen to change.)
     if (view !== 'cinema') {
-      const wide = FOV + (mode === 'ride' && view === 'behind' ? 8 * smooth((now.speed - 14) / 16) : 0);
+      const wide = view === 'iso' ? ISO.fov : FOV + (mode === 'ride' && view === 'behind' ? 8 * smooth((now.speed - 14) / 16) : 0);
       fovNow = placed ? fovNow + (wide - fovNow) * ease(dt, 1.8) : wide;
       if (Math.abs(camera.fov - fovNow) > 0.01) { camera.fov = fovNow; camera.updateProjectionMatrix(); }
     }
@@ -6001,8 +6237,16 @@ async function start() {
       // that it eases so that there is more visibility to the side the rider is heading to (now the rider is in the sharp center of
       // framing)").)
       else if (view === 'beside') { over(wantAt.copy(follow).addScaledVector(aside, 14 * d).addScaledVector(down, -4 * d), 2.2 * d); wantAt.y = Math.max(wantAt.y, at.y + 0.8 * d); aim.copy(at).addScaledVector(UP, 0.9).addScaledVector(travel, 4.5 * d); }
-      // (From above, looking a little behind the skier, so that it is in the upper part of the picture with its tracks below it.)
-      else { wantAt.copy(follow).addScaledVector(ahead, -5).setY(at.y + 32 * d); aim.copy(follow).addScaledVector(ahead, -5).setY(at.y); camera.up.copy(ahead); }
+      // (Isometric, as on foot in the cave (asked: "lets make the isometric view available for skiing as well, as replacement of the above
+      // camera"): high and back, looking down at the skier at `ISO.pitch`, from up the run and off to one side at forty-five degrees, drawn
+      // narrow so that it is nearly as a plan is; turned only slowly as the run bends, so that the slope does not swing about; a little
+      // ahead of the skier, where it goes. It had been from straight above, the view turned after the skier's way.)
+      else {
+        isoTurn.lerp(isoWay(down, aside), placed ? ease(dt, 0.7) : 1).setY(0).normalize();
+        const D = ISO_RIDE.far * d;
+        wantAt.copy(at).addScaledVector(isoTurn, -D * Math.cos(ISO.pitch)).setY(at.y + D * Math.sin(ISO.pitch));
+        aim.copy(at).addScaledVector(travel, Math.min(6, now.speed * 0.25) * d);
+      }
       eyeOff.lerp(wantAt.sub(at), placed ? ease(dt, 5) : 1);
       lookOff.lerp(aim.sub(at), placed ? ease(dt, 6) : 1);
       camera.position.copy(at).add(eyeOff);
@@ -6010,6 +6254,7 @@ async function start() {
       camera.position.y = Math.max(camera.position.y, ground(camera.position.x, camera.position.z) + 0.6);
       camera.lookAt(at.clone().add(lookOff));
       // (A blow of the sword struck home felt: the view jolted a moment, the more the harder the blow.)
+      bladeJolt *= Math.exp(-dt * 14);
       if (bladeJolt > 0.003) {
         const w = performance.now() / 1000, j = 0.09 * bladeJolt;
         camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j));
@@ -6108,7 +6353,6 @@ async function start() {
     const end = smooth((c.t - (s.done - 1.5)) / 1.5), own = end > 0 ? viewAtTop(c) : null;
     if (own) {
       eye.lerp(own.eye, end); target.lerp(own.look, end);
-      if (view === 'above') camera.up.lerp(c.downhill, end).normalize();
     }
     e.at.copy(eye);
     // (Where it looks eased against the two of them, not the world: carried off faster than any eased look follows, it fell behind
@@ -6183,8 +6427,7 @@ async function start() {
       const end = smooth((ft - (fly.total - 1.8)) / 1.8), own = end > 0 ? viewAtTop(c) : null;
       if (own) {
         eye.lerp(own.eye, end); target.lerp(own.look, end);
-        if (view === 'above') camera.up.lerp(c.downhill, end).normalize();
-      }
+        }
       e.rel.lerp(target.sub(mid), ease(dt, 6));
       e.look.copy(mid).add(e.rel);
       camera.position.copy(eye);
@@ -6224,7 +6467,7 @@ async function start() {
       eye.y = Math.max(eye.y, L.y + 0.8 * d);
       return { eye, look: L.clone().addScaledVector(UP, 0.9).addScaledVector(down, 4.5 * d) };
     }
-    if (view === 'above') { const p = L.clone().addScaledVector(down, -5); return { eye: p.clone().setY(L.y + 32 * d), look: p.setY(L.y) }; }
+    if (view === 'iso') { const way = isoWay(down, aside), D = ISO_RIDE.far * d; return { eye: L.clone().addScaledVector(way, -D * Math.cos(ISO.pitch)).setY(L.y + D * Math.sin(ISO.pitch)), look: L.clone() }; }
     return null;
   };
   /**
@@ -6474,6 +6717,9 @@ async function start() {
   const showMap = () => {
     setMenu(false);
     mapView.draw();
+    // (The dungeon under this run on the map as far as it has been seen, and where the one on foot stands in it.)
+    const cave = caveNow(), top = topOf.get(land), o = land.group.position, plan = cave?.plan();
+    mapView.setDungeon(cave && top && plan ? { x: cave.site.mouth.x + top.x, z: cave.site.mouth.z + top.z, plan, here: foot ? cave.onPlan(foot.x - o.x, foot.z - o.z) : null, name: plan.name } : null);
     if (mode === 'ride' && playing) { playing = false; heldRide = true; reflect(); }
     choose.hidden = false;
     document.body.classList.add('choosing');
@@ -6814,6 +7060,8 @@ async function start() {
     // (The arena laid for a great one, if there is one: where its pipe's foot, lip and end are along the run, its middle and half its
     // breadth across it, how far it has sunk; its pen; how many boosters are still to be taken.)
     arena: () => arena && { foot: arena.pipe.foot, lip: arena.pipe.foot + arena.pipe.lip, top: arena.pipe.top, end: arena.pipe.foot + arena.pipe.end, mid: arena.pipe.mid, half: arena.pipe.half, sunk: arena.pipe.sunk, sinking: arena.sinking, pen: horde.pen, penned: horde.penned, boosters: boosters.where().length },
+    // (The great one being sent off, if one is: by what, how far through; and `by`, what the next is sent off by.)
+    launch: (by?: string) => { if (by) launchNext = by as LaunchBy; const l = launches.find((x) => x.by !== 'plain') ?? launches[0]; return l && { by: l.by, t: +l.t.toFixed(2), thrown: l.thrown, at: l.model.position.toArray().map((v) => +v.toFixed(1)), all: launches.map((x) => x.by) }; },
     // (Only one kind of foe comes, for a script trying it (`slopeFoes.ts`); `null`, every kind again; and from how far ahead.)
     foes: (only: FoeKind['name'] | null, ahead?: [number, number]) => { horde.only = only; if (ahead) horde.ahead = ahead; horde.clear(); },
     orcs: () => ({ about: horde.about, downed: horde.downed, kinds: horde.kinds(), coming: horde.where().map((p) => { const s = p.clone().setY(p.y + 0.4).project(camera); return { at: p.toArray().map((v) => +v.toFixed(1)), screen: [+s.x.toFixed(3), +s.y.toFixed(3)] }; }) }),

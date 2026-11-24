@@ -14,6 +14,13 @@
 import type { WorldPlan } from '../src/core/world';
 import { drawInkWorld, inkFrame, type WorldMap } from '../src/maps/inkWorld';
 import type { MapRun, RunMap } from '../src/core/runMap';
+import type { Plan } from './slopeMini';
+
+/**
+ * The dungeon under the run ridden, as far as it has been seen (asked: "a dungeon minimap and inkmap that updates accordingly"): where
+ * its mouth is in the world, its plan (`Cave.plan`), where in it the one on foot stands (if it is in it), and its name.
+ */
+export interface MapDungeon { x: number; z: number; plan: Plan; here: { c: number; r: number } | null; name: string }
 
 /** A run as the game offers it: its slice's name, what it is called, and what it is like, in a sentence. */
 export interface RunInfo { id: string; label: string; title: string }
@@ -63,6 +70,7 @@ export class RunMapView {
   private hot: string | null = null;
   private opened: { id: string; from: HTMLElement | null } | null = null;
   private readonly shown: { info: RunInfo; run: MapRun | undefined; n: number }[];
+  private dungeon: MapDungeon | null = null;
 
   constructor(
     /** Where the map goes (it fills it, keeping its shape), the list of the runs beside it, and where a run's card opens. */
@@ -89,6 +97,9 @@ export class RunMapView {
     this.makeList();
     new ResizeObserver(() => this.fit()).observe(box);
   }
+
+  /** The dungeon shown on the map as far as it has been seen (laid out again with it); none, none shown. */
+  setDungeon(d: MapDungeon | null) { this.dungeon = d; this.laidAt = 0; this.fit(); }
 
   /** Whether a run's card is open. */
   get carding() { return !!this.opened; }
@@ -221,7 +232,51 @@ export class RunMapView {
       marks.push(`<g class="run${this.hot === s.info.id ? ' hot' : ''}" data-id="${s.info.id}"><g class="medal" transform="translate(${x} ${y})"><path d="${markPath(g, r)}" fill="${g.ink}" stroke="${PAPER}" stroke-width="2" vector-effect="non-scaling-stroke"/>
         <text x="0" y="${0.5 * k}" text-anchor="middle" dominant-baseline="central" fill="${PAPER}" font-size="${13 * k}" font-family="Cinzel, Georgia, serif" font-weight="700">${s.n}</text></g>${name}</g>`);
     });
-    this.svg.innerHTML = parts.join('') + marks.join('');
+    this.svg.innerHTML = parts.join('') + marks.join('') + this.layDungeon(k, z, best, corners, free, boxes);
+  }
+
+  /**
+   * The dungeon on the map: a mark at its mouth (an arch, in ink), and its plan as far as it has been seen drawn in a box of its own
+   * in the corner freest of the runs, as a map shows a town's plan beside it: its rooms paper, its halls a hatch, its stairs ruled
+   * across, its walls inked where what is seen meets the rock, the way in at the top; where the one on foot stands, a red dot; a line of
+   * dots from the box to the mark. Its name over it.
+   */
+  private layDungeon(k: number, z: number, best: (l: [number, number, number, number][]) => [number, number, number, number], corners: (w: number, h: number) => [number, number, number, number][], free: (b: [number, number, number, number]) => boolean, boxes: [number, number, number, number][]): string {
+    const d = this.dungeon;
+    if (!d || !d.plan.seen.some((v) => v)) return '';
+    const p = d.plan, mx = this.toX(d.x), my = this.toY(d.z), a = 7 * k;
+    const out: string[] = [`<g class="dungeon" aria-hidden="true"><path d="M ${mx - a} ${my + a * 0.6} V ${my - a * 0.1} A ${a} ${a} 0 0 1 ${mx + a} ${my - a * 0.1} V ${my + a * 0.6} Z" fill="${INK}" stroke="${PAPER}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`];
+    // (Each square as large as the box lets the whole lattice be, up to a size that reads.)
+    const sq = Math.min(10 * k * z, (150 * k * z) / Math.max(p.cols, p.rows)), pad = 14 * k * z, title = 13 * k * z;
+    const w = p.cols * sq + 2 * pad, h = p.rows * sq + 2 * pad + title;
+    const b = best(corners(w, h).filter((q) => free(q))) ?? best(corners(w, h));
+    boxes.push(b);
+    const x0 = b[0] + pad, y0 = b[1] + pad + title, open = (c: number, r: number) => c >= 0 && r >= 0 && c < p.cols && r < p.rows && p.kind[r * p.cols + c] > 0;
+    out.push(`<line x1="${(b[0] + b[2]) / 2}" y1="${(b[1] + b[3]) / 2}" x2="${mx}" y2="${my}" stroke="${INK}" stroke-width="1.2" stroke-dasharray="2 4" vector-effect="non-scaling-stroke"/>`);
+    out.push(`<rect x="${b[0]}" y="${b[1]}" width="${w}" height="${h}" fill="${PAPER}" stroke="${INK}" stroke-width="2.2" vector-effect="non-scaling-stroke"/>`);
+    out.push(`<text x="${(b[0] + b[2]) / 2}" y="${b[1] + pad * 0.6 + title * 0.7}" text-anchor="middle" font-family="'Cormorant Garamond', Georgia, serif" font-style="italic" font-weight="600" font-size="${title}" fill="${INK}">${esc(d.name)}</text>`);
+    const hatch: string[] = [], walls: string[] = [];
+    for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) {
+      const k2 = r * p.cols + c, kind = p.kind[k2];
+      if (!kind || !p.seen[k2]) continue;
+      const x = x0 + c * sq, y = y0 + r * sq;
+      if (kind === 2) out.push(`<rect x="${x}" y="${y}" width="${sq}" height="${sq}" fill="#f6ecd2"/>`);
+      else {
+        out.push(`<rect x="${x}" y="${y}" width="${sq}" height="${sq}" fill="#e6d8b8"/>`);
+        if (kind === 3) for (let i = 1; i < 4; i++) hatch.push(`M ${x + (sq * i) / 4} ${y} V ${y + sq}`);
+        else hatch.push(`M ${x} ${y + sq} L ${x + sq} ${y}`);
+      }
+      // (A wall inked wherever the square meets the rock.)
+      if (!open(c, r - 1)) walls.push(`M ${x} ${y} H ${x + sq}`);
+      if (!open(c, r + 1)) walls.push(`M ${x} ${y + sq} H ${x + sq}`);
+      if (!open(c - 1, r)) walls.push(`M ${x} ${y} V ${y + sq}`);
+      if (!open(c + 1, r)) walls.push(`M ${x + sq} ${y} V ${y + sq}`);
+    }
+    if (hatch.length) out.push(`<path d="${hatch.join(' ')}" fill="none" stroke="${INK}" stroke-width="0.6" opacity="0.55" vector-effect="non-scaling-stroke"/>`);
+    if (walls.length) out.push(`<path d="${walls.join(' ')}" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="square" vector-effect="non-scaling-stroke"/>`);
+    if (d.here) out.push(`<circle cx="${x0 + d.here.c * sq}" cy="${y0 + d.here.r * sq}" r="${Math.max(2.5 * k, sq * 0.28)}" fill="#c0322b" stroke="${PAPER}" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`);
+    out.push('</g>');
+    return out.join('');
   }
 
   /** A run stood out on the map and in the list, or none. */

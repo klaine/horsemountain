@@ -18,6 +18,11 @@ export interface MiniLand {
 
 const PISTE = 'rgba(248, 246, 240, .78)', EDGE = 'rgba(255, 255, 255, .95)', LINE = 'rgba(80, 100, 130, .35)';
 const KICK = '#e0b070', MARK = '#ff5a3c', OUT = '#ffd25a';
+/** The dungeon's squares on the map: a room's, a hall's, a stair's; the rock's edge about what is seen. */
+const ROOM = 'rgba(236, 224, 196, .92)', HALL = 'rgba(196, 184, 160, .85)', STAIR = 'rgba(150, 170, 200, .9)', ROCK = 'rgba(20, 18, 16, .9)';
+
+/** The dungeon as seen so far, for the map (`Cave.plan`): its lattice, what each square is (0 rock, 1 hall, 2 room, 3 stair), whether seen; and how the lattice lies in the land. */
+export interface Plan { cols: number; rows: number; kind: Uint8Array; seen: Uint8Array; turn: number }
 
 export class MiniMap {
   /** The land drawn, so that it is drawn again only when another is shown. */
@@ -99,6 +104,53 @@ export class MiniMap {
     const [fax, fay] = this.toMap(fa.x, fa.z), [fbx, fby] = this.toMap(fb.x, fb.z);
     g.strokeStyle = '#1d1a17'; g.lineWidth = 2; g.beginPath(); g.moveTo(fax, fay); g.lineTo(fbx, fby); g.stroke();
     this.sheet = sheet;
+  }
+
+  /**
+   * On foot in the dungeon (asked: "a dungeon minimap ... that updates accordingly"), the map shows it in the run's stead: the squares
+   * of it seen so far, rooms pale, halls darker, stairs blue, about the one on foot at the map's middle (its square `at`, as fractions;
+   * its heading `heading`, radians from the land's +z); turned as the view from above is (`yaw`, the way up the picture looks across the
+   * land), so that up the map is up the picture. Drawn again only when it would look otherwise; the run drawn again after.
+   */
+  plan(p: Plan, at: { c: number; r: number }, heading: number, yaw: number, seen: number) {
+    if (this.el.hidden || !this.w) return;
+    // (A box of its own, as broad as it is high: the run's was as narrow as the run; drawn again as the run's once out, `of` forgotten.)
+    const side = Math.max(96, Math.min(this.h, 130));
+    if (this.w !== side || this.h !== side) {
+      this.w = this.h = side;
+      this.el.width = this.el.height = Math.round(side * this.ratio);
+      this.el.style.width = this.el.style.height = `${side}px`;
+      this.of = null;
+    }
+    const key = `plan ${seen},${(at.c * 4) | 0},${(at.r * 4) | 0},${Math.round(heading * 12)},${Math.round(yaw * 12)}`;
+    if (key === this.shown) return;
+    this.shown = key;
+    const g = this.g, w = this.w, h = this.h, cell = 3, px = Math.min(w, h) / 34;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, this.el.width, this.el.height);
+    g.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
+    g.fillStyle = ROCK;
+    g.fillRect(0, 0, w, h);
+    // (The lattice's ways in the land: across it, and in; then the picture's: right, and up.)
+    const la = [Math.cos(p.turn), -Math.sin(p.turn)], ta = [Math.sin(p.turn), Math.cos(p.turn)], up = [Math.sin(yaw), Math.cos(yaw)], right = [-Math.cos(yaw), Math.sin(yaw)];
+    const toMap = (c: number, r: number): [number, number] => {
+      const dl = (c - at.c) * cell, dt = (r - at.r) * cell, x = dl * la[0] + dt * ta[0], z = dl * la[1] + dt * ta[1];
+      return [w / 2 + (x * right[0] + z * right[1]) * px, h / 2 - (x * up[0] + z * up[1]) * px];
+    };
+    for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) {
+      const k = r * p.cols + c, kind = p.kind[k];
+      if (!p.seen[k] || !kind) continue;
+      g.fillStyle = kind === 2 ? ROOM : kind === 3 ? STAIR : HALL;
+      g.beginPath();
+      for (const [dc, dr] of [[0, 0], [1, 0], [1, 1], [0, 1]]) { const [x, y] = toMap(c + dc, r + dr); if (dc + dr === 0) g.moveTo(x, y); else g.lineTo(x, y); }
+      g.closePath(); g.fill();
+    }
+    // (The one on foot: an arrowhead at the middle, pointing the way it faces, turned as the map is.)
+    const hx = Math.sin(heading), hz = Math.cos(heading), turn = Math.atan2(hx * right[0] + hz * right[1], hx * up[0] + hz * up[1]);
+    g.translate(w / 2, h / 2); g.rotate(turn);
+    g.beginPath(); g.moveTo(0, -5.5); g.lineTo(4, 4); g.lineTo(0, 2); g.lineTo(-4, 4); g.closePath();
+    g.lineWidth = 1.5; g.strokeStyle = 'rgba(10, 12, 16, .85)'; g.stroke();
+    g.fillStyle = MARK; g.fill();
   }
 
   /**

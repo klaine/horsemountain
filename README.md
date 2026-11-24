@@ -125,8 +125,14 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   it turns round and comes down again, so that it passes the yeti again and again. The yeti is kept between the pipe and some fifty
   metres above where it came, coming after the skier; four boosters, amber crystals over the snow, lie up the run from the pipe's foot,
   each a push of some thirteen metres a second taken by riding through it (and back nine seconds later). Kickers are taken away about
-  it while it stands. Its yetis brought down (or the pipe ridden round, and the skier gone on past it), the pipe sinks back into the
-  snow. Not in the demo runs, which never meet it.
+  it while it stands. A yeti beaten does not fall: it goes down on its knees, its name pulsing gold on its bar, and the next blow, of
+  whatever kind, sends it off into the far lands by one of the run's ends that wants no steering, drawn by chance (not the land turned
+  inside out, the rocket cart or the ice jump): the robot arm comes up beside it, takes it in its claw and throws it; a whirlwind comes
+  over and carries it round and up; a blast goes off under the snow at its side; the saucer draws it up into its beam and flies off
+  with it; the snowman drives it off with its fir; or the plane snatches it on its hook and climbs away. Thrown, it goes on up and away
+  over the far valleys, tumbling, and is gone with a glint; then the fight is won, *Felled*. (A second beaten while one is being sent
+  off is knocked off by the blow itself, in a burst of snow.) Its yetis gone (or the pipe ridden round, and the skier gone on past it),
+  the pipe sinks back into the snow. Not in the demo runs, which never meet it.
 
 **The caves.** Halfway down every run, a cave opens beside the piste in a face of rock under a mound of snow: in a bank that rises
 beside it where there is one (Silent Warden, Warden's Spur, Balestead), elsewhere in a knoll raised for it near the edge of the run's
@@ -149,9 +155,14 @@ its kind is from the props made for it: barrels, crates, sacks, tables, a desk, 
 candlesticks and candelabra, altars, statues, coffins, a dais, urns, braziers burning, banners, skulls, bones and skeletons, shackles,
 bedrolls, buckets, a rack of spears, heaps of gold, cobwebs. Furthest from the gate, behind a portcullis, the last room and its chest
 (5,000 points, once a run). It is lit by its torches, candles and braziers and the light carried in; the place is named as you come in
-at the gate, and each room said as you come into it. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer), and orcs come at you in the dungeon: out of rooms some way off and out of sight, two to four at a time, finding their
-way to you round the walls, through the doorways and up and down the stairs, striking at you as they come up to you (200 points lost,
-and you are thrown back a step); shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
+at the gate, and each room said as you come into it. What has not been seen of it is dark: its halls and rooms come out of the dark as
+they come into sight (within eighteen metres, nothing solid between, through doorways too), and stay; foes in it are seen only while in
+sight. On foot in it, the minimap shows its plan as far as it has been seen, turned as the view is, you at its middle. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer), and foes come at you in the dungeon: out of rooms some way off and out of sight, a pack at a time, of orcs (two to four), goblins (three
+to five, quick, striking light) or the draugr (two to four, slow, striking hard), finding their way to you round the walls, through the
+doorways and up and down the stairs, striking at you as they come up to you (200 points lost for an orc's blow, less for a goblin's,
+more for one of the dead's, and you are thrown back a step); and now and then, alone and no sooner than a minute and a half after the
+last, a barrow-king, a crowned draugr half as tall again as a man, named, its strength in the bar across the foot of the picture,
+taking fourteen blows, striking two and a half times as hard as an orc; shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there (come in on the cart, too: down, the run carried on as before the cart came).
 
 **Loot.** Riding, the chest at a dungeon's end gives something besides its gold, and every great one felled leaves something
@@ -182,10 +193,13 @@ the summit down its south spur; *Lake Wall*, from a knoll at the head of a long 
 the range; *Arford*, long, gentle and broad, to the shore; or a groomed slope
 going on for ever: one run is held at a time, the one left let go of), *Skier* (the horse with its
 rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
-*Camera* (*Cinema*, *Behind*, *Beside*, *Above*, or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`; watching begins in *Cinema* and
-riding from behind, and each keeps the one it was last left in; and its distance; from behind on a phone held upright, twice as far
+*Camera* (*Cinema*, *Behind*, *Beside*, *Iso* (isometric: high, looking down across the slope at forty-five degrees, as on foot in the
+cave), or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`, as they are pressed and not as they repeat held; watching begins in *Cinema* and
+riding from behind, and each keeps the one it was last left in, on foot in the cave too (where the view is always isometric); and its distance; from behind on a phone held upright, twice as far
 off to begin with) and *Picture* (the snow detailed or plain, the minimap shown or
-hidden, how finely the picture is drawn, the blur). Escape or `H` closes it. `M` opens the map of the runs (riding, the ride held while it is open). `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so).
+hidden, how finely the picture is drawn, the blur). Escape or `H` closes it. `M` opens the map of the runs (riding, the ride held while it is open; the dungeon under the run ridden marked at its mouth, an arch,
+and its plan as far as it has been seen drawn in ink in a box of its own in a corner, walls inked, rooms paper, halls hatched, stairs
+ruled, a red dot where you stand in it). `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so).
 
 The info at the top left (what the skier is doing, how fast, how far down, the points and the orcs brought down) is hidden at
 first, the picture clear: *Info at the top left* in the menu under *Picture* shows it (`I`; `?info=1`), kept in the browser.
