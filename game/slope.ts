@@ -411,7 +411,14 @@ async function start() {
   const gpu = (renderer.backend as unknown as { device?: EventTarget }).device;
   gpu?.addEventListener('uncapturederror', (e) => fallBack(String((e as Event & { error?: { message?: string } }).error?.message ?? 'a graphics error').split(/\r?\n/)[0].slice(0, 160)));
   const lost = renderer.onDeviceLost.bind(renderer);
-  renderer.onDeviceLost = (info) => { lost(info); if (info.reason !== 'destroyed') fallBack(`the graphics were lost: ${info.message}`.slice(0, 160)); };
+  renderer.onDeviceLost = (info) => {
+    lost(info);
+    if (info.reason === 'destroyed') return;
+    // (Lost once the page is open, which no frame drawn after it can come back from: opened again as it was, rather than left stood
+    // still; drawn no more simply, as it had drawn till then.)
+    if (performance.now() > openedAt + SAFE.within && !fallingBack) { fallingBack = true; console.warn(`Grand Horse Mountain lost its graphics: ${info.message}`); loading.fail('The graphics were lost: opening again…'); setTimeout(() => location.reload(), 1200); return; }
+    fallBack(`the graphics were lost: ${info.message}`.slice(0, 160));
+  };
   // (How finely: see *Resolution*, below.)
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.toneMapping = ACESFilmicToneMapping;
@@ -7049,10 +7056,33 @@ async function start() {
   // (What the frame says on the page, and where the timeline's head stands: written only when it changes.)
   const clockEl = $('clock'), speedEl = $('speed'), downEl = $('down');
   let headAt = -1, headOf: Demo | null = null;
+  /**
+   * Every frame, whatever becomes of the one before (asked: "on iphone 15 the game freezes now for some reason after first starting the
+   * game and choosing a run from the splash map ... if i reload the page and go play, then it works"): each frame asked for again once
+   * it is done, as it always was, but now even if it threw, so that one thing gone wrong does not stop the picture for good; and what
+   * went wrong said over the picture, the first time, so that it can be told of.
+   */
+  let frameFailed = false;
   const frame = async () => {
-    if (benching) { requestAnimationFrame(frame); return; }
+    try { await frameOnce(); } catch (e) {
+      console.error(e);
+      if (!frameFailed) { frameFailed = true; tell('Something went wrong', String((e as Error)?.message ?? e).slice(0, 140), true, 8); }
+    }
+    requestAnimationFrame(frame);
+  };
+  /**
+   * The shaders being made ready (`warmSoon`), while they are: what was taken out of the scene is not let go of under them. And the
+   * longest a frame waits for them, `WARM_WAIT` milliseconds: on an iPhone opened afresh, with nothing yet made for it, the wait after a
+   * run was chosen on the map could go on with the picture stood still, and never end. Past it, the picture goes on, what is not yet
+   * ready made as it is first drawn (a stutter, at worst).
+   */
+  let warming: Promise<unknown> | null = null;
+  // (Longer as the page opens, behind its loading screen, where a phone was seen to take four seconds over them all.)
+  const WARM_WAIT = 3000, WARM_WAIT_OPENING = 12000;
+  const frameOnce = async () => {
+    if (benching) return;
     // (What was taken out of the scene since the last frame let go of, now that no frame is making shaders ready: `toLetGo`.)
-    for (const f of toLetGo.splice(0)) f();
+    if (!warming) for (const f of toLetGo.splice(0)) f();
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
     // (Riding, slowed through a jump if so chosen: `stepSlowmo`. What keeps pace with the clock on the wall, the picture's blur, not.)
     const now = performance.now(), realDt = fixedDt || Math.min(0.1, (now - then) / 1000);
@@ -7135,11 +7165,21 @@ async function start() {
     // took a second and more longer. With WebGPU only: with WebGL 2, made this way they took twice as long, ten seconds for five.)
     // (And everything else there is with it: `warmSoon`. Opening, drawn this frame behind the loading screen; later, only made ready.)
     let unwarm: (() => void) | null = null;
-    if (warmWanted) {
+    // (Not while shaders given up on are still being made: asked for again once they are.)
+    if (warmWanted && !warming) {
       warmWanted = false;
       const opening = drawnFrames >= 0;
       unwarm = showEverything();
-      if (webgpu || !opening) try { await (blurLevel > 0 ? scenePass : sharpPass).compileAsync(renderer); } catch (e) { console.warn(e); }
+      if (webgpu || !opening) {
+        // (The pass sets the renderer drawing into its own target while it waits, and puts it back once done: put back here too if it
+        // is given up on, so that the frame draws to the picture.)
+        const target = renderer.getRenderTarget(), mrt = renderer.getMRT(), context = renderer.contextNode;
+        const made = (blurLevel > 0 ? scenePass : sharpPass).compileAsync(renderer).catch((e) => console.warn(e));
+        const done = made.then(() => { if (warming === done) warming = null; });
+        warming = done;
+        const inTime = await Promise.race([made.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), opening ? WARM_WAIT_OPENING : WARM_WAIT))]);
+        if (!inTime) { console.warn('Grand Horse Mountain went on without waiting longer for its shaders'); renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context; }
+      }
       if (!opening) { unwarm(); unwarm = null; }
     }
     if (blurLevel > 0) {
@@ -7152,7 +7192,6 @@ async function start() {
     unwarm?.();
     // (For a script making a video a frame at a time: told once each frame is drawn, `__slope.everyFrame`.)
     afterFrame?.();
-    requestAnimationFrame(frame);
   };
   const __look = (off: Vector3) => { heldLook = null; view = 'free'; controls.enabled = true; const at = focus(); camera.position.copy(at).add(off); controls.target.copy(at).addScaledVector(UP, 0.9); controls.update(); lastRider.copy(at); placed = true; };
   // (For a script that drives the page: where it is, and to put it anywhere; riding, what the pointer would ask.)
