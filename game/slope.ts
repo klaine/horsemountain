@@ -3589,7 +3589,11 @@ async function start() {
       // still on the ramp.)
       const toLip = kick ? kick.L - ((ride.x - kick.x) * kick.dx + (ride.z - kick.z) * kick.dz) : Infinity;
       want.brake = false;
-      if (!air) planned = kick && toLip < 75 && trick ? trick : null;
+      // (Lined up on from seventy-five metres before its lip; from further, the further across the run it is from the skier, past ten
+      // metres: from a kicker far to one side to one far to the other, a skier lined up from only seventy-five metres came up to it
+      // some four metres off its middle, and went by it.)
+      const across = kick ? Math.abs((ride.x - kick.x) * kick.dz - (ride.z - kick.z) * kick.dx) : 0, linesUp = 75 + 3 * clamp(across - 10, 0, 30);
+      if (!air) planned = kick && toLip < linesUp && trick ? trick : null;
       if (air) {
         // In the air: the style asked, from a moment off the lip until a moment before the snow; tucked, if its turns would not
         // otherwise come round in time (at the rate it set off the lip, before it opens up to land).
@@ -3614,7 +3618,7 @@ async function start() {
         settle = kicked[k] && kicked[k].s + kicked[k].L - ride.down < 75 + 0.7 * ride.speed ? 0 : 0.7;
       } else if (settle > 0) {
         settle -= dt; want.x = 0; want.y = 0;
-      } else if (kick && toLip < 75 && trick) {
+      } else if (kick && toLip < linesUp && trick) {
         // Lining up on it, at the speed it is to be taken at; and at the lip, the stance that makes its trick.
         if (!from || from.k !== k) { tries[k] ??= 0; rung[k] ??= 0; last = ''; lastT = 0; from = { k, step, ride: structuredClone(ride), ask: { ...ask }, here: { ...here }, frames: frames.length, landed: landed.length, phase }; }
         const tLip = toLip / Math.max(ride.speed, 1), speed = DEMO_SPEEDS[tries[k]];
