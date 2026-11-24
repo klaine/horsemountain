@@ -6335,6 +6335,8 @@ async function start() {
       return true;
     },
     // (The demo run as flown for the skier now: how long, its parts, the tricks it landed, how many times each kicker was flown again.)
+    // (Every kicker standing on the run: which, how far down, across, how big.)
+    kickers: () => Array.from({ length: 60 }, (_, i) => kickerOf(i)).filter((k): k is Kicker => !!k && k.s < land.length).map((k) => ({ i: k.i, s: +k.s.toFixed(1), left: +k.left.toFixed(1), size: k.size })),
     // (Where the demo run is `t` seconds in: how far down, across, how fast.)
     demoAt: (at: number) => { const w = watchPose(at); return { down: +w.down.toFixed(2), left: +w.left.toFixed(2), speed: +w.speed.toFixed(2) }; },
     demo: () => ({ length: demo.length, parts: demo.parts, landed: demo.landed, tries: demo.tries, fell: demo.fell, flown: demo.flown }),
