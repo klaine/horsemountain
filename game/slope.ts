@@ -1365,6 +1365,25 @@ async function start() {
   /** What was found and is still on its way to the player given it at once (as a run begins again); nothing, until loot is set up. */
   let giveLeft = () => {};
   const kit = (): Readonly<Mods> => (pack && mode === 'ride' && !flyingDemo ? worn : NO_MODS);
+  /**
+   * A number gone bad, caught where it would go on into what is drawn (asked, of the run begun again by itself and the rider's upper
+   * body gone: "I get this instant reset now when i ride off to rocks or so and upper torso of human player model is missing"): what it
+   * was and where, the last kept in this browser (`slope.problem`) and shown in the menu under *Settings*, for it to be told of.
+   */
+  const noteProblem = (what: string) => {
+    console.warn(`Grand Horse Mountain: ${what}`);
+    const at = new Date();
+    try { localStorage.setItem('slope.problem', JSON.stringify({ what: what.slice(0, 300), at: at.toISOString() })); } catch { /* (not kept) */ }
+    showProblem?.();
+  };
+  let showProblem: (() => void) | null = null;
+  /** The pose's numbers made sane before they pose a body: each gone to no number set to nothing, and the first said (`noteProblem`), once a while. */
+  let poseSaidAt = -1e9;
+  const sanePose = (c: Record<string, unknown>, where: string) => {
+    let bad = '';
+    for (const k in c) { const v = c[k]; if (typeof v === 'number' && !Number.isFinite(v)) { if (!bad) bad = k; c[k] = 0; } }
+    if (bad && performance.now() - poseSaidAt > 5000) { poseSaidAt = performance.now(); noteProblem(`the pose ${where}: ${bad} went to no number`); }
+  };
   /** How hard skis that push on from slow (`Mods.accel`, a share) push at a standstill, m/s² a whole one; less the faster, none at 90 km/h. */
   const ACCEL_PUSH = 3.5;
   const shoveNow = () => (carting || ride.ended || ride.brake > 0.3 ? 0 : SHOVE.most * smooth(ride.shove / SHOVE.long));
@@ -3627,6 +3646,7 @@ async function start() {
       pop: a.pop0 * (1 - smooth(a.t / 0.26)), set: a.set, lead: (a.spinTo - a.spin) * smooth(a.t / 0.15), spot: smooth((flipped - 0.45) / 0.3),
       cork: a.cork * (1 - open), layout: a.style.layout, spread: a.style.spread, mute: a.style.mute, tail: a.style.tail, reach: a.kind === 'hop' ? 0 : 1 - smooth(left / 0.2),
     } };
+    sanePose(posed.c as unknown as Record<string, unknown>, 'in the air');
     if (!quiet) skier.air(posed.c as AirControls);
     // (Upright to the land under it, smoothed over some metres; its nose up as it left the lip, coming level over the flight.)
     standAt(new Vector3(ride.x, ride.y, ride.z), normalAt(ride.x, ride.z, 1.5), ride.facing, here, a.nose * (1 - smooth(a.t / (0.75 * a.T))));
@@ -3812,6 +3832,7 @@ async function start() {
       skid: Math.max(ride.skid, g180 ? 0.8 * g180.scrape * sideOn : 0), pop: ride.pop, life: ride.time, flex: ride.flex, back: ride.back, press: g180?.press ?? 0,
       skate: ride.skate, stride: ride.stride, powder: powderNow(),
     } };
+    sanePose(posed.c as unknown as Record<string, unknown>, 'on the snow');
     if (!quiet) skier.ride(posed.c as RideControls);
     // (Upright to the snow under it, smoothed over half a metre, as skis bridge what is smaller. In a ground 180: sprung up off it in a
     // pop; tipped onto the tips or the tails in a butter, the pressed ends kept on the snow and the body carried round about them.)
@@ -4663,6 +4684,16 @@ async function start() {
   /** What went wrong last time the page was open, said once riding begins. */
   let lostBefore: { why: string; doing: string } | null = null;
   try { const k = localStorage.getItem('slope.lost'); if (k) { lostBefore = JSON.parse(k); localStorage.removeItem('slope.lost'); } } catch { /* (none) */ }
+  // (The last number gone bad, said in the menu under *Settings*: `noteProblem`.)
+  showProblem = () => {
+    try {
+      const k = JSON.parse(localStorage.getItem('slope.problem') ?? 'null');
+      const el = $('problemNote');
+      el.hidden = !k;
+      if (k) el.textContent = `Last problem seen (${new Date(k.at).toLocaleString()}): ${k.what}`;
+    } catch { /* (none) */ }
+  };
+  showProblem();
   /** The card at the menu's head: the run, and whether it is ridden, watched (which demo) or walked in its cave. */
   const showNow = () => {
     say($('menuRun'), runs.find((r) => r.id === landKind)?.label ?? 'The groomed slope');
@@ -6491,6 +6522,12 @@ async function start() {
     showFight(watching ? null : arm);
     const d = target.sub(muzzle).normalize().applyQuaternion(hq.clone().invert());
     let yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
+    // (Aimed at no number, held straight ahead: posed so, the arms and the body over the hips went to no number for good, and were not
+    // drawn.)
+    if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) {
+      if (performance.now() - poseSaidAt > 5000) { poseSaidAt = performance.now(); noteProblem(`the arms' aim went to no number (${arm.kind}${lock.orc >= 0 ? ', locked on' : ''}${foot ? ', on foot' : ''}${air ? ', in the air' : ''})`); }
+      yaw = 0; pitch = 0;
+    }
     // (On foot the floor is level, and the gun with it: tipped down no more than it takes to reach a foe fallen low, nor up much.)
     if (foot && arm.firing !== 'swing') pitch = clamp(pitch, -0.3, 0.35);
     // (The sword, ready, held out towards what is aimed at, its point down; swung, at one side and then the other, `Rider.slash`, its
@@ -7820,10 +7857,16 @@ async function start() {
   let insaneSaid = false;
   const keepSane = () => {
     const ok = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    // (The ride's own eased numbers, its lean, its facing and the rest, set right where they stand: gone to no number, each eased on from
+    // itself kept to it for good. Only its place gone so begins the run again.)
+    const r = ride as unknown as Record<string, unknown>, fixed: string[] = [];
+    for (const k in r) if (typeof r[k] === 'number' && !Number.isFinite(r[k] as number) && !['x', 'y', 'z', 'down', 'left'].includes(k)) { r[k] = 0; fixed.push(k); }
+    if (fixed.length) noteProblem(`the ride's ${fixed.join(', ')} went to no number: set to nothing (${pictureState()})`);
     const rideOk = [ride.x, ride.y, ride.z, ride.speed, ride.way, ride.down, ride.left].every(Number.isFinite);
     if (rideOk && ok(rider.position) && ok(camera.position)) return;
     const what = `${rideOk ? '' : 'the ride '}${ok(rider.position) ? '' : 'the rider '}${ok(camera.position) ? '' : 'the eye'}`.trim();
-    console.warn(`Grand Horse Mountain: ${what} went to no number (${pictureState()})`);
+    const bad = ['x', 'y', 'z', 'speed', 'way', 'down', 'left'].filter((k) => !Number.isFinite((ride as unknown as Record<string, number>)[k]));
+    noteProblem(`${what} went to no number${bad.length ? ` (${bad.join(', ')})` : ''}: begun again (${pictureState()})`);
     if (!insaneSaid) { insaneSaid = true; tell('Something went wrong', `${what} went to no number: set right`, true, 6); }
     if (!rideOk || !ok(rider.position)) { restart(); return; }
     camera.position.copy(rider.position).add(new Vector3(0, 4, -8));
