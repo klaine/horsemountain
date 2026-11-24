@@ -976,18 +976,22 @@ async function start() {
 
 
   // The tracks. A carved line is a narrow, sharp groove, shadowed; a skid scrapes a broad band, only a little paler than the snow
-  // about it. Laid as strips, each a ski's middle at each step with the ski's track either side of it, across the way it went.
-  const trackPaint = new MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, fog: true });
+  // about it. Laid as strips, each a ski's middle at each step with the ski's track either side of it, across the way it went. Lit as
+  // the snow is, and shadowed with it (asked: "the skid marks dont seem to receive lighting or shadows"): unlit, they stayed as bright
+  // in a tree's or the skier's shadow as in the sun.
+  const trackPaint = new MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.9, depthWrite: false });
   const groove = new Color(0x8ea5c2), scraped = new Color(0xd3dde9);
   const strip = (n: number) => {
     const g = new BufferGeometry(), index: number[] = [];
     for (let j = 1; j < n; j++) index.push(j * 2 - 2, j * 2 - 1, j * 2, j * 2 - 1, j * 2 + 1, j * 2);
     g.setAttribute('position', new BufferAttribute(new Float32Array(n * 6), 3));
     g.setAttribute('color', new BufferAttribute(new Float32Array(n * 6), 3));
+    g.setAttribute('normal', new BufferAttribute(new Float32Array(n * 6), 3));
     g.setIndex(index);
     g.setDrawRange(0, 0);
     const mesh = new Mesh(g, trackPaint);
     mesh.frustumCulled = false;
+    mesh.receiveShadow = true;
     mesh.renderOrder = 1;
     // (Not drawn until something of it is laid: a strip of nothing was a draw of nothing each frame, eight of them, and a warning.)
     mesh.visible = false;
@@ -1006,6 +1010,9 @@ async function start() {
     (mesh.geometry.getAttribute('position') as BufferAttribute).set([...onSnow(at.clone().add(across)).toArray(), ...onSnow(at.clone().sub(across)).toArray()], j * 6);
     const c = groove.clone().lerp(scraped, Math.min(1, (half - 0.035) * 2.5)).lerp(trench, 0.85 * deep);
     (mesh.geometry.getAttribute('color') as BufferAttribute).set([c.r, c.g, c.b, c.r, c.g, c.b], j * 6);
+    // (Facing up from the snow under its middle, both its edges, to be lit as that snow is.)
+    const up = normalAt(at.x, at.z);
+    (mesh.geometry.getAttribute('normal') as BufferAttribute).set([up.x, up.y, up.z, up.x, up.y, up.z], j * 6);
   };
   const halfOf = (skid: number) => 0.035 + 0.75 * skid;
   // The demo run's: worked out for the whole run (again for each skier), then shown as far as the skier has got. As many strips as the
@@ -1022,14 +1029,33 @@ async function start() {
     lastLaid.copy(at[0]);
     rideSkis = at.length;
     if (rideLaid === RIDE_STEPS) {
-      for (const m of rideTracks) for (const name of ['position', 'color']) { const arr = (m.geometry.getAttribute(name) as BufferAttribute).array as Float32Array; arr.copyWithin(0, (RIDE_STEPS / 2) * 6); }
+      for (const m of rideTracks) for (const name of ['position', 'color', 'normal']) { const arr = (m.geometry.getAttribute(name) as BufferAttribute).array as Float32Array; arr.copyWithin(0, (RIDE_STEPS / 2) * 6); }
       rideLaid = RIDE_STEPS / 2;
     }
     at.forEach((p, k) => lay(rideTracks[k], rideLaid, p, now.way, halfOf(now.skid), here, ride.deep));
     rideLaid++;
-    rideTracks.forEach((m, k) => { m.geometry.getAttribute('position').needsUpdate = true; m.geometry.getAttribute('color').needsUpdate = true; showStrip(m, k < rideSkis ? Math.max(0, rideLaid - 1) * 6 : 0); });
+    rideTracks.forEach((m, k) => { m.geometry.getAttribute('position').needsUpdate = true; m.geometry.getAttribute('color').needsUpdate = true; m.geometry.getAttribute('normal').needsUpdate = true; showStrip(m, k < rideSkis ? Math.max(0, rideLaid - 1) * 6 : 0); });
   };
   const clearRideTracks = () => { rideLaid = 0; for (const m of rideTracks) showStrip(m, 0); };
+  /**
+   * The ridden tracks within `box` (in the scene: x from, to, z from, to) laid down on the snow again: those ridden over an arena's
+   * pipe, as it sinks back into the snow, else they were left hanging in the air where it had stood.
+   */
+  const settleRideTracks = (box: readonly [number, number, number, number]) => {
+    for (const m of rideTracks) {
+      const p = m.geometry.getAttribute('position') as BufferAttribute, n = m.geometry.getAttribute('normal') as BufferAttribute;
+      let moved = false;
+      for (let i = 0; i < rideLaid * 2; i++) {
+        const x = p.getX(i), z = p.getZ(i);
+        if (x < box[0] || x > box[1] || z < box[2] || z > box[3]) continue;
+        p.setY(i, ground(x, z) + 0.02);
+        const up = normalAt(x, z);
+        n.setXYZ(i, up.x, up.y, up.z);
+        moved = true;
+      }
+      if (moved) p.needsUpdate = n.needsUpdate = true;
+    }
+  };
 
   // Snow thrown up from the skis' edges (asked: "maybe the flying snow from skidded turns and braking could be improved to something
   // nicer with a bit of snow sparkle?"; it had been white chips of a solid). A cloud of powder: puffs, each a picture of soft blots
@@ -1400,6 +1426,8 @@ async function start() {
   /** How hard a turn is held to keep a spin going round. */
   const HOLD = 0.6;
   let air: Air | null = null;
+  /** The air taken off a kicker's lip, while it lasts (not a knoll's, nor the arena's pipe's). */
+  let kickerAir: Air | null = null;
   /**
    * The trick about to be made off the kicker ahead, by the demo run's pilot or for the rider (`rideTrick`): what the stance at the lip
    * cannot say of it, `takeOff` takes from it: a barrel roll, and a second flip.
@@ -1417,7 +1445,7 @@ async function start() {
    * Where a mouse or a touchpad points over the picture, asking as the stick does; whether it has taken the skier (`on`: until then,
    * and once it is let go, the stick asks), and whether its button is held, braking.
    */
-  const aim = { x: 0, y: 0, on: false, brake: false };
+  const aim = { x: 0, y: 0, on: false, brake: false, px: 0, py: 0 };
   const FLICK = 0.3;
   /** Where across the range a turn begins to skid (it skids wholly at its end), and how far the skis are pivoted across the way then. */
   const SKID_FROM = 0.8, SKID_TURN = deg(38);
@@ -1678,7 +1706,7 @@ async function start() {
   /** The rider's wishes eased in: across and up, the tuck and standing tall, braking. */
   const easeAsk = (dt: number) => {
     // (Not while a trick is being made: it asks what it must, whatever the keys say.)
-    const keys = want.keys, keyed = !want.auto && (keys.up || keys.down || keys.left || keys.right);
+    const keys = want.keys, keyed = !want.auto && !isoRiding() && (keys.up || keys.down || keys.left || keys.right);
     // (An arrow key carves at first; held on, it pushes the turn out to the end of the range, into a skid, as the pointer does at
     // the edge of the ring.)
     ride.held = keys.left !== keys.right ? ride.held + dt : 0;
@@ -1767,6 +1795,8 @@ async function start() {
     // air from the first, rather than held round half a turn at a time at the quickest.)
     if (spinning && plan && plan.halves > 0 && kind !== 'roll') { air.spinTo = dir * plan.halves * Math.PI; air.holding = false; }
     air.name = trickName(air);
+    // (Off a kicker's lip, where the snow was raised under it the step before: what the slow motion is for, `SLOWMO`.)
+    kickerAir = !plain && ride.out > 0.01 ? air : null;
   };
 
   /** Comes down onto the snow: landed, if the turns are near enough made and the blow (how fast it comes into the snow) not too hard; else gone limp. */
@@ -3985,7 +4015,7 @@ async function start() {
       spots.forEach((p, s) => lay(watchTracks[s], j, onSnow(p), now.way, fs[i].air ? 0 : halfOf(now.skid), f, now.deep ?? 0));
     }
     kicks = was;
-    for (const m of watchTracks) { m.geometry.getAttribute('position').needsUpdate = true; m.geometry.getAttribute('color').needsUpdate = true; }
+    for (const m of watchTracks) { m.geometry.getAttribute('position').needsUpdate = true; m.geometry.getAttribute('color').needsUpdate = true; m.geometry.getAttribute('normal').needsUpdate = true; }
   };
   // ---------------------------------------------------------------- riding: the tricks done for the rider
   /**
@@ -4188,9 +4218,52 @@ async function start() {
     return false;
   };
   /** Riding, a step: what the stick or the pointer asks, unless a trick is being made, which asks what it must. */
+  /** Whether riding is seen from above (`iso`), and steered so: on the snow, not on foot. */
+  const isoRiding = () => mode === 'ride' && view === 'iso' && !foot;
+  /**
+   * How hard a turn is asked, `a` radians short of the way asked for, riding seen from above: carved, the harder the further round it
+   * is to come, out to `CARVE_DEEP` at `ISO_STEER.carve`; past it, harder to `SKID_FROM` at `ISO_STEER.edge`, where it begins to skid;
+   * and past that, skidded the more, wholly at `ISO_STEER.skid` and on round.
+   */
+  const ISO_STEER = { carve: deg(24), edge: deg(40), skid: deg(80), tuck: deg(10), dead: 0.12 };
+  const isoSharp = (a: number) =>
+    a < ISO_STEER.carve ? CARVE_DEEP * (a / ISO_STEER.carve)
+      : a < ISO_STEER.edge ? CARVE_DEEP + (SKID_FROM - CARVE_DEEP) * ((a - ISO_STEER.carve) / (ISO_STEER.edge - ISO_STEER.carve))
+        : SKID_FROM + (1 - SKID_FROM) * smooth((a - ISO_STEER.edge) / (ISO_STEER.skid - ISO_STEER.edge));
+  /**
+   * Riding seen from above, steered as on foot in the cave (asked: "make the isometric skiing mode follow the dungeon control
+   * principles.. if player makes too sharp turns, then it will skid and so on"): W A S D or the arrows, the stick, the tilt, are up,
+   * down, left and right across the picture, and the pointer where it is from the skier on the picture: the way to go, not a turn.
+   * The skier turns to it as a skier can: a little way round, carved; further, harder; too sharp to carve (some forty degrees and
+   * more), skidded round, scraping and slowing, the more the sharper. Held the way it already goes, it tucks; let go, it runs on as it
+   * goes. Shift, or the button held, brakes as ever.
+   */
+  const askIso = (by: { x: number; y: number }) => {
+    const k = want.keys;
+    let sx = (k.right ? 1 : 0) - (k.left ? 1 : 0), sy = (k.up ? 1 : 0) - (k.down ? 1 : 0);
+    if (!sx && !sy) {
+      if (aim.on) {
+        // (From where the skier is on the picture to the pointer; what is up the picture drawn shorter than it is, as the view looks
+        // down at a slant, made as long again.)
+        const r = canvas.getBoundingClientRect(), p = rider.position.clone().project(camera);
+        const dx = aim.px - (r.left + ((p.x + 1) / 2) * r.width), dy = (r.top + ((1 - p.y) / 2) * r.height - aim.py) / Math.sin(ISO.pitch);
+        const l = Math.hypot(dx, dy), reach = aimReach();
+        if (l > ISO_STEER.dead * reach) { sx = dx / l; sy = dy / l; }
+      } else if (Math.hypot(by.x, by.y) > ISO_STEER.dead) { sx = by.x; sy = by.y; }
+    }
+    const amount = Math.min(1, Math.hypot(sx, sy));
+    if (amount < 1e-3) { want.x = 0; want.y = 0; return; }
+    const up = camera.getWorldDirection(new Vector3()).setY(0).normalize(), right = new Vector3(-up.z, 0, up.x);
+    const go = up.multiplyScalar(sy).addScaledVector(right, sx);
+    const wantWay = Math.atan2(go.dot(runLeft(here)), go.dot(runDir(here))), short = wrapAngle(wantWay - ride.way);
+    // (Turning to the left is to less across, as `ask.x` goes.)
+    want.x = -Math.sign(short) * isoSharp(Math.abs(short));
+    want.y = amount * (1 - smooth(Math.abs(short) / ISO_STEER.tuck));
+  };
   const askRide = () => {
     const by = aim.on ? aim : stickHeld === null && tilting() ? tilt : stick;
     want.auto = false; want.x = by.x; want.y = by.y; want.brake = aim.brake;
+    if (isoRiding()) askIso(by);
     // (Too fast for the kicker ahead: braked down to it, and no trick chosen off it until it is slow enough.)
     const checking = !quiet && tooFast();
     if (checking && checkingFor && checkingFor !== toldFor) { toldFor = checkingFor; tell('Speed check', 'too fast for the kicker ahead', false, 1.2); }
@@ -4679,7 +4752,8 @@ async function start() {
     if (e.target instanceof HTMLButtonElement && e.key === ' ') return;
     if (mode === 'ride' && ARROWS[e.key]) { want.keys[ARROWS[e.key]] = true; e.preventDefault(); return; }
     // (On foot, W, A, S and D as the arrows, by where the keys are whatever the keyboard's letters: riding, S and A are views.)
-    if (mode === 'ride' && foot && WASD[e.code] && !(e.target instanceof HTMLInputElement)) { want.keys[WASD[e.code]] = true; e.preventDefault(); return; }
+    // (And seen from above on the snow, where they are its way to go as on foot: there A and S are not the views.)
+    if (mode === 'ride' && (foot || view === 'iso') && WASD[e.code] && !(e.target instanceof HTMLInputElement)) { want.keys[WASD[e.code]] = true; e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Shift') { want.brakeKey = true; return; }
     if (mode === 'ride' && e.key.toLowerCase() === 'x' && !(e.target instanceof HTMLInputElement)) { start180(); e.preventDefault(); return; }
     if (mode === 'ride' && e.key.toLowerCase() === 'z' && !(e.target instanceof HTMLInputElement)) { if (!e.repeat) holdSkate(true); e.preventDefault(); return; }
@@ -4725,6 +4799,7 @@ async function start() {
     // (A little give about the middle, so that the skier runs straight without the pointer being held on a point.)
     const give = (n: number) => Math.sign(n) * clamp((Math.abs(n) - 0.05) / 0.95, 0, 1);
     if (aim.on) { aim.x = give(nx); aim.y = give(ny); }
+    aim.px = e.clientX; aim.py = e.clientY;
     // (Within the guide its mark is the pointer; outside it the mark stays at its edge, and the pointer is shown where it is.)
     canvas.style.cursor = aim.on && inside ? 'none' : '';
   };
@@ -4818,6 +4893,7 @@ async function start() {
     // while the arm has it.)
     aimEl.classList.toggle('lost', overPicture && !aim.on && !cat);
     aimEl.classList.toggle('fallen', !!crash || !!cat);
+    aimEl.classList.toggle('iso', isoRiding());
   };
 
   // The tommy gun (asked: "if the player is skiing with just the human, make the skier have a tommygun submachine gun that fires when
@@ -4879,6 +4955,9 @@ async function start() {
    * blood.
    */
   type Swing = { k: number; side: number; struck: Set<number>; held: boolean; charge: number; cut: boolean; blood: boolean };
+  /** How long the arms stay the gun's in the air after the trigger is let go (`armUp`), and how long still now. */
+  const AIR_AIM = 0.6;
+  let airAim = 0;
   let pulls = 0, ready = 0, swing: Swing | null = null, lastSide = -1, flameSaid = 0, armSaid: ArmKind | null = null;
   const heat = new Map<number, number>();
   // (The sword's swing so long that a click made in the last half of one is kept for the next.)
@@ -5216,7 +5295,9 @@ async function start() {
     if (arena.pipe.sunk >= 1) {
       arena.group.removeFromParent();
       arena.group.traverse((o) => { const m = o as Mesh; if (m.isMesh && m.geometry !== kickerParts.pole && m.geometry !== kickerParts.flag) m.geometry.dispose(); });
+      const box = arena.box;
       arena = null;
+      settleRideTracks(box);
       placeKickers(ride.down);
     }
   };
@@ -5229,6 +5310,8 @@ async function start() {
     if (a.sinking) {
       a.pipe.sunk = Math.min(1, a.pipe.sunk + dt / 2.5);
       (a.group.userData.relay as () => void)();
+      // (And the tracks ridden on it going down with it.)
+      settleRideTracks(a.box);
       // (Its flags going down with it.)
       for (const o of a.group.children) { const g = (o as Mesh).geometry; if (g === kickerParts.pole || g === kickerParts.flag) o.position.y -= dt * 3; }
       if (a.pipe.sunk >= 1) endArena();
@@ -5652,9 +5735,13 @@ async function start() {
     if (model.parent !== holder) holder.add(model);
     model.visible = true;
     const muzzle = model.localToWorld(arm.muzzle.clone()), go = along(now.way, here);
-    // In the air (or thrown, or in a turn of the whole body on the snow), the gun in the right hand alone, unfired.
+    // In the air (or thrown, or in a turn of the whole body on the snow), the gun in the right hand alone, unfired; riding, unless fired.
     const frame = watching ? demo.frames[Math.min(demo.frames.length - 1, Math.round(t / STEP))] : null;
-    const holding = watching ? !!frame && !frame.air && Math.abs((frame.c as RideControls).spin ?? 0) < 0.3 : !air && !crash && !ride.turn180 && !cat;
+    // (Riding, in the air too (asked: "can we enable shooting from mid air?"): while the trigger is held, or a shot or a cut asked for is
+    // still to come, and `AIR_AIM` seconds after, the arms are the gun's, aimed as on the snow, as far round as they turn from a body
+    // spinning or upside down, and fired along where it points; else the trick's own, its grab, the gun in the right hand alone.)
+    if (!watching && air && (firing || pulls || swing)) airAim = AIR_AIM; else airAim = Math.max(0, airAim - going);
+    const holding = watching ? !!frame && !frame.air && Math.abs((frame.c as RideControls).spin ?? 0) < 0.3 : (!air || airAim > 0) && !crash && !ride.turn180 && !cat;
     let target: Vector3;
     if (watching) {
       // The nearest orc to be seen from the muzzle, within the arm's reach (`WATCH_REACH`): ahead, or, for the sword, at either side;
@@ -6203,6 +6290,48 @@ async function start() {
     }
     return rideShot;
   };
+  /**
+   * Jumps in slow motion (asked: "can we add a toggle that enables slow motion cinematic camera during airtime from kicker jumps? then
+   * resumes the previous view always"; "this way one could ride isometric but see the jumps nicely"): chosen in the menu, riding,
+   * each air off a kicker's lip long enough for a trick (`least` seconds) is seen in the cinematic view, its shot from beside the
+   * flight, with time eased down to `scale` of its pace; down on the snow again, landed or fallen, and `hold` seconds on, time eased
+   * back to its pace and the view the one ridden in before, whichever it was. (Kept in this browser; `?slowmo=1` or `0`.)
+   */
+  const SLOWMO = { scale: 0.35, least: 0.6, hold: 0.45, into: 10, out: 5 };
+  let slowmoOn = false, timeScale = 1;
+  /** The jump being slowed: its air, the view ridden in before it, and how long until that view comes back once down. */
+  let slowJump: { air: Air; was: View; after: number } | null = null;
+  const slowmoButtons = (['Off', 'On'] as const).map((label, k) => button('slowmoSeg', label, () => setSlowmo(k === 1), k ? 'Riding, each jump off a kicker seen in the cinematic view and in slow motion, then back to the view ridden in' : 'Jumps at their own pace, in the view ridden in'));
+  const setSlowmo = (on: boolean) => {
+    slowmoOn = on;
+    keep('slowmo', on ? '1' : '0');
+    slowmoButtons.forEach((b, k) => b.classList.toggle('on', (k === 1) === on));
+  };
+  /** The view ridden in given back, the jump over (or riding left: then only kept, to be had on riding again). */
+  const endSlowmo = () => {
+    if (!slowJump) return;
+    const was = slowJump.was;
+    slowJump = null;
+    if (mode !== 'ride') { viewFor.ride = was; return; }
+    // (Not if another view was chosen meanwhile.)
+    if (view === 'cinema' && was !== 'cinema') setView(was);
+  };
+  /** A frame on, `held` seconds of it going on riding (none while paused or in the menu): a jump begun, the view given back, time's pace. */
+  const stepSlowmo = (held: number) => {
+    const may = slowmoOn && mode === 'ride' && !foot && !cat;
+    if (may && air && air === kickerAir && air.T > SLOWMO.least && slowJump?.air !== air) {
+      // (Another jump straight after the last, before its view came back: the view ridden in kept from the first.)
+      slowJump = { air, was: slowJump?.was ?? view, after: SLOWMO.hold };
+      if (view !== 'cinema') setView('cinema');
+    }
+    if (slowJump) {
+      if (air !== slowJump.air) slowJump.after -= held;
+      if (!may || slowJump.after <= 0) endSlowmo();
+    }
+    const want = slowJump && air === slowJump.air ? SLOWMO.scale : 1;
+    if (held > 0) timeScale += (want - timeScale) * ease(held, want < timeScale ? SLOWMO.into : SLOWMO.out);
+    if (Math.abs(timeScale - want) < 0.005 || !slowmoOn || mode !== 'ride') timeScale = want;
+  };
   let shotNow: Shot | null = null, fovNow = FOV;
   /** The cinematic view, now: which shot, and where its camera is and what it looks at. */
   const placeCinema = (at: Vector3, dt: number) => {
@@ -6669,6 +6798,7 @@ async function start() {
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
   setInfo(query.has('info') ? query.get('info') !== '0' : kept('info') === '1');
   setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
+  setSlowmo(query.has('slowmo') ? query.get('slowmo') !== '0' : kept('slowmo') === '1');
   resetScore();
   setTilt(kept('tilt') !== '0');
   {
@@ -6828,7 +6958,10 @@ async function start() {
     // (What was taken out of the scene since the last frame let go of, now that no frame is making shaders ready: `toLetGo`.)
     for (const f of toLetGo.splice(0)) f();
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
-    const now = performance.now(), dt = fixedDt || Math.min(0.1, (now - then) / 1000);
+    // (Riding, slowed through a jump if so chosen: `stepSlowmo`. What keeps pace with the clock on the wall, the picture's blur, not.)
+    const now = performance.now(), realDt = fixedDt || Math.min(0.1, (now - then) / 1000);
+    stepSlowmo(mode === 'ride' && playing && !menuOpen ? realDt : 0);
+    const dt = realDt * (mode === 'ride' ? timeScale : 1);
     stepIntro(now);
     if (drawnFrames >= 0 && ++drawnFrames > 2) { drawnFrames = -1; loading.done(); openedAt = performance.now(); }
     adapt(now - then);
@@ -6912,7 +7045,7 @@ async function start() {
       if (!opening) { unwarm(); unwarm = null; }
     }
     if (blurLevel > 0) {
-      uShutter.value = clamp(1 / 60 / Math.max(dt, 1e-3), 0.005, 3) * blurLevel;
+      uShutter.value = clamp(1 / 60 / Math.max(realDt, 1e-3), 0.005, 3) * blurLevel;
       uBlur.value = blurLevel;
       // (The land turning over in focus as it does, rather than the skier, small in the middle of it.)
       uFocus.value = Math.max(3, camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position));
@@ -7111,6 +7244,7 @@ async function start() {
     // (With the tommy gun: how many orcs are about, and how many have been brought down.)
     // (The arena laid for a great one, if there is one: where its pipe's foot, lip and end are along the run, its middle and half its
     // breadth across it, how far it has sunk; its pen; how many boosters are still to be taken.)
+    slowmo: (on?: boolean) => { if (on !== undefined) setSlowmo(on); return { on: slowmoOn, scale: timeScale, jump: !!slowJump, was: slowJump?.was ?? null, view }; },
     arena: () => arena && { foot: arena.pipe.foot, lip: arena.pipe.foot + arena.pipe.lip, top: arena.pipe.top, end: arena.pipe.foot + arena.pipe.end, mid: arena.pipe.mid, half: arena.pipe.half, sunk: arena.pipe.sunk, sinking: arena.sinking, pen: horde.pen, penned: horde.penned, boosters: boosters.where().length },
     // (The great one being sent off, if one is: by what, how far through; and `by`, what the next is sent off by.)
     launch: (by?: string) => { if (by) launchNext = by as LaunchBy; const l = launches.find((x) => x.by !== 'plain') ?? launches[0]; return l && { by: l.by, t: +l.t.toFixed(2), thrown: l.thrown, at: l.model.position.toArray().map((v) => +v.toFixed(1)), all: launches.map((x) => x.by) }; },
