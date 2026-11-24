@@ -226,6 +226,8 @@
     #bosses .bar .lag { width: calc(var(--was, 1) * 100%); background: #e8d9a8; transition: width .7s ease-in .5s; }
     #bosses .bar .fill { background: linear-gradient(#b02a22, #6e130f); transition: width .08s linear; }
     #bosses .boss.felled .name { color: #ffe07a; }
+    #bosses .boss.kneeling .name { color: #ffe07a; animation: bossKneel 0.9s ease-in-out infinite alternate; }
+    @keyframes bossKneel { from { opacity: 0.55; } to { opacity: 1; } }
     @keyframes bossIn { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
     @keyframes bossOut { to { opacity: 0; } }
     #felled { position: fixed; left: 0; right: 0; top: 38%; z-index: 3; pointer-events: none; display: none; text-align: center; padding: 18px 0 16px;

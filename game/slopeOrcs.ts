@@ -37,6 +37,8 @@ export interface Den {
   way(p: Vector3, to: Vector3): Vector3;
   floor(x: number, z: number): number;
   walk(x: number, z: number, tx: number, tz: number, r: number): [number, number];
+  /** Whether what stands at a point is to be drawn: in sight of the one on foot (the dark of the dungeon hides the rest). */
+  shows?(p: Vector3): boolean;
 }
 
 /**
@@ -51,8 +53,13 @@ interface Foe {
   kind: FoeKind; gait: Gait; size: number;
   /** Where it is along the run and across it, and in the scene; how fast it comes; which way it faces; how many more blows it takes. */
   s: number; left: number; p: Vector3; pace: number; yaw: number; hp: number;
-  /** `come` while it comes up the slope; `down` once it has fallen (how long since, and how it was thrown); `gone`, waiting to come. */
-  state: 'come' | 'down' | 'gone'; since: number; v: Vector3;
+  /**
+   * `come` while it comes up the slope; `down` once it has fallen (how long since, and how it was thrown); `taken`, its body the page's
+   * a while, sent off far away (`onTaken`); `gone`, waiting to come.
+   */
+  state: 'come' | 'down' | 'taken' | 'gone'; since: number; v: Vector3;
+  /** Beaten and on its knees, waiting for the last blow (`FoeKind.kneels`). */
+  kneeling: boolean;
   /** How much longer it reels from a blow that did not bring it down; how much longer before the skier can run it down again. */
   reel: number; bumped: number;
   /** Whether its meshes are drawn into the sun's shadows now: only near the skier, about which those are kept. */
@@ -70,7 +77,7 @@ interface Foe {
  */
 export interface Pen { lo: number; hi: number; mid: number; half: number }
 /** A great one the skier has come to: which (the same while it comes), its name, how strong it is still, and whether it has fallen. */
-export interface Boss { id: string; title: string; kind: FoeName; hp: number; most: number; down: boolean }
+export interface Boss { id: string; title: string; kind: FoeName; hp: number; most: number; down: boolean; kneeling: boolean }
 /** How near a great one comes before the skier is reckoned to have come to it; how long its bar stays once it has fallen. */
 const MEET = 55, FELLED = 2.6;
 
@@ -97,6 +104,11 @@ export class Horde {
    */
   onGreat: ((s: number, left: number) => void) | null = null;
   pen: Pen | null = null;
+  /**
+   * Told of one brought to its knees and struck again: its body, where it is, how large; the page sends it off far away and hands it
+   * back (`release`) once it is gone.
+   */
+  onTaken: ((model: Object3D, at: Vector3, size: number, kind: FoeKind) => void) | null = null;
   /** How far ahead of the skier a horde comes from (nearer, for a script that would see them soon). */
   ahead: [number, number] = AHEAD;
   /** How many there may be out at once, coming and fallen (each kind's share of it waiting besides); a horde comes while fewer than two fifths of as many are coming. */
@@ -133,7 +145,7 @@ export class Horde {
     this.dress(gait.model);
     gait.model.visible = false;
     this.scene.add(gait.model);
-    this.foes.push({ kind, gait, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, hp: kind.hp, state: 'gone', since: 0, v: new Vector3(), reel: 0, bumped: 0, casts: true, title: '', met: false, comes: 0, penned: false, next: 0 });
+    this.foes.push({ kind, gait, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, hp: kind.hp, state: 'gone', since: 0, v: new Vector3(), reel: 0, bumped: 0, casts: true, title: '', met: false, comes: 0, penned: false, next: 0, kneeling: false });
   }
   /** The kind fewest of which have been made, against how many there may be; none, when there are enough of each. */
   private wanting(): FoeKind | null {
@@ -169,7 +181,7 @@ export class Horde {
         const waiting = free(kind), [lo, hi] = g.edges(s0), mid = this.rng.range(lo + 3, hi - 3), n = Math.min(waiting.length, room, this.rng.int(...kind.pack));
         for (let k = 0; k < n; k++) {
           const b = waiting[k], s = s0 + this.rng.range(-kind.spread, kind.spread), left = mid + this.rng.range(-0.8, 0.8) * kind.spread;
-          Object.assign(b, { s, left, state: 'come', since: 0, pace: this.rng.range(...kind.pace), hp: kind.hp, reel: 0, bumped: 0, met: false, comes: b.comes + 1 });
+          Object.assign(b, { s, left, state: 'come', since: 0, pace: this.rng.range(...kind.pace), hp: kind.hp, reel: 0, bumped: 0, met: false, comes: b.comes + 1, kneeling: false });
           if (kind.titles) b.title = this.naming.pick(kind.titles);
           b.gait.go(b.pace, this.rng.next());
           b.gait.model.visible = true;
@@ -181,9 +193,14 @@ export class Horde {
       }
     }
     for (const b of this.foes) {
-      if (b.state === 'gone') continue;
+      if (b.state === 'gone' || b.state === 'taken') continue;
       b.since += dt;
-      if (b.state === 'come') {
+      if (b.state === 'come' && b.kneeling) {
+        // (On its knees: where it went down, turned to the skier, waiting.)
+        b.p.y = g.ground(b.p.x, b.p.z);
+        const want = Math.atan2(q.at.x - b.p.x, q.at.z - b.p.z);
+        b.yaw += Math.max(-dt, Math.min(dt, ((want - b.yaw + 3 * Math.PI) % (2 * Math.PI)) - Math.PI));
+      } else if (b.state === 'come') {
         // Up the run, and across towards the skier's line, the nearer the more; hardly at all while it reels from a blow.
         b.reel = Math.max(0, b.reel - dt); b.bumped = Math.max(0, b.bumped - dt);
         const slow = b.reel > 0 ? 0.2 : 1, pen = b.penned ? this.pen : null;
@@ -260,7 +277,7 @@ export class Horde {
         if (kind.titles) this.greatAt = this.denClock;
         for (let k = 0, n = Math.min(waiting.length, this.rng.int(...d.pack)); k < n; k++) {
           const b = waiting[k];
-          Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(...d.pace), next: 0, hp: kind.hp, reel: 0, bumped: 0, penned: false, met: false, comes: b.comes + 1 });
+          Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(...d.pace), next: 0, hp: kind.hp, reel: 0, bumped: 0, penned: false, met: false, comes: b.comes + 1, kneeling: false });
           if (kind.titles) b.title = this.naming.pick(kind.titles);
           b.p.set(from.x + this.rng.range(-0.8, 0.8), 0, from.z + this.rng.range(-0.8, 0.8));
           b.p.y = den.floor(b.p.x, b.p.z);
@@ -270,7 +287,7 @@ export class Horde {
       }
     }
     for (const b of this.foes) {
-      if (b.state === 'gone') continue;
+      if (b.state === 'gone' || b.state === 'taken') continue;
       b.since += dt;
       if (b.state === 'come') {
         b.reel = Math.max(0, b.reel - dt);
@@ -302,6 +319,8 @@ export class Horde {
         if (b.since > 6.5) { this.letGo(b); continue; }
       }
       b.gait.model.position.copy(b.p);
+      // (Only those in sight drawn: out of it, round a corner, in a room not yet come to, the dark has them.)
+      b.gait.model.visible = !den.shows || den.shows(b.p.clone().setY(b.p.y + b.kind.mid * b.size));
       const casts = b.p.distanceToSquared(q.at) < 30 * 30;
       if (casts !== b.casts) { b.casts = casts; for (const m of b.gait.meshes) m.castShadow = casts; }
       b.gait.model.rotation.set(0, b.yaw, 0);
@@ -361,8 +380,23 @@ export class Horde {
     const b = typeof i === 'number' ? this.foes[i] : i;
     if (!b || b.state !== 'come') return null;
     const bleeds = bloody && b.kind.bloody;
-    b.hp -= blow;
     b.met = true;
+    // (On its knees, beaten: the next blow, whatever it is, sends it off far away, its body the page's until it is gone.)
+    if (b.kneeling && this.onTaken) {
+      b.state = 'taken'; b.since = 0; b.kneeling = false;
+      this.downed++;
+      this.onStruck?.(this.middleOf(b), push, b.size, false, bleeds);
+      this.onTaken(b.gait.model, b.p.clone(), b.size, b.kind);
+      return { kind: b.kind, down: true };
+    }
+    b.hp -= blow;
+    // (Beaten, one that kneels goes down on its knees rather than falling, waiting for the last blow.)
+    if (b.hp <= 0 && b.kind.kneels && this.onTaken && b.gait.kneel) {
+      b.hp = 0; b.kneeling = true; b.reel = 0;
+      b.gait.kneel();
+      this.onStruck?.(this.middleOf(b), push, b.size, false, bleeds);
+      return { kind: b.kind, down: false };
+    }
     if (b.hp > 0) {
       b.reel = 0.45;
       b.gait.flinch();
@@ -379,7 +413,15 @@ export class Horde {
 
   private letGo(b: Foe): void { b.state = 'gone'; b.penned = false; b.gait.model.visible = false; b.gait.stop(); }
   /** How many penned are still coming (none, and the fight is done). */
-  get penned(): number { return this.foes.filter((b) => b.penned && b.state === 'come').length; }
+  get penned(): number { return this.foes.filter((b) => b.penned && (b.state === 'come' || b.state === 'taken')).length; }
+  /** One sent off far away handed back, gone: fallen, as far as the count and its bar are concerned, and not drawn. */
+  release(model: Object3D): void {
+    const b = this.foes.find((f) => f.gait.model === model && f.state === 'taken');
+    if (!b) return;
+    b.state = 'down'; b.since = 0; b.v.set(0, 0, 0); b.penned = false;
+    b.gait.stop();
+    b.gait.model.visible = false;
+  }
   /** The pen taken away: those in it go on as the rest do. */
   unpen(): void { this.pen = null; for (const b of this.foes) b.penned = false; }
 
@@ -397,9 +439,9 @@ export class Horde {
   bosses(at: Vector3): Boss[] {
     return this.foes
       .map((b, i) => ({ b, i, far: Math.hypot(b.p.x - at.x, b.p.z - at.z) }))
-      .filter(({ b }) => b.kind.titles && b.met && (b.state === 'come' || (b.state === 'down' && b.since < FELLED)))
+      .filter(({ b }) => b.kind.titles && b.met && (b.state === 'come' || b.state === 'taken' || (b.state === 'down' && b.since < FELLED)))
       .sort((x, y) => x.far - y.far).slice(0, 2)
-      .map(({ b, i }) => ({ id: `${i}.${b.comes}`, title: b.title, kind: b.kind.name, hp: Math.max(0, b.hp), most: b.kind.hp, down: b.state === 'down' }));
+      .map(({ b, i }) => ({ id: `${i}.${b.comes}`, title: b.title, kind: b.kind.name, hp: Math.max(0, b.hp), most: b.kind.hp, down: b.state === 'down', kneeling: b.kneeling || b.state === 'taken' }));
   }
   /** Where each still coming is to be aimed at: its middle. */
   aims(): Vector3[] { return this.foes.filter((b) => b.state === 'come').map((b) => this.middleOf(b)); }

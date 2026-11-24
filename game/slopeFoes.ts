@@ -27,6 +27,8 @@ export interface Gait {
   flinch(): void;
   /** Brought down. */
   fall(): void;
+  /** Brought to its knees, beaten, waiting for the last blow (`FoeKind.kneels`). */
+  kneel?(): void;
   stop(): void;
   update(dt: number): void;
 }
@@ -63,6 +65,8 @@ export interface FoeKind {
    * how hard it strikes (an orc's, 1).
    */
   den?: { pace: [number, number]; pack: [number, number]; chance: number; blow: number };
+  /** Beaten, it goes down on its knees rather than falling, and the next blow sends it off far away (`Horde.strike`, `slope.ts`). */
+  kneels?: boolean;
 }
 
 /** A standing body's balls: its trunk and its head. */
@@ -94,7 +98,8 @@ export const FOES: FoeKind[] = [
   {
     name: 'yeti', size: [1.9, 2.25], pace: [1.4, 1.9], pack: [1, 2], hp: 8, worth: 5, chance: 1, from: 0.18, share: 0.1, spread: 6, hunt: 0.8,
     mid: 1.0, balls: [[0, 0.95, 0.48], [0, 1.55, 0.3]], bloody: true, lies: 5,
-    body: (library) => rigged(library, yetiBody, { walk: 'Walk_Loop', die: 'Death01', hit: 'Hit_Chest', speed: 1.0 }, 1.14),
+    body: (library) => rigged(library, yetiBody, { walk: 'Walk_Loop', die: 'Death01', hit: 'Hit_Chest', kneel: 'Fixing_Kneeling', speed: 1.0 }, 1.14),
+    kneels: true,
     titles: [
       'Skarn, Who Walks the Cornice', 'The Old Man of the Drifts', 'Hrimmal, the White Hunger', 'Mother of Whiteouts',
       'Ymmar, Frost Under the Pass', 'Grey Maw of the Upper Snows', 'Ulvgard the Avalanche-Born', 'The Hermit of the Col',
@@ -114,7 +119,7 @@ export const FOES: FoeKind[] = [
 // ------------------------------------------------------------------------------------------------ the figures' bodies made over
 
 /** Which clips a figure plays, coming, falling and struck; and how fast its coming clip carries a body of size one, if that is known. */
-interface Clips { walk: string; die: string; hit?: string; speed?: number }
+interface Clips { walk: string; die: string; hit?: string; kneel?: string; speed?: number }
 
 /** A figure's body, made once, and a maker of copies of it, `broad` times broader than it is tall (a yeti is bulky). */
 async function rigged(library: FigureLibrary, make: (bare: Object3D) => Object3D, clips: Clips, broad = 1): Promise<Maker> {
@@ -133,6 +138,7 @@ class Figure implements Gait {
   private readonly walk: AnimationAction;
   private readonly die: AnimationAction;
   private readonly hit: AnimationAction | null;
+  private readonly down: AnimationAction | null;
   private scale = 1;
   private reeling = 0;
   constructor(readonly model: Object3D, readonly meshes: Mesh[], moves: Map<string, { clip: AnimationClip }>, private readonly clips: Clips, private readonly size: number) {
@@ -143,12 +149,19 @@ class Figure implements Gait {
     this.die.clampWhenFinished = true;
     this.hit = clips.hit ? this.mixer.clipAction(moves.get(clips.hit)!.clip) : null;
     if (this.hit) { this.hit.setLoop(LoopOnce, 1); this.hit.clampWhenFinished = true; }
+    this.down = clips.kneel && moves.get(clips.kneel) ? this.mixer.clipAction(moves.get(clips.kneel)!.clip) : null;
+  }
+  kneel() {
+    if (!this.down) return;
+    this.reeling = 0;
+    this.down.reset().setEffectiveTimeScale(0.8).setEffectiveWeight(1).play();
+    for (const a of [this.walk, this.hit]) if (a?.isRunning()) a.crossFadeTo(this.down, 0.3, false);
   }
   go(pace: number, phase: number) {
     // (Its stride played as fast as it goes, where how far one carries it is known, that its feet do not slide over the snow.)
     this.scale = this.clips.speed ? pace / (this.clips.speed * this.size) : pace;
     this.reeling = 0;
-    this.hit?.stop(); this.die.stop();
+    this.hit?.stop(); this.die.stop(); this.down?.stop();
     this.walk.reset().setEffectiveTimeScale(this.scale).setEffectiveWeight(1).play();
     this.walk.time = phase * this.walk.getClip().duration;
   }
@@ -160,12 +173,12 @@ class Figure implements Gait {
     this.reeling = (this.hit.getClip().duration / 1.5) * 0.55;
   }
   fall() {
-    const from = this.reeling > 0 && this.hit ? this.hit : this.walk;
+    const from = this.down?.isRunning() ? this.down : this.reeling > 0 && this.hit ? this.hit : this.walk;
     this.reeling = 0;
     this.die.reset().setEffectiveTimeScale(1.2).setEffectiveWeight(1).play();
     from.crossFadeTo(this.die, 0.12, false);
   }
-  stop() { this.walk.stop(); this.die.stop(); this.hit?.stop(); this.reeling = 0; }
+  stop() { this.walk.stop(); this.die.stop(); this.hit?.stop(); this.down?.stop(); this.reeling = 0; }
   update(dt: number) {
     if (this.reeling > 0 && (this.reeling -= dt) <= 0 && this.hit) {
       // (Faded out as it reeled, its coming clip is taken up again where it was left.)
