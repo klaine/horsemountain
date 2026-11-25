@@ -23,7 +23,7 @@
 import {
   AdditiveBlending, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DodecahedronGeometry, DoubleSide,
   DataTexture, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, NearestFilter, PlaneGeometry, PointLight, Quaternion, RepeatWrapping, RGBAFormat,
-  SphereGeometry, SRGBColorSpace, Texture, Vector3,
+  type Material, SphereGeometry, SRGBColorSpace, Texture, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
 import { attribute, float, lights, mix, normalWorld, positionWorld, select, sin, texture, time, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
@@ -1799,9 +1799,12 @@ export class Cave {
     this.seenFromAbove = cut;
   }
   private seenFromAbove = false;
+  /** Let go of with its land: what is its own and not in the land's group, the map of what has been seen (a picture the land's letting go never reaches, as it is in no mesh's paint but only read by one). */
+  dispose(): void { this.fogMap.dispose(); }
   /** The skis (and poles) left on the rack while their owner is on foot: of a person, a horse's long pair or its four short; or none. */
   rackSkis(kind: 'person' | 'pair' | 'four' | null, poles: number): void {
-    for (const c of [...this.rack.children]) { this.rack.remove(c); (c as Mesh).geometry?.dispose(); }
+    // (Their paints are made with them each time, so let go of with their shapes.)
+    for (const c of [...this.rack.children]) { this.rack.remove(c); (c as Mesh).geometry?.dispose(); ((c as Mesh).material as Material | undefined)?.dispose(); }
     if (!kind) return;
     const paint = new MeshStandardNodeMaterial({ color: 0xc0322b, roughness: 0.5 }), pole = new MeshStandardNodeMaterial({ color: 0x1d1f24, roughness: 0.4, metalness: 0.5 });
     const [len, width, n] = kind === 'person' ? [1.68, 0.075, 2] : kind === 'pair' ? [2.88, 0.11, 2] : [1.0, 0.1, 4];
