@@ -284,7 +284,7 @@ const loading = (() => {
  * A file the page needs, fetched once and counted as it comes in. (Where the host packs it for the way, its size on arrival is not
  * said; then it is taken as about as large as the file is kept, and grown if it comes larger.)
  */
-const ABOUT: Record<string, number> = { 'clips.glb': 0.78e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6, 'w2-8.json': 1.03e6, 'w2-10.json': 1.2e6, 'w2-2.json': 0.97e6, 'w2-14.json': 1.41e6, 'w2-17.json': 1.01e6, 'w2-25.json': 1.09e6, 'w2-map.json': 0.39e6 };
+const ABOUT: Record<string, number> = { 'clips.glb': 0.78e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6, 'w2-8.json': 1.03e6, 'w2-10.json': 1.2e6, 'w2-2.json': 0.97e6, 'w2-14.json': 1.45e6, 'w2-17.json': 1.01e6, 'w2-25.json': 1.14e6, 'w2-40.json': 1.45e6, 'w2-map.json': 0.39e6 };
 const fetching = new Map<string, Promise<ArrayBuffer>>();
 const fetchCounted = (url: string): Promise<ArrayBuffer> => {
   let made = fetching.get(url);
@@ -338,7 +338,9 @@ async function start() {
   // "tracks" in our mountains?": of the runs the search keeps in `w2`, the eighth, the steepest, and the tenth, the longest gentle one,
   // each somewhere the others are not; then, asked "can we add the remaining 4 other runs to make it 8 total?", the second, fourteenth,
   // seventeenth and twenty-fifth, each again somewhere the others are not: the rest came down the same spurs as these, or were too flat
-  // for a kicker.)
+  // for a kicker. Then Lake Wall's foot and the whole of the twenty-fifth, which had gone down to the shore above Arford, laid by hand
+  // to end where Ashbridge does, the twenty-fifth setting off from Ashbridge's top; and a fortieth, none the search kept, laid from
+  // Lake Wall's top round the far side of its spur to the same foot: `LAID` in `tools/skiRun.ts`.)
   // (And a cave halfway down each, with a dungeon in it, `slopeDungeon.ts` (asked: "could we have a run have dungeon?"; then "add the
   // caves to warden's spur and balestead; and for other runs find suitable spots to add a mound or adjust land shape"): in a bank
   // beside the piste where there is one, Silent Warden's, Warden's Spur's and Balestead's; elsewhere in a knoll raised for it.)
@@ -348,9 +350,10 @@ async function start() {
     { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge', detail: '0.80 km, the steepest, under rock walls to a lake' },
     { id: 'w2-10', label: 'Carndale', where: 'above Carndale', title: 'Long and gentle, straight down a wooded spur in the west of the range to a lake above Carndale', detail: '1.32 km, gentle, down a wooded spur to a lake' },
     { id: 'w2-2', label: "Warden's Spur", where: "on the Silent Warden's south spur", title: "From beside the highest summit down its south spur, along the crest for half its length", detail: '0.76 km from the summit, half of it along a crest' },
-    { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end to the lake below Ashbridge that Ashbridge comes down to, its kickers big', detail: '1.47 km, broad above and steep below, big kickers, to the lake' },
+    { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end and across above the lake below Ashbridge, to where Ashbridge ends, its kickers big', detail: '1.54 km, broad above and steep below, big kickers, to where Ashbridge ends' },
     { id: 'w2-17', label: 'Balestead', where: 'near Balestead', title: 'In among the mountains, down a crest to the glen below Balestead', detail: '0.77 km down a crest inside the range' },
-    { id: 'w2-25', label: 'Arford', where: 'above Arford', title: 'Long, gentle and broad, out of the foothills down to the shore above Arford', detail: '1.02 km, gentle and broad, to the shore' },
+    { id: 'w2-25', label: 'Ashbridge Bend', where: 'round the spur below Ashbridge', title: "From Ashbridge's top, away from it to the south, round the spur and through the head of a gully, then back east under it to the lake where Ashbridge ends", detail: "0.99 km from Ashbridge's top, round a spur to where it ends" },
+    { id: 'w2-40', label: 'Lake Wall East', where: 'east of the spur above the lake below Ashbridge', title: "From Lake Wall's knoll, away from it to the east, down the far side of its spur and round under it to the west, to the lake where Ashbridge ends", detail: "1.6 km from Lake Wall's top, round its spur to where Ashbridge ends" },
   ]).map((r) => ({ ...r, cave: true, title: r.title.includes('cave') ? r.title : `${r.title}; halfway down, a cave beside the piste, a camp before it and a dungeon under the mountain`, detail: r.detail.includes('cave') ? r.detail : `${r.detail}; a cave halfway down` }));
   const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
   if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
@@ -4163,8 +4166,14 @@ async function start() {
       const kick = kicked[k], trick = trickAt(k);
       // (Where it is against the kicker ahead, in the kicker's own frame: how far along its ramp from its lip, and how far left of
       // its middle. Against the run instead, where the run bends near a kicker set across it, the skier seemed past the lip while
-      // still on the ramp.)
-      const toLip = kick ? kick.L - ((ride.x - kick.x) * kick.dx + (ride.z - kick.z) * kick.dz) : Infinity;
+      // still on the ramp. And only from some way before it along the run: on a run that bends right round, laid by hand, a stretch
+      // of it well before a kicker lay past its lip in the kicker's frame, and the demo run, a hundred metres and more to one side of
+      // it there, was taken to have gone by it and flown that stretch again and again.)
+      const toLip = kick && ride.down > kick.s - 210 ? kick.L - ((ride.x - kick.x) * kick.dx + (ride.z - kick.z) * kick.dz) : Infinity;
+      // (And gone by it only once it has come up to it along the run: on Ashbridge Bend, where the run swings round under a kicker, the
+      // stretch at the foot of the swing lay past its lip in its own frame, within the two hundred metres, and the demo run, thirty
+      // metres and more beside it there, was taken to have gone by every time.)
+      const past = toLip < -1 && !!kick && ride.down > kick.s - 5;
       want.brake = false;
       // (Lined up on from seventy-five metres before its lip; from further, the further across the run it is from the skier, past ten
       // metres: from a kicker far to one side to one far to the other, a skier lined up from only seventy-five metres came up to it
@@ -4177,11 +4186,11 @@ async function start() {
         const a = air, o = askInAir(from?.k === k ? trick : undefined, a);
         want.x = o.x; want.y = o.y;
         if (a.kind !== 'hop') label = a.name;
-      } else if (kick && toLip < -1 && !trick) {
+      } else if (kick && past && !trick) {
         // (Passed by off the piste: on to the next.)
         k++; from = null; gap180 = 0;
         if (k < kicked.length && !TRICKS[k]) wander = wanderFor(k);
-      } else if (kick && toLip < -1 && trick) {
+      } else if (kick && past && trick) {
         // Past a kicker: on to the next, if it made its trick; or the approach flown again.
         note(last ? `landed the ${last}` : `no trick, ${(((ride.x - kick.x) * kick.dz - (ride.z - kick.z) * kick.dx)).toFixed(1)} m off its middle at ${(ride.speed * 3.6).toFixed(0)} km/h`);
         // (A flip or a spin flung round in too short a time in the air looks it: flown again, faster or slower, if it had less than a
@@ -4202,7 +4211,11 @@ async function start() {
         // (Turned towards the kicker's middle, the nearer the more; its way and its offset against the kicker's own way.)
         const go = along(ride.way, here), kd = runDir(kick), kl = runLeft(kick), off = (ride.x - kick.x) * kl.x + (ride.z - kick.z) * kl.z;
         const way = Math.atan2(go.dot(kl), go.dot(kd)), aim = clamp(Math.atan2(-off, Math.max(toLip, 6)) * 1.3, -0.45, 0.45);
-        want.x = clamp((way - aim) * 3, -0.6, 0.6);
+        // (Where the run here still points more than twenty degrees off the kicker's way, along the run instead, to the kicker's side of
+        // it: aimed at its middle through a bend that turned towards the side it stands on, the demo run on Ashbridge Bend was led off
+        // the run, and came by it thirty metres and more to one side at every speed.)
+        const rd = runDir(here), bent = Math.abs(Math.atan2(rd.dot(kl), rd.dot(kd))) > 0.35;
+        want.x = bent ? steer(clamp((kick.left - ride.left) * 0.05, -0.35, 0.35)) : clamp((way - aim) * 3, -0.6, 0.6);
         want.y = ride.speed < speed - 1 ? 1 : ride.speed > speed + 1 ? -0.5 : 0.3;
         want.brake = ride.speed > speed + 4 && toLip > 25;
         label = `Up to the kicker: ${demoName(trick)}`;
@@ -4226,6 +4239,9 @@ async function start() {
         want.x = steer(amp * Math.sin(phase) + clamp((mid - ride.left) / half, -1, 1) * 0.3) * (ride.turn180 ? 0.4 : 1);
         want.y = ride.speed < 12 ? 0.8 : ride.speed > 21 ? -0.4 : 0;
         label = k < kicked.length ? 'Carving' : 'On to the foot';
+        // (Past its last trick, slowed for a kicker it is not making one on, and taken as a show jump: at seventy-four kilometres an
+        // hour, a big one on Lake Wall threw it forty metres, and it came down too hard.)
+        if (k >= kicked.length && ride.speed > 15 && kicks.some((q) => q.s > ride.down && q.s < ride.down + 70)) want.brake = true;
         // (On a slope that goes on for ever, carried on some way past the last kicker for its 180s on the snow, then brought to a stop.)
         if (k >= kicked.length && land.length === Infinity) {
           if (stopAt === Infinity) stopAt = ride.down + 290;
@@ -4237,7 +4253,14 @@ async function start() {
         // foot. (Each as long as it takes, and a moment after it.)
         const room = kick ? toLip - 75 : (land.length === Infinity ? stopAt : land.length - 40) - ride.down;
         const need = (n: number) => Math.max(ride.speed, 8) * (G180[GROUND_180[(next180 + n) % GROUND_180.length]].T + 0.9);
-        if (!ride.turn180 && since180 > 1 && ride.speed > 8 && ride.down > 20 && demoKind !== 'show') {
+        // (Not across a steep side slope, nor where a kicker it is not jumping lies ahead within the turn: on Lake Wall, its end laid
+        // by hand and its kickers shared out anew, one spun on the way to the foot ran up such a kicker half round, was thrown forty
+        // metres, and came down too hard.)
+        const ground = (u: number, l: number) => { const p = land.at(u, l); return land.height(p.x, p.z); };
+        const across = Math.abs(ground(ride.down, ride.left) - ground(ride.down, ride.left + 3)) / 3;
+        let kickerAhead = false;
+        for (let u = 0; u <= need(0) + 10 && !kickerAhead; u += 3) { const p = land.at(ride.down + u, ride.left); kickerAhead = bumpAt(p.x, p.z) > 0; }
+        if (!ride.turn180 && since180 > 1 && ride.speed > 8 && ride.down > 20 && demoKind !== 'show' && across < 0.3 && !kickerAhead) {
           const back = gap180 % 2 === 1, more = kick ? gap180 < 2 : gap180 < 4;
           if ((back && room > need(0)) || (!back && more && room > need(0) + need(1) + 5)) { if (start180()) { gap180++; since180 = 0; } }
         }
@@ -8556,7 +8579,9 @@ async function start() {
     kickers: () => Array.from({ length: 60 }, (_, i) => kickerOf(i)).filter((k): k is Kicker => !!k && k.s < land.length).map((k) => ({ i: k.i, s: +k.s.toFixed(1), left: +k.left.toFixed(1), size: k.size })),
     // (Where the demo run is `t` seconds in: how far down, across, how fast.)
     demoAt: (at: number) => { const w = watchPose(at); return { down: +w.down.toFixed(2), left: +w.left.toFixed(2), speed: +w.speed.toFixed(2) }; },
-    demo: () => ({ length: demo.length, parts: demo.parts, landed: demo.landed, tries: demo.tries, fell: demo.fell, flown: demo.flown }),
+    // (And `end`, where its last dozen seconds went, a point every 0.8 s: how far down, how far left, how fast in km/h, and `A` in
+    // the air; for finding where a demo run stood still or fell.)
+    demo: () => ({ end: demo.frames.filter((_, i, a) => i > a.length - 400 && i % 25 === 0).map((f) => `${f.now.down.toFixed(0)}/${f.now.left.toFixed(1)}/${(f.now.speed * 3.6).toFixed(0)}${f.air ? 'A' : ''}`).join(' '), length: demo.length, parts: demo.parts, landed: demo.landed, tries: demo.tries, fell: demo.fell, flown: demo.flown }),
   };
   requestAnimationFrame(frame);
 }

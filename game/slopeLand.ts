@@ -598,9 +598,10 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   };
 
   // Where a kicker may stand: where the land falls away after its lip at least as steeply as a landing wants, and is not too steep
-  // or too tilted across where it is built.
+  // or too tilted across where it is built; and where it can be come up to (`kickerReachable`).
   const kickable = (s: number, left: number, kick: number) => {
     if (s + kick + 40 > length - 30) return false;
+    if (!kickerReachable(at, height, s, kick)) return false;
     const h = (u: number, l = left) => { const p = at(u, l); return height(p.x, p.z); };
     const fallAfter = (h(s + kick + 4) - h(s + kick + 30)) / 26, fallOn = (h(s) - h(s + kick)) / kick, tilt = Math.abs(h(s + kick / 2, left - 3) - h(s + kick / 2, left + 3)) / 6;
     return fallAfter > Math.tan((13 * Math.PI) / 180) && fallOn < Math.tan((30 * Math.PI) / 180) && fallOn > Math.tan((5 * Math.PI) / 180) && tilt < 0.2;
@@ -671,4 +672,32 @@ function snowyFir(tiers: number, sides: number, trunked: boolean): BufferGeometr
     parts.push(trunk);
   }
   return mergeGeometries(parts)!;
+}
+
+/**
+ * Whether a kicker at `s` along a run, `kick` metres long, can be come up to and flown off: not where the run turns hard between a
+ * little before it and past where a skier comes down, nor where the run gives too little speed to come up to it with. (Here, for the
+ * land's own `kickable` and for the cave's, `sliceGround` in `slopeDungeon.ts`, which finds where the kickers will stand before the
+ * land is made: kept apart, the cave kept out of the way of kickers that were never built.)
+ *
+ * A kicker throws straight on: at the end of Lake Wall laid by hand, `LAID` in `tools/skiRun.ts`, where the run turns 65 degrees, the
+ * demo run came down off one on the slope beside the run, too hard. The runs the search found turn no more than 44 under any.
+ *
+ * And the speed, how fast a skier gliding down the line's last 150 metres comes up to it, from eight metres a second, as after a
+ * landing, slowed by the snow and the air: Lake Wall's at 632 metres stood just past a col where the line all but levels out, found at
+ * some 20 km/h, and the demo run, slowed for the kicker before, came up to it at 19 whatever it tried, and made no trick on it. Every
+ * other kicker of every run is come up to at 45 and more.
+ */
+export function kickerReachable(at: (s: number, left: number) => { x: number; z: number; dx: number; dz: number }, height: (x: number, z: number) => number, s: number, kick: number): boolean {
+  const a = at(s - 10, 0), heading = Math.atan2(a.dz, a.dx);
+  for (let u = s - 6; u <= s + kick + 40; u += 4) {
+    const b = at(u, 0), d = Math.atan2(b.dz, b.dx) - heading;
+    if (Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) > (50 * Math.PI) / 180) return false;
+  }
+  let v = 8;
+  for (let u = Math.max(0, s - 150); u < s; u += 4) {
+    const p = at(u, 0), q = at(u + 4, 0), slope = Math.atan((height(p.x, p.z) - height(q.x, q.z)) / 4);
+    v = Math.sqrt(Math.max(0, v * v + 2 * 4 * (9.8 * (Math.sin(slope) - 0.06 * Math.cos(slope)) - 0.003 * v * v)));
+  }
+  return v >= 35 / 3.6;
 }
