@@ -12,7 +12,7 @@ renderer, which falls back to WebGL 2 by itself; materials in three's shading la
   on both slopes: `__slope.demo()` says what it landed and how each kicker went (`landed`, `tries`, `fell`).
 - This game was split from klaine/dungeons (`lab/slope.html` there, `lab/` here as `game/`); the files are kept the same as there,
   so that a change made in either can be carried to the other; the world the runs are found in, and the finding (`src/core/`), too, and the world's ink map
-  (`src/maps/inkWorld.ts`). `src/render/scene.ts`, `src/core/runMap.ts`, `game/slopeMap.ts`, `game/slopeArms.ts`, `game/slopeMini.ts`, `game/slopePlane.ts`, `game/slopeIce.ts`, `game/slopeDungeon.ts`, `game/slopeFoot.ts`, `game/slopeProps.ts`, `game/slopeFoes.ts`, `game/slopeArena.ts`, `game/slopeLoot.ts` and `tools/skiRun.ts` are this repository's own (and `game/slopeOrcs.ts`
+  (`src/maps/inkWorld.ts`). `src/render/scene.ts`, `src/core/runMap.ts`, `game/slopeMap.ts`, `game/slopeArms.ts`, `game/slopeMini.ts`, `game/slopePlane.ts`, `game/slopeIce.ts`, `game/slopeDungeon.ts`, `game/slopeFoot.ts`, `game/slopeProps.ts`, `game/slopeFoes.ts`, `game/slopeArena.ts`, `game/slopeLoot.ts`, `tools/skiRun.ts` and `tools/trimClips.mjs` are this repository's own (and `game/slopeOrcs.ts`
   has gone its own way since, made a horde of every kind of foe in `slopeFoes.ts`).
 - `npm run skirun -- w2 [n ...]` finds the runs down the world, lists them, and writes the slices of the `n`th into `slopes/` (a run
   named in `RAISED` in `tools/skiRun.ts` carried further up than the search began it, as Lake Wall is);

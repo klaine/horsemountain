@@ -6,3 +6,4 @@ https://creativecommons.org/publicdomain/zero/1.0/
 
 They were brought into this form by tools/figures.ts: the clips of both libraries put on one skeleton, tracks that stay at rest and
 keys that add nothing dropped, and the base characters' textures made smaller.
+Here `clips.glb` holds only the clips the game plays (tools/trimClips.mjs).

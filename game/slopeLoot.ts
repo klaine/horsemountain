@@ -151,13 +151,16 @@ const round = (v: number, by: number) => Math.round(v / by) * by;
 /**
  * Something found, drawn by `rng` from what `source` gives: a book not yet read, if one is drawn and any is left (else something else);
  * otherwise a thing of a kind drawn by the slot's odds, of a rarity drawn by the source's, its stats along its ranges as far as its
- * rarity says (and an ancient one a share better again in its second stat, if it has a drawback, that drawback halved).
+ * rarity says (and an ancient one a share better again in its second stat, if it has a drawback, that drawback halved). Without `arms`
+ * (no orcs and weapons, or the horse ridden alone), no weapon nor ward: neither does anything there, and a find of one was a find of
+ * nothing.
  */
-export function rollLoot(rng: Rng, source: Source, read: ReadonlySet<string>, found: string): Item {
+export function rollLoot(rng: Rng, source: Source, read: ReadonlySet<string>, found: string, arms = true): Item {
   const id = `${Date.now().toString(36)}${rng.int(0, 1e9).toString(36)}`;
-  let slot = weighted(rng, SLOT_ODDS[source]);
+  const can = (odds: Partial<Record<Slot, number>>) => Object.fromEntries(Object.entries(odds).filter(([k]) => arms || (k !== 'ward' && k !== 'weapon'))) as Record<Slot, number>;
+  let slot = weighted(rng, can(SLOT_ODDS[source]));
   const unread = BOOKS.filter((b) => !read.has(b.id));
-  if (slot === 'book' && !unread.length) slot = weighted(rng.fork('again'), { skis: 1, boots: 1, ward: 1, weapon: 1 });
+  if (slot === 'book' && !unread.length) slot = weighted(rng.fork('again'), can({ skis: 1, boots: 1, ward: 1, weapon: 1 }));
   if (slot === 'book') {
     // (The rarer books the less often: a fine one twice as often as an ancient.)
     const book = weighted(rng.fork('book'), Object.fromEntries(unread.map((b) => [b.id, b.rarity === 'ancient' ? 1 : b.rarity === 'rare' ? 1.5 : 2])) as Record<string, number>);
