@@ -46,8 +46,8 @@ export interface Den {
  * how far ahead of the skier they come from.
  */
 const MOST = 26, AHEAD: [number, number] = [120, 230];
-/** How hard the skier strikes what it runs down. */
-const RUN_DOWN = 2;
+/** How hard the skier strikes what it runs down: enough to bring down any but the great ones and the dead. */
+const RUN_DOWN = 3;
 
 interface Foe {
   kind: FoeKind; gait: Gait; size: number;
@@ -256,7 +256,7 @@ export class Horde {
    * them coming already and none for a minute and a half, a great one alone in a pack's stead (the barrow-king), its strength shown in
    * the bar across the foot of the picture as it comes (`bosses`). (Wolves and yetis keep to the snow.)
    */
-  within(dt: number, den: Den, q: Quarry, strike: (from: Vector3, kind: FoeKind) => void, most = 9): void {
+  within(dt: number, den: Den, q: Quarry, strike: (from: Vector3, kind: FoeKind, who: number) => void, most = 9): void {
     this.denClock += dt;
     // (Only one kind, if a script asks for it (`only`); a great one so asked, at once.)
     const kinds = FOES.filter((k) => k.den && (!this.only || k.name === this.only)), packs = kinds.filter((k) => !k.titles), greats = kinds.filter((k) => k.titles);
@@ -298,7 +298,7 @@ export class Horde {
         const to = q.at, d = Math.hypot(to.x - b.p.x, to.z - b.p.z), reach = 0.75 + 0.35 * b.size;
         if (d > 45) { this.letGo(b); continue; }
         // (Come up to it: struck at, and a moment back; else on at it, round the walls.)
-        if (d < reach + 0.15 && b.since > b.next) { b.next = b.since + 1.6; strike(b.p.clone(), b.kind); }
+        if (d < reach + 0.15 && b.since > b.next) { b.next = b.since + 1.6; strike(b.p.clone(), b.kind, this.foes.indexOf(b)); }
         // (A great one met as it comes near enough to be seen in the dark.)
         if (b.kind.titles && d < 25) b.met = true;
         const back = b.since < b.next - 1.1, way = den.way(b.p, to), step = (back ? -0.8 : d > reach ? b.pace * (b.reel > 0 ? 0.2 : 1) : 0) * dt;
@@ -451,6 +451,21 @@ export class Horde {
       .filter(({ b }) => b.kind.titles && b.met && (b.state === 'come' || b.state === 'taken' || (b.state === 'down' && b.since < FELLED)))
       .sort((x, y) => x.far - y.far).slice(0, 2)
       .map(({ b, i }) => ({ id: `${i}.${b.comes}`, title: b.title, kind: b.kind.name, hp: Math.max(0, b.hp), most: b.kind.hp, down: b.state === 'down', kneeling: b.kneeling || b.state === 'taken' }));
+  }
+  /** Whether one is still coming (to be struck, or locked on). */
+  coming(i: number): boolean { return this.foes[i]?.state === 'come'; }
+  /** How strong one is still, and was, in blows; whether it is on its knees, beaten. */
+  health(i: number): { hp: number; most: number; kneeling: boolean } | null {
+    const b = this.foes[i];
+    return b ? { hp: Math.max(0, b.hp), most: b.kind.hp, kneeling: b.kneeling } : null;
+  }
+  /** One's name: a great one's own, else its kind's. */
+  titleOf(i: number): string { const b = this.foes[i]; return !b ? '' : b.kind.titles && b.title ? b.title : b.kind.name; }
+  /** Each still coming and drawn (in a den, only those in sight): which, where its middle is, and how tall it stands. */
+  marks(): { orc: number; at: Vector3; tall: number }[] {
+    const out: { orc: number; at: Vector3; tall: number }[] = [];
+    this.foes.forEach((b, i) => { if (b.state === 'come' && b.gait.model.visible) out.push({ orc: i, at: this.middleOf(b), tall: (b.kind.mid * 2 + 0.2) * b.size }); });
+    return out;
   }
   /** Where each still coming is to be aimed at: its middle. */
   aims(): Vector3[] { return this.foes.filter((b) => b.state === 'come').map((b) => this.middleOf(b)); }

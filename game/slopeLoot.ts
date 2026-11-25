@@ -296,17 +296,37 @@ export class Drops {
   private readonly gem = new OctahedronGeometry(0.26, 0);
   private readonly plane = new PlaneGeometry(1, 1);
   private readonly beam = new CylinderGeometry(0.1, 0.32, 10, 12, 1, true).translate(0, 5, 0);
-  constructor(private readonly scene: Scene) {}
+  /**
+   * Each rarity's paints, made once and shared by every drop of it; and a drop of them all kept in the scene, never shown, so that the
+   * page makes their shaders ready as it opens with all else (asked: "I feel that we might not be precaching all new things anymore"):
+   * each drop made its own, and the first found halted the picture a moment while its shaders were made.
+   */
+  private readonly paints = Object.fromEntries((Object.keys(RARITY) as Rarity[]).map((r) => {
+    const colour = new Color(RARITY[r].colour);
+    return [r, {
+      gem: new MeshBasicMaterial({ color: colour.clone().multiplyScalar(1.6) }),
+      halo: new MeshBasicMaterial({ color: colour, map: glowTexture(), transparent: true, depthWrite: false, blending: AdditiveBlending }),
+      beam: new MeshBasicMaterial({ color: colour, map: beamTexture(), transparent: true, opacity: 0.55, depthWrite: false, blending: AdditiveBlending, side: DoubleSide }),
+    }];
+  })) as Record<Rarity, { gem: MeshBasicMaterial; halo: MeshBasicMaterial; beam: MeshBasicMaterial }>;
+  constructor(private readonly scene: Scene) {
+    const kept = this.made('common');
+    kept.visible = false;
+    kept.name = 'drop (kept to make ready)';
+    scene.add(kept);
+  }
+  /** A drop's gem, halo and beam in a rarity's paints. */
+  private made(rarity: Rarity): Group {
+    const p = this.paints[rarity], g = new Group(), halo = new Mesh(this.plane, p.halo), beam = new Mesh(this.beam, p.beam);
+    halo.scale.setScalar(1.6);
+    beam.position.y = -0.9;
+    g.add(new Mesh(this.gem, p.gem), halo, beam);
+    return g;
+  }
   get count(): number { return this.drops.length; }
   /** Something found at `at`, to wait glowing at `rest` (over the floor or the snow). */
   add(item: Item, at: Vector3, rest: Vector3): void {
-    const colour = new Color(RARITY[item.rarity].colour), g = new Group();
-    const gem = new Mesh(this.gem, new MeshBasicMaterial({ color: colour.clone().multiplyScalar(1.6) }));
-    const halo = new Mesh(this.plane, new MeshBasicMaterial({ color: colour, map: glowTexture(), transparent: true, depthWrite: false, blending: AdditiveBlending }));
-    halo.scale.setScalar(1.6);
-    const beam = new Mesh(this.beam, new MeshBasicMaterial({ color: colour, map: beamTexture(), transparent: true, opacity: 0.55, depthWrite: false, blending: AdditiveBlending, side: DoubleSide }));
-    beam.position.y = -0.9;
-    g.add(gem, halo, beam);
+    const g = this.made(item.rarity), halo = g.children[1] as Mesh;
     g.position.copy(at);
     this.scene.add(g);
     this.drops.push({ item, g, from: at.clone(), rest: rest.clone(), t: 0, at: at.clone(), v: new Vector3(), halo });
@@ -341,8 +361,8 @@ export class Drops {
     return taken;
   }
   private let(d: Drop): void {
+    // (Its paints are its rarity's, shared: kept.)
     d.g.removeFromParent();
-    for (const m of d.g.children) ((m as Mesh).material as MeshBasicMaterial).dispose();
     this.drops.splice(this.drops.indexOf(d), 1);
   }
   /** All let go of (a new run): what was still to be taken given back, so that it is not lost. */
@@ -387,23 +407,24 @@ export const WARD_COLOUR: Record<WardKind, string> = { ember: '#ff7a3a', storm: 
  * and whether it was put on (or read) or put in the pack. One at a time, each for some seconds; those found together after each other.
  */
 export class LootCard {
-  private readonly queue: { item: Item; on: boolean }[] = [];
+  private readonly queue: { item: Item; on: boolean; note?: string }[] = [];
   private until = 0;
   constructor(private readonly el: HTMLElement) {}
-  show(item: Item, on: boolean): void { this.queue.push({ item, on }); }
+  /** Said as found; `note`, said in place of whether it was put on. */
+  show(item: Item, on: boolean, note?: string): void { this.queue.push({ item, on, note }); }
   step(now: number): void {
     if (now < this.until) return;
     if (this.el.classList.contains('on')) { this.el.classList.remove('on'); this.until = now + 0.45; return; }
     const next = this.queue.shift();
     if (!next) return;
-    const { item, on } = next, el = this.el;
+    const { item, on, note } = next, el = this.el;
     el.style.setProperty('--rarity', RARITY[item.rarity].colour);
     el.querySelector('.kind')!.textContent = kindOf(item);
     el.querySelector('.name')!.textContent = item.name;
     const lines = el.querySelector('.lines')!;
     // (A book's last line, what it looks like, set apart from what it teaches.)
     lines.replaceChildren(...linesOf(item).map((t, i, all) => Object.assign(document.createElement('li'), { textContent: t, className: item.book && i === all.length - 1 ? 'about' : '' })));
-    el.querySelector('.where')!.textContent = `${item.found} · ${item.book ? 'read, and learned for good' : on ? 'put on' : 'in your pack (Menu)'}`;
+    el.querySelector('.where')!.textContent = `${item.found} · ${note ?? (item.book ? 'read, and learned for good' : on ? 'put on' : 'in your pack (Menu)')}`;
     void el.offsetWidth;
     el.classList.add('on');
     this.until = now + (item.book ? 6 : 4.6);
@@ -414,7 +435,7 @@ export class LootCard {
  * The pack in the menu (`#pack`): for each slot, what is worn and what else is in the pack, each a card to put it on by; and the books
  * read. `plain` names what is had with nothing worn in a slot (the skis the skier came with; the arm the foes have given).
  */
-export function packView(el: HTMLElement, pack: Pack, plain: (slot: Slot) => string, onWear: (slot: Slot) => void): void {
+export function packView(el: HTMLElement, pack: Pack, plain: (slot: Slot) => string, onWear: (slot: Slot) => void, note: (slot: Slot) => string = () => ''): void {
   const parts: HTMLElement[] = [];
   const card = (title: string, lines: string[], on: boolean, colour: string | null, click: (() => void) | null) => {
     const b = document.createElement(click ? 'button' : 'div');
@@ -428,6 +449,9 @@ export function packView(el: HTMLElement, pack: Pack, plain: (slot: Slot) => str
     const of = pack.items.filter((i) => i.slot === slot), worn = pack.wornIn(slot);
     const h = document.createElement('div'); h.className = 'slot'; h.textContent = SLOT_NAME[slot];
     parts.push(h);
+    // (What holds the slot back, if anything: found weapons until the bazooka is taken up.)
+    const said = note(slot);
+    if (said) parts.push(Object.assign(document.createElement('p'), { className: 'note held', textContent: said }));
     parts.push(card(plain(slot), [], !worn, null, of.length ? () => { pack.wear(slot, null); onWear(slot); } : null));
     for (const it of [...of].reverse()) parts.push(card(it.name, [kindOf(it), ...linesOf(it)], it === worn, RARITY[it.rarity].colour, () => { pack.wear(slot, it.id); onWear(slot); }));
   }

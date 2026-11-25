@@ -286,6 +286,27 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
   for (const m of cardsOf(k, farTrees(all, g.heightAt), 'painted')) { m.castShadow = false; group.add(m); }
   // (Where each tree stands and what it is, for a script that drives the page: `__slope.trees()`.)
   group.userData.trees = all;
+  // One tree of each kind grown each way, as a block's are, and kept, never shown (asked: "I feel that we might not be precaching all
+  // new things anymore"): their bark and their cards made now, with the materials every block will share, for the page to make ready
+  // as it opens with all else in the scene. Each kind and way's had been made with the first block that wanted it, riding down into
+  // woods of the other kind, and its shaders made then, a moment's halt.
+  const samples: Object3D[] = [];
+  for (const simply of [false, true]) {
+    const level = simply ? 'simple' : 'whole', grower = treeGrower(g.heightAt, simply);
+    for (const kind of ['pine', 'spruce'] as const) grower.grow({ x: x0 + 3, z: z0 + 3, kind, tall: 10, girth: 0.2, own: 0.5 });
+    const d = grower.done(), made: Object3D[] = [];
+    for (const [name, builder] of d.wood) {
+      if (builder.triangleCount <= 0) continue;
+      const m = woodMesh(builder, k.barks[`${name}:${level}`], g.sky);
+      m.geometry.setAttribute('aTree', new BufferAttribute(d.owners.get(name)!, 4));
+      made.push(m);
+    }
+    made.push(...cardsOf(k, d.sets, level));
+    // (As a block grown simply: casting no shadow, so its shadows' shaders are not made for nothing.)
+    if (simply) for (const m of made) m.castShadow = false;
+    samples.push(...made);
+  }
+  for (const m of samples) { m.visible = false; group.add(m); }
   const bi0 = Math.floor(x0 / LOW), bi1 = Math.floor(x1 / LOW), bj0 = Math.floor(z0 / LOW), bj1 = Math.floor(z1 / LOW);
   // (Each block by a number of its own, its place kept with it: named by a string, each was named again, and read back apart, for every
   // block about the eye every frame.)
@@ -396,6 +417,7 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
       vegetationUniforms.uTime.value = seconds;
     },
     dispose() {
+      drop(samples);
       // (As when another run's woods take the blocks over; and, were these the woods last grown, the map of what is grown cleared, so
       // that nothing is left holding on to them.)
       dropAll();

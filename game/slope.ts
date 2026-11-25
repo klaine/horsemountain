@@ -41,7 +41,7 @@
 import {
   ACESFilmicToneMapping, AdditiveBlending, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
   Group, HemisphereLight, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
-  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, Sphere, SRGBColorSpace, Vector2, Vector3,
+  PCFShadowMap, PerspectiveCamera, PlaneGeometry, PointLight, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, Sphere, SRGBColorSpace, Vector2, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
 import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, fract, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
@@ -58,11 +58,12 @@ import { Rng } from '../src/core/rng';
 import { readSlice } from '../src/core/skiSlice';
 import { readRunMap, type RunMap } from '../src/core/runMap';
 import { RunMapView } from './slopeMap';
-import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sweep } from './slopeArms';
+import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sparks, Sweep } from './slopeArms';
 import { Drops, type Item, LootCard, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type Den, type FoeKind, Horde } from './slopeOrcs';
+import { ARM_DICE, attack as rollAttack, blow as rollBlow, BURN_EVERY, CHARGED, GUARD, HP, LEAP, type Roll, rollAt, rollSaid } from './slopeDice';
 import { Boosters, PIPE, Pipe } from './slopeArena';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
@@ -74,7 +75,7 @@ import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
-import { carve, Cave, findSite, sliceGround } from './slopeDungeon';
+import { carve, Cave, findSite, sitePoint, sliceGround } from './slopeDungeon';
 import { horseCadence, horseWalk, Walker } from './slopeFoot';
 import { MiniMap } from './slopeMini';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
@@ -225,9 +226,9 @@ const loading = (() => {
   const paint = () => new Promise<void>((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 80); });
   /** Work after opening (a slope, a demo run): the screen over the picture while it is done, the bar sweeping. */
   /** Made quietly, the screen not shown (`hush`): a run made while the rider rides on to it. */
-  let hushed = false;
+  let hushed = false, hushSaid: ((text: string) => void) | null = null;
   const busy = (text: string): Promise<void> => {
-    if (hushed) return paint();
+    if (hushed) { hushSaid?.(text); return paint(); }
     if (opening) { say.textContent = text; return paint(); }
     box.hidden = false; box.classList.remove('gone', 'failed'); box.classList.add('waiting'); say.textContent = text;
     fill.style.transform = 'scaleX(0)';
@@ -236,7 +237,10 @@ const loading = (() => {
   };
   return {
     busy,
-    hush(on: boolean) { hushed = on; },
+    /** Quiet, or not; and, quiet, told what is being done (the card a run made while riding is said on: `travelTo`). */
+    hush(on: boolean, said: ((text: string) => void) | null = null) { hushed = on; hushSaid = on ? said : null; },
+    /** A moment for what has changed on the page to be shown, before work that holds it. */
+    paint,
     /** The stage of opening now begun, said, and a moment for it to be shown; after opening, said as other work is. */
     stage(name: Stage, text?: string): Promise<void> {
       const i = STAGES.findIndex(([n]) => n === name), now = performance.now();
@@ -378,7 +382,10 @@ async function start() {
   const safe: { level: number; why: string } = (() => {
     const asked = query.get('safe');
     if (asked !== null) { try { localStorage.removeItem(SAFE.key); } catch { /* (not kept) */ } return { level: clamp(Number(asked) || 0, 0, SAFE.most), why: 'asked for in the address' }; }
-    try { const k = JSON.parse(localStorage.getItem(SAFE.key) ?? 'null'); if (k && typeof k.level === 'number') return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') }; } catch { /* (none kept) */ }
+    try {
+      const k = JSON.parse(localStorage.getItem(SAFE.key) ?? 'null');
+      if (k && typeof k.level === 'number') return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') };
+    } catch { /* (none kept) */ }
     return { level: 0, why: '' };
   })();
   await loading.stage('start', safe.level ? 'Waking the graphics, drawn simply for this device' : undefined);
@@ -388,19 +395,33 @@ async function start() {
   // floating-point number tells apart alike near and far (asked: "i see flickering materials along the edges of the near and far land
   // types"): kept the usual way, from a tenth of a metre out to five kilometres, two surfaces less than half a metre apart a kilometre
   // off could not be told apart, and the land at its three grains, where one lies over another, flickered through each other.)
+  // (By WebGPU on an iPhone or an iPad too, as everywhere: drawn there by WebGL 2 for a while, the picture gone black on an iPad was
+  // found to go black by WebGL as well, from a number gone bad, not from WebGPU (`keepSane`).)
   const renderer = new WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', forceWebGL: query.has('webgl') || safe.level >= 2, reversedDepthBuffer: true });
   await renderer.init();
   /** When the page was opened, to the moment: what fails while it opens, or in the seconds after, is the device's; later, it is let be. */
   let openedAt = Infinity, fallingBack = false;
-  const fallBack = (why: string) => {
-    if (fallingBack || performance.now() > openedAt + SAFE.within) return;
+  /**
+   * The graphics failing once the page is open, kept for when it is opened again (`slope.lost`) and said then over the picture: what
+   * went wrong and what was happening, so that it can be told of (asked: "Ipad chrome: screen turned black after upside down world
+   * transition"). Given for the page as it was when it happened.
+   */
+  let doingWhenLost = () => '';
+  const noteLost = (why: string) => {
+    try { localStorage.setItem('slope.lost', JSON.stringify({ why: why.slice(0, 200), doing: doingWhenLost(), at: new Date().toISOString() })); } catch { /* (not kept) */ }
+  };
+  const fallBack = (why: string, late = false) => {
+    if (fallingBack || (!late && performance.now() > openedAt + SAFE.within)) return;
     const webglAlready = query.has('webgl') || safe.level >= 2, next = safe.level + 1;
-    // (Already as simple as it is drawn: nothing more to fall back on.)
+    if (late) noteLost(why);
+    // (Already as simple as it is drawn: nothing more to fall back on; once open, opened again all the same, rather than left black.)
+    if (late && (next > SAFE.most || (next === 2 && webglAlready && snowLook === 'plain'))) { fallingBack = true; loading.fail('The graphics failed: opening again…'); setTimeout(() => location.reload(), 1200); return; }
     if (next > SAFE.most || (next === 2 && webglAlready && snowLook === 'plain')) { console.warn(`Grand Horse Mountain could not draw everything here: ${why}`); return; }
     fallingBack = true;
     console.warn(`Grand Horse Mountain will draw more simply here (${next}): ${why}`);
     let kept = false;
-    try { localStorage.setItem(SAFE.key, JSON.stringify({ level: next, why })); kept = localStorage.getItem(SAFE.key) !== null; } catch { /* (not kept) */ }
+    // (And whether it was drawing by WebGL 2 when it failed: `gl`.)
+    try { localStorage.setItem(SAFE.key, JSON.stringify({ level: next, why, gl: !(renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend })); kept = localStorage.getItem(SAFE.key) !== null; } catch { /* (not kept) */ }
     loading.fail('This device could not draw everything: opening again, drawn more simply…');
     // (Opened again: by its address, where this browser keeps nothing, so that it cannot come back to the same.)
     setTimeout(() => {
@@ -409,9 +430,29 @@ async function start() {
     }, 900);
   };
   const gpu = (renderer.backend as unknown as { device?: EventTarget }).device;
-  gpu?.addEventListener('uncapturederror', (e) => fallBack(String((e as Event & { error?: { message?: string } }).error?.message ?? 'a graphics error').split(/\r?\n/)[0].slice(0, 160)));
+  /**
+   * The graphics' errors: as the page opens, drawn more simply at once (`fallBack`); once open, only if they keep coming, five within
+   * three seconds (asked: "Ipad chrome: screen turned black after upside down world transition"): one failing every frame leaves every
+   * frame black, and the page had gone on drawing nothing with nothing said. One now and then, only told of in the console.
+   */
+  let lateErrors: number[] = [];
+  gpu?.addEventListener('uncapturederror', (e) => {
+    const why = String((e as Event & { error?: { message?: string } }).error?.message ?? 'a graphics error').split(/\r?\n/)[0].slice(0, 160), now = performance.now();
+    if (now <= openedAt + SAFE.within) { fallBack(why); return; }
+    console.warn(`Grand Horse Mountain: a graphics error: ${why}`);
+    lateErrors = lateErrors.filter((t) => now - t < 3000);
+    lateErrors.push(now);
+    if (lateErrors.length >= 5) fallBack(`the graphics kept failing: ${why}`, true);
+  });
   const lost = renderer.onDeviceLost.bind(renderer);
-  renderer.onDeviceLost = (info) => { lost(info); if (info.reason !== 'destroyed') fallBack(`the graphics were lost: ${info.message}`.slice(0, 160)); };
+  renderer.onDeviceLost = (info) => {
+    lost(info);
+    // (Never let go of on purpose, the renderer: lost however it is said to be, 'destroyed' too, as a browser may say of a lost device.)
+    // (Lost once the page is open, which no frame drawn after it can come back from: opened again as it was, rather than left stood
+    // still; drawn no more simply, as it had drawn till then.)
+    if (performance.now() > openedAt + SAFE.within && !fallingBack) { fallingBack = true; noteLost(`lost (${info.reason}): ${info.message}`); console.warn(`Grand Horse Mountain lost its graphics: ${info.message}`); loading.fail('The graphics were lost: opening again…'); setTimeout(() => location.reload(), 1200); return; }
+    fallBack(`the graphics were lost: ${info.message}`.slice(0, 160));
+  };
   // (How finely: see *Resolution*, below.)
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.toneMapping = ACESFilmicToneMapping;
@@ -421,6 +462,12 @@ async function start() {
   // (The renderer's own soft shadows: `PCFSoftShadowMap` is gone from it, and asked for only brought a warning and these.)
   renderer.shadowMap.type = PCFShadowMap;
   const scene = new Scene();
+  // The caves' two lights, the lantern carried in and the campfire's, the same two for every cave and kept in the scene for good, each
+  // cave setting them where it wants them as it is stepped, and out where there is none (`Cave`): a light's own number is part of what
+  // every lit thing's shaders are made for, and a pair of each cave's own, come with each run and gone as the land was turned inside out,
+  // had every shader in the scene made again each time.
+  const caveLights = { lantern: new PointLight(0xffc690, 0, 20, 1.6), fire: new PointLight(0xff9440, 0, 24, 2) };
+  scene.add(caveLights.lantern, caveLights.fire);
   const camera = new PerspectiveCamera(50, 1, 0.1, 1200);
   const controls = new OrbitControls(camera, canvas);
   controls.enabled = false;
@@ -589,8 +636,8 @@ async function start() {
       // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
       if (where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
       // (Where its top lies in the world: each run's land is laid with its own top at the middle of the scene.)
-      topOf.set(made, new Vector3(slice.run.points[0][0], 0, slice.run.points[0][1]));
-      if (site && base) { const t0 = performance.now(); dig(made, new Cave(site, base, dungeonSeed, (query.get('tags') ?? '').split(',').map((t) => t.trim()))); caveMade = performance.now() - t0; }
+      if (slice) topOf.set(made, new Vector3(slice.run.points[0][0], 0, slice.run.points[0][1]));
+      if (site && base) { const t0 = performance.now(); dig(made, new Cave(site, base, dungeonSeed, (query.get('tags') ?? '').split(',').map((t) => t.trim()), caveLights)); caveMade = performance.now() - t0; }
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
     lands.set(key, made);
     return made;
@@ -1349,6 +1396,29 @@ async function start() {
   /** What was found and is still on its way to the player given it at once (as a run begins again); nothing, until loot is set up. */
   let giveLeft = () => {};
   const kit = (): Readonly<Mods> => (pack && mode === 'ride' && !flyingDemo ? worn : NO_MODS);
+  /**
+   * A number gone bad, caught where it would go on into what is drawn (asked, of the run begun again by itself and the rider's upper
+   * body gone: "I get this instant reset now when i ride off to rocks or so and upper torso of human player model is missing"): what it
+   * was and where, the last kept in this browser (`slope.problem`) and shown in the menu under *Settings*, for it to be told of.
+   */
+  const noteProblem = (what: string) => {
+    console.warn(`Grand Horse Mountain: ${what}`);
+    // (The last six kept, oldest first: the first of a run of them is where it began, which the last alone had hidden.)
+    try {
+      const was = JSON.parse(localStorage.getItem('slope.problems') ?? '[]') as { what: string; at: string }[];
+      was.push({ what: what.slice(0, 420), at: new Date().toISOString() });
+      localStorage.setItem('slope.problems', JSON.stringify(was.slice(-6)));
+    } catch { /* (not kept) */ }
+    showProblem?.();
+  };
+  let showProblem: (() => void) | null = null;
+  /** The pose's numbers made sane before they pose a body: each gone to no number set to nothing, and the first said (`noteProblem`), once a while. */
+  let poseSaidAt = -1e9;
+  const sanePose = (c: Record<string, unknown>, where: string) => {
+    let bad = '';
+    for (const k in c) { const v = c[k]; if (typeof v === 'number' && !Number.isFinite(v)) { if (!bad) bad = k; c[k] = 0; } }
+    if (bad && performance.now() - poseSaidAt > 5000) { poseSaidAt = performance.now(); noteProblem(`the pose ${where}: ${bad} went to no number`); }
+  };
   /** How hard skis that push on from slow (`Mods.accel`, a share) push at a standstill, m/s² a whole one; less the faster, none at 90 km/h. */
   const ACCEL_PUSH = 3.5;
   const shoveNow = () => (carting || ride.ended || ride.brake > 0.3 ? 0 : SHOVE.most * smooth(ride.shove / SHOVE.long));
@@ -1382,8 +1452,9 @@ async function start() {
     const can = mode === 'ride' && !flyingDemo && !carting && !ride.ended && ride.brake < 0.3 && !ride.turn180 && !(ride.down < -2 && Math.cos(ride.way) < 0);
     const boost = can && skateHeld && !rideTrick;
     if (!can || (!boost && ride.speed >= SKATE.until)) ride.skating = false;
-    // (Not of itself going up the snow about an arena: there the skier is to run out of speed and turn, and come back down at the great one.)
-    else if (boost || (ride.speed < SKATE.below && !(against > 0 && inArena()))) ride.skating = true;
+    // (About an arena too, up the snow to the great one, as anywhere (asked: "Arena fights feel bad .. the player character keeps on
+    // turning towards the quarterpipe with little speed"): it had not skated of itself there, so as to run out of speed and be turned.)
+    else if (boost || ride.speed < SKATE.below) ride.skating = true;
     ride.skate += ((ride.skating ? 1 : 0) - ride.skate) * ease(dt, 4);
     const quick = 1 + SKATE_BOOST.quicker * smooth((ride.speed - SKATE.below) / (SKATE_BOOST.full * 1.2));
     if (ride.skate > 0.005) ride.stride = (ride.stride + dt * SKATE.rate * quick) % 1;
@@ -1766,46 +1837,29 @@ async function start() {
     scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
   };
   /**
-   * What a run has come to, for the card at its end (asked: an end-of-run summary, and best times kept as the best points are): the
+   * The run's end as the sheet at the foot says it, on a phone or a tablet (`stepRunEnd`): what became of it, and how far down and how
+   * long it had gone when it did; and over the run, the tricks landed and what was found. Set as it ends, let go of as the next begins.
+   */
+  let runOver: { what: string; why: string; bad: boolean; drop: number; time: number; timeSaid?: string } | null = null, tricksRun = 0;
+  const foundRun: string[] = [];
+  /**
+   * What a run has come to, for the sheet at its end (asked: an end-of-run summary, and best times kept as the best points are): the
    * tricks landed and what each was worth, the foes brought down by kind, the chest, the blows taken on foot, how fast it went and how
    * long it was in the air. Begun again with the points.
    */
   const newStats = () => ({ tricks: [] as { name: string; pts: number }[], foes: new Map<string, number>(), chest: false, blows: 0, top: 0, air: 0 });
   let runStats = newStats();
-  const summaryEl = $('summary'), summaryRows = summaryEl.querySelector('.rows') as HTMLElement;
-  const hideSummary = () => { summaryEl.hidden = true; };
-  /** The card of what the run came to, as it ends: at the foot of the run, fallen, or beaten on foot in the cave. */
-  const showSummary = (how: 'foot' | 'fell' | 'beaten') => {
-    if (mode !== 'ride' || quiet || flyingDemo || inside || carting) return;
-    const rows: [string, string, string?, boolean?][] = [];
-    rows.push(['Points', score.toLocaleString('en'), bestBefore > 0 && score > bestBefore ? 'a new best' : best > score ? `best ${best.toLocaleString('en')}` : '', bestBefore > 0 && score > bestBefore]);
-    // (The time to the foot, and the best of it, on a run that has one: the groomed slope goes on for ever.)
-    if (how === 'foot' && Number.isFinite(land.length)) {
-      const was = Number(kept(`bestTime.${landKind}`)) || 0, beat = !was || ride.time < was;
-      if (beat) keep(`bestTime.${landKind}`, ride.time.toFixed(1));
-      rows.push(['Time', `${ride.time.toFixed(1)} s`, was ? (beat ? 'a new best' : `best ${was.toFixed(1)} s`) : '', !!was && beat]);
-      rows.push(['Drop', `${land.fall.toFixed(0)} m vertical`]);
-    } else if (Number.isFinite(land.length)) rows.push(['Got to', `${Math.max(0, ride.down).toFixed(0)} of ${land.length.toFixed(0)} m`, `${ride.time.toFixed(1)} s in`]);
-    else rows.push(['Ridden', `${Math.max(0, ride.down).toFixed(0)} m`, `${ride.time.toFixed(1)} s`]);
-    if (runStats.top > 0) rows.push(['Top speed', `${(runStats.top * 3.6).toFixed(0)} km/h`]);
-    if (runStats.tricks.length) {
-      const top = runStats.tricks.reduce((a, b) => (b.pts > a.pts ? b : a));
-      rows.push(['Tricks', `${runStats.tricks.length} landed · ${runStats.air.toFixed(1)} s in the air`, `best ${top.name}, +${top.pts.toLocaleString('en')}`]);
-    }
-    const downed = [...runStats.foes.values()].reduce((a, b) => a + b, 0);
-    if (downed) rows.push(['Foes', `${downed} brought down`, [...runStats.foes].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(' · ')]);
-    if (runStats.chest) rows.push(['Treasure', 'the chest opened']);
-    if (runStats.blows) rows.push(['Blows', `${runStats.blows} taken on foot`]);
-    summaryRows.replaceChildren(...rows.flatMap(([label, value, note, isBest]) => {
-      const dt = document.createElement('dt'), dd = document.createElement('dd');
-      dt.textContent = label; dd.textContent = value;
-      if (note) { const sm = document.createElement('small'); sm.textContent = note; if (isBest) sm.className = 'best'; dd.appendChild(sm); }
-      return [dt, dd];
-    }));
-    (summaryEl.querySelector('.cap') as HTMLElement).textContent = how === 'foot' ? 'The run' : how === 'fell' ? 'The run, so far as it went' : 'Beaten in the cave';
-    summaryEl.hidden = false;
+  /**
+   * The best time to the foot of the run ridden, kept in this browser run by run as the best points are: kept afresh if this run's
+   * beats it; and what to say of it beside the time.
+   */
+  const bestTimeSaid = () => {
+    if (!Number.isFinite(land.length)) return '';
+    const was = Number(kept(`bestTime.${landKind}`)) || 0, beat = !was || ride.time < was;
+    if (beat) keep(`bestTime.${landKind}`, ride.time.toFixed(1));
+    return !was ? '' : beat ? 'new best' : `best ${Math.round(was)} s`;
   };
-  const resetScore = () => { score = 0; downedRun = 0; downedUntil = 0; runStats = newStats(); hideSummary(); scoreEl.textContent = '0'; best = bestBefore = Math.max(0, Number(kept(`best.${landKind}`)) || 0); showBest(); };
+  const resetScore = () => { tricksRun = 0; runStats = newStats(); foundRun.length = 0; score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; best = bestBefore = Math.max(0, Number(kept(`best.${landKind}`)) || 0); showBest(); };
   /** An orc downed at `p`: shot (the cross where it was struck), or run down; and the run of them it comes in. */
   /**
    * How many orcs the rider has brought down riding, over every run since the page was opened, which says what it carries
@@ -1831,6 +1885,8 @@ async function start() {
       slain++;
       const now = armAfter(slain).arm;
       if (now !== was && at) popUp([at[0], at[1] - 40], now.name, 'trick', `${slain} down`);
+      // (The bazooka taken up: a weapon found and worn is carried from now on, said so.)
+      if (now !== was && weaponsFree() && wornWeapon()) tell(`${wornWeapon()!.name}!`, 'the weapon you found, carried now that the bazooka is yours', false, 3.5);
       // (A great one leaves something behind it.)
       if (foe.titles) findLoot('boss', p, `left by ${horde.lastGreat || 'a great one'}`);
       runStats.foes.set(foe.name, (runStats.foes.get(foe.name) ?? 0) + 1);
@@ -1886,6 +1942,9 @@ async function start() {
 
   /** The rider's wishes eased in: across and up, the tuck and standing tall, braking. */
   const easeAsk = (dt: number) => {
+    // (Whatever asked it, never no number: from the stick, the pointer or the tilt.)
+    if (!Number.isFinite(want.x)) want.x = 0;
+    if (!Number.isFinite(want.y)) want.y = 0;
     // (Not while a trick is being made: it asks what it must, whatever the keys say.)
     const keys = want.keys, keyed = !want.auto && !isoRiding() && (keys.up || keys.down || keys.left || keys.right);
     // (An arrow key carves at first; held on, it pushes the turn out to the end of the range, into a skid, as the pointer does at
@@ -2020,7 +2079,7 @@ async function start() {
       tell(a.name, `+${pts.toLocaleString('en')} · ${far.toFixed(0)} m, ${a.t.toFixed(1)} s in the air`, false, 2.6);
       if (at) popUp(at, `+${pts.toLocaleString('en')}`, 'trick', a.name);
       addScore(pts);
-      if (mode === 'ride' && !quiet) { runStats.tricks.push({ name: a.name, pts }); runStats.air += a.t; }
+      if (mode === 'ride' && !flyingDemo && !quiet) { tricksRun++; runStats.tricks.push({ name: a.name, pts }); runStats.air += a.t; }
       earnWild(clamp(pts / WILD.trickPts, WILD.trick[0], WILD.trick[1]));
     }
   };
@@ -2046,7 +2105,7 @@ async function start() {
     for (const { body, doll } of crash.dolls) body.poseJoints(doll.joints());
     earnWild(-WILD.fall);
     tell(`Crashed: ${why}`, `A new run in a moment, or ${document.body.classList.contains('mouse') ? 'click' : 'tap'}`, true, 1e9);
-    showSummary('fell');
+    if (mode === 'ride' && !flyingDemo && !quiet) runOver = { what: 'Crashed', why: why.charAt(0).toUpperCase() + why.slice(1), bad: true, drop: Number(downEl.textContent) || 0, time: ride.time };
     reflect();
   };
 
@@ -2066,6 +2125,7 @@ async function start() {
   };
   /** The skier back at the top, going a little. */
   const resetRide = () => {
+    runOver = null;
     leaveFoot();
     offPisteFor = 0; backOnto = null;
     Object.assign(ride, { shove: 0, way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null, stones: 0, overStones: 0, bare: 0, deep: 0 });
@@ -2143,14 +2203,19 @@ async function start() {
     const rng = endRng.fork(`trip ${kind} ${ride.time.toFixed(2)}`), flying = ENDINGS.filter(carries);
     const way: Ending = backBy !== 'ask' && backBy !== 'random' && carries(backBy) ? backBy : rng.pick(flying);
     const mine = (trip = { kind, land: null, base: null, from, way, top: new Vector3(), downhill: new Vector3(), started: false, swapped: false, start: new Vector3() });
-    tell(`Off to ${label}`, 'making the mountain ready', false, 60);
-    loading.hush(true);
+    // (Held while it is made, and said so, the card's wheel turning (asked: "it froze for a while after selecting the new location, it
+    // didnt show that it is loading the other run"): made on a phone, each of its steps held the page for a second or more, the ride
+    // jerking on between them, and the shaders made ready after them held it for seconds more, with nothing said.)
+    makingFor(label);
+    await loading.paint();
+    loading.hush(true, (text) => makingStep(text));
     let base: Land;
-    try { base = await landOf(kind); } finally { loading.hush(false); }
+    try { base = await landOf(kind); } catch (e) { makingDone(); throw e; } finally { loading.hush(false); }
     // (Broken off while it was made, by another run chosen, or watching: let be.)
-    if (trip !== mine) return;
+    if (trip !== mine) { makingDone(); return; }
+    makingStep('Making its shaders ready', 0.85);
     const fromTop = landTop, toTop = topOf.get(base);
-    if (!fromTop || !toTop || land !== from) { trip = null; void setLand(kind); return; }
+    if (!fromTop || !toTop || land !== from) { makingDone(); trip = null; void setLand(kind); return; }
     // (Stood where it lies from the land ridden, as that one is stood.)
     const off = landShift.clone().add(toTop.clone().sub(fromTop)), stood = shiftedLand(base, off), top = stood.at(0, 0);
     stood.group.visible = false;
@@ -2158,6 +2223,40 @@ async function start() {
     Object.assign(trip, { land: stood, base, top: new Vector3(top.x, stood.height(top.x, top.z), top.z), downhill: runDir(stood.frame(top.x, top.z, 0)) });
     warmWith.add(stood.group);
     warmSoon();
+  };
+  /**
+   * The card said while another run is made riding (`#making`): where to, what is being done and how far it has got; the ride held
+   * meanwhile (and let go again only if it was going), until its land is made and its shaders ready (`stepMaking`).
+   */
+  const makingEl = $('making'), makingBar = makingEl.querySelector('.bar') as HTMLElement;
+  let making: { held: boolean; k: number } | null = null;
+  const makingFor = (label: string) => {
+    if (making) makingDone();
+    // (Held on a phone or a tablet, where it is slow to make; on a computer, ridden on as before, the card said all the same.)
+    making = { held: touchHud && mode === 'ride' && playing, k: 0.08 };
+    if (making.held) { playing = false; reflect(); }
+    say($('makingWhat'), `Off to ${label}`);
+    makingStep('Fetching the mountain', 0.08);
+    makingEl.hidden = false;
+  };
+  const makingStep = (text: string, k?: number) => {
+    if (!making) return;
+    making.k = k ?? Math.min(0.75, making.k + 0.22);
+    say($('makingStep'), text);
+    makingBar.style.setProperty('--k', making.k.toFixed(3));
+  };
+  const makingDone = () => {
+    if (!making) return;
+    const held = making.held;
+    making = null;
+    makingEl.hidden = true;
+    if (held && mode === 'ride' && !playing) { playing = true; reflect(); }
+  };
+  /** Each frame: once the run made is ready to be shown (its shaders made, or given up on), the card put away and the ride let go. */
+  const stepMaking = () => {
+    if (!making) return;
+    if (!trip || mode !== 'ride') { makingDone(); return; }
+    if (trip.land && !warmWanted && !warming) makingDone();
   };
   /**
    * Riding off to another run, a step on: once its land is made, and the rider is on the snow (or fallen), taken by the way chosen;
@@ -3627,6 +3726,7 @@ async function start() {
       pop: a.pop0 * (1 - smooth(a.t / 0.26)), set: a.set, lead: (a.spinTo - a.spin) * smooth(a.t / 0.15), spot: smooth((flipped - 0.45) / 0.3),
       cork: a.cork * (1 - open), layout: a.style.layout, spread: a.style.spread, mute: a.style.mute, tail: a.style.tail, reach: a.kind === 'hop' ? 0 : 1 - smooth(left / 0.2),
     } };
+    sanePose(posed.c as unknown as Record<string, unknown>, 'in the air');
     poseSkier(dt);
     // (Upright to the land under it, smoothed over some metres; its nose up as it left the lip, coming level over the flight.)
     standAt(new Vector3(ride.x, ride.y, ride.z), normalAt(ride.x, ride.z, 1.5), ride.facing, here, a.nose * (1 - smooth(a.t / (0.75 * a.T))));
@@ -3726,9 +3826,10 @@ async function start() {
     const stones = stonesNow(dt), deep = deepNow(dt) * (1 - Math.min(0.9, g.powder)), lift = carting || ride.ended ? 0 : g.accel * ACCEL_PUSH * Math.max(0, 1 - ride.speed / 25) * (1 - ride.brake);
     const pull = lift + push + shoveNow() + boostNow(dt) + skateNow(dt, G * rise * level + DEEP.friction * deep * into) - G * rise * level - (0.04 + STONES.grip * (1 - Math.min(0.6, g.stones / 30)) * stones * smooth(ride.speed / STONES.slow) + DEEP.friction * deep) * into - (drag + (carting ? 0.006 : 0) + DEEP.drag * deep) * ride.speed ** 2 - 0.05 * Math.abs(turning) * ride.speed - 7 * ride.brake - (stopping ? 6 * ride.brake : 0) - 6 * Math.abs(Math.sin(pivot)) - (g180 ? g180.slow * sideOn : 0);
     ride.speed = Math.max(0, ride.speed + pull * dt);
-    // (About an arena, its speed run out going up the snow (the pipe's face, or the run back up to the great one): turned round where
-    // it stands, to come back down. Elsewhere it stops, as it always did.)
-    if (ride.speed < 0.4 && rise > 0.05 && inArena()) ride.way = wrapAngle(ride.way + Math.PI);
+    // (Its speed run out going up an arena's pipe, turned round where it stands to come back down its face, as a halfpipe's wall turns a
+    // skier. Elsewhere it stops, as it always did; on the snow up to the great one too, which it had turned round on as well, and the
+    // skier, steering up to it, was turned back to the pipe each time it slowed.)
+    if (ride.speed < 0.4 && rise > 0.05 && inArena() && arenaRaise(ride.x, ride.z) > 0.05) ride.way = wrapAngle(ride.way + Math.PI);
     ride.x += go.x * ride.speed * level * dt; ride.z += go.z * ride.speed * level * dt;
     ride.time += dt;
     if (intoTree(go) || intoRock(go)) return stepFallen(dt);
@@ -3811,6 +3912,7 @@ async function start() {
       skid: Math.max(ride.skid, g180 ? 0.8 * g180.scrape * sideOn : 0), pop: ride.pop, life: ride.time, flex: ride.flex, back: ride.back, press: g180?.press ?? 0,
       skate: ride.skate, stride: ride.stride, powder: powderNow(),
     } };
+    sanePose(posed.c as unknown as Record<string, unknown>, 'on the snow');
     poseSkier(dt);
     // (Upright to the snow under it, smoothed over half a metre, as skis bridge what is smaller. In a ground 180: sprung up off it in a
     // pop; tipped onto the tips or the tails in a butter, the pressed ends kept on the snow and the body carried round about them.)
@@ -3829,7 +3931,7 @@ async function start() {
     // Taken onto the stones too fast, thrown (`STONES`).
     if (ride.overStones > STONES.catch && ride.speed > STONES.fast + g.stones / 3.6 && !ride.ended) { ride.overStones = 0; fall('caught an edge on the stones'); }
     // At the foot of a world's run: brought to a stop there.
-    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else { tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); showSummary('foot'); } }
+    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else { if (!flyingDemo && !quiet) runOver = { what: 'The foot of the run', why: '', bad: false, drop: land.fall, time: ride.time, timeSaid: bestTimeSaid() }; tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); } }
     return { down: ride.down, left: ride.left, speed: ride.speed, way: ride.way, ski, skid: Math.max(Math.abs(Math.sin(ski - ride.way)), g180 ? g180.scrape * sideOn : 0), tuck: ride.tuck, brake: ride.brake, deep: ride.deep };
   };
   /** On foot, what it is doing, in words: in the camp, in the tunnel, or in which of the dungeon's rooms. */
@@ -4508,6 +4610,8 @@ async function start() {
    * watched. (Kept in this browser for next time; `?orcs=1` or `?orcs=0` either way.)
    */
   let orcsOn = false;
+  /** Whether the arms aim themselves, riding (`setAiming`). */
+  let autoAim = true;
   // (The gun's sound woken by the click that turns them on, as a browser lets a page make sound only after one: woken by the first shot,
   // it was made as the first shot was fired.)
   // Off the piste allowed, or kept between the poles as the runs were (asked: "in menu there could be an option to toggle between out of
@@ -4521,6 +4625,28 @@ async function start() {
   // The minimap (`slopeMini.ts`), shown or not: kept in this browser; `?minimap=0` or `1`; `N`.
   const miniEl = $<HTMLCanvasElement>('mini'), mini = new MiniMap(miniEl);
   let miniOn = true, miniTall = 0;
+  /**
+   * On a phone or a tablet, the run as a slim rail at the right in place of the minimap (`#rail`, `body.touchhud` in the page): its top,
+   * its kickers, the cave and its foot along it, and how far down the skier is; tapped, the minimap itself, tapped again, the rail.
+   * (Asked: "the vertical view is cluttered with the bars.. propose me a better gui".) On foot in the dungeon, the minimap's plan of it
+   * as before.
+   */
+  const touchHud = !matchMedia('(hover: hover) and (pointer: fine)').matches;
+  document.body.classList.toggle('touchhud', touchHud);
+  // (The strip and the rest in its style on a computer too, `body.hud`: the rail, the stick where the thumb is and the rest for thumbs only.)
+  document.body.classList.add('hud');
+  const railEl = $<HTMLButtonElement>('rail'), railTicks = railEl.querySelector('.ticks') as HTMLElement;
+  let railOf: Land | null = null, railAt = '', miniOpen = false;
+  const openMini = (on: boolean) => { miniOpen = on; document.body.classList.toggle('miniOpen', on); };
+  railEl.addEventListener('click', () => openMini(true));
+  miniEl.addEventListener('click', () => { if (miniOpen) openMini(false); });
+  /** The rail's marks laid for the land now: its top, its kickers, the cave, its foot, each by how far down the run it is. */
+  const layRail = (kicks: { s: number }[]) => {
+    railOf = land;
+    const at = (s: number, kind = '') => { const i = document.createElement('i'); i.style.top = `${clamp(s / land.length, 0, 1) * 100}%`; if (kind) i.className = kind; return i; };
+    const cave = caveNow();
+    railTicks.replaceChildren(at(0, 'top'), ...kicks.map((k) => at(k.s)), ...(cave ? [at(cave.site.s, 'cave')] : []), at(land.length, 'foot'));
+  };
   const miniButtons = (['Shown', 'Hidden'] as const).map((label, k) => button('miniSeg', label, () => setMini(k === 0), k ? 'No minimap' : 'The whole run small at the right, the skier on it, the way down pointing up (N)'));
   const setMini = (on: boolean) => {
     miniOn = on;
@@ -4538,6 +4664,7 @@ async function start() {
     const cave = caveNow(), o = land.group.position, onPlan = show && foot && cave && mode === 'ride' ? cave.onPlan(foot.x - o.x, foot.z - o.z) : null;
     if (onPlan && cave && foot && mini.has) {
       if (miniEl.hidden) miniEl.hidden = false;
+      if (!railEl.hidden) railEl.hidden = true;
       const p = cave.plan();
       mini.plan(p, onPlan, foot.heading, isoYaw(), p.seen.reduce((n, v) => n + v, 0));
       return;
@@ -4549,11 +4676,21 @@ async function start() {
         const kicks: { s: number; left: number }[] = [];
         for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) kicks.push(k); }
         mini.draw(land, kicks, tall, innerWidth < 420 ? 84 : 108);
+        if (touchHud) layRail(kicks);
       }
     }
     const shown = show && mini.has && !cat;
-    if (miniEl.hidden === shown) miniEl.hidden = !shown;
-    if (!shown) return;
+    // (On a phone or a tablet, the rail unless the minimap was asked for by a tap; riding only.)
+    const rail = touchHud && shown && !miniOpen && mode === 'ride';
+    if (railEl.hidden === rail) railEl.hidden = !rail;
+    if (rail) {
+      if (railOf !== land) { const kicks: { s: number }[] = []; for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) kicks.push(k); } layRail(kicks); }
+      const k = clamp(at.down / land.length, 0, 1).toFixed(3);
+      if (k !== railAt) { railAt = k; railEl.style.setProperty('--at', k); }
+    }
+    const minied = shown && !rail;
+    if (miniEl.hidden === minied) miniEl.hidden = !minied;
+    if (!minied) return;
     const f = land.at(at.down, at.left), way = along(at.way, f);
     mini.show(where.x, where.z, way.x, way.z, offPisteFor > 0);
   };
@@ -4561,6 +4698,19 @@ async function start() {
   // remove the text box in top left altogether (as default, can be enabled in menu)"): kept in this browser; `?info=1`; `I`.
   let infoOn = false;
   const infoButtons = (['Hidden', 'Shown'] as const).map((label, k) => button('infoSeg', label, () => setInfo(k === 1), k ? 'What the skier is doing, how fast, how far down and the points, at the top left (I)' : 'The picture clear at the top left'));
+  /**
+   * The guide drawn about the skier for steering by the mouse, hidden unless asked for (asked: "make the guide not visible by default,
+   * can be enabled by toggle"): the pointer steering as ever, shown as a cross over the picture rather than as the guide's mark. Kept in
+   * this browser.
+   */
+  let guideOn = false;
+  const guideButtons = (['Hidden', 'Shown'] as const).map((label, k) => button('guideSeg', label, () => setGuide(k === 1), k ? 'The guide about the skier: how far the pointer asks a turn, a skid, a tuck' : 'Only the pointer, as a cross'));
+  const setGuide = (on: boolean) => {
+    guideOn = on;
+    keep('guide', on ? '1' : '0');
+    guideButtons.forEach((b, k) => b.classList.toggle('on', (k === 1) === on));
+    document.body.classList.toggle('guide', on);
+  };
   const setInfo = (on: boolean) => {
     infoOn = on;
     keep('info', on ? '1' : '0');
@@ -4576,6 +4726,19 @@ async function start() {
     if (on) void horde.prepare().then(() => warmSoon(gun), () => {});
     if (!on && demoKind === 'orcs') setDemoKind('tricks');
     reflect();
+  };
+  /**
+   * How the arms are aimed, riding (asked: "Can we find a nice way to leave out human aiming? Like auto targeting and just attack button
+   * and maybe cycle target buttons next to attack"): *Auto*, at first, the arms locked on a foe by themselves (the nearest they can
+   * reach, kept until it falls or is lost, another chosen with the buttons beside *Attack* or by touching it), each attack rolled to
+   * strike or miss (`slopeDice.ts`); or *Free*, aimed by hand at the guide's mark or a finger, as they were. Kept in this browser;
+   * `?aim=free` or `auto`.
+   */
+  const aimButtons = (['Auto', 'Free'] as const).map((label, k) => button('aimSeg', label, () => setAiming(k === 0), k ? 'Aimed by hand: at the mark the pointer steers by, or where a finger is on the picture' : 'Locked on the nearest foe by themselves; Attack strikes at it, rolled to hit or miss; ◀ ▶ (Q, E) or touching a foe chooses another'));
+  const setAiming = (on: boolean) => {
+    autoAim = on;
+    keep('aiming', on ? 'auto' : 'free');
+    aimButtons.forEach((b, k) => b.classList.toggle('on', (k === 0) === on));
   };
   /** Which demo run is watched; the orc hunt's with the horse and its rider. */
   const setDemoKind = (k: 'tricks' | 'orcs' | 'show') => {
@@ -4602,6 +4765,7 @@ async function start() {
     menuOpen = open;
     // (The pack shown afresh: the arm the foes have given may have changed since.)
     if (open && pack) regear();
+    if (open) showNow();
     menuEl.hidden = !open;
     // (The pointer goes off to the menu: it lets the skier go, and takes it again only once brought back over it.)
     if (open) letAimGo();
@@ -4613,6 +4777,45 @@ async function start() {
   };
   menuButton.onclick = () => setMenu(true);
   $('menuClose').onclick = () => setMenu(false);
+  $('menuResume').onclick = () => setMenu(false);
+  doingWhenLost = () => `${runs.find((r) => r.id === landKind)?.label ?? landKind}, ${mode === 'watch' ? `watching (${demoKind})` : inside ? (cat ? 'the land turning back' : inside.reversed ? 'riding the land inside out' : 'the land turning inside out') : cat ? `the way back to the top (${cat.by})` : foot ? 'on foot at the cave' : trip ? `off to ${trip.kind}` : 'riding'}`;
+  /** What went wrong last time the page was open, said once riding begins. */
+  let lostBefore: { why: string; doing: string } | null = null;
+  try { const k = localStorage.getItem('slope.lost'); if (k) { lostBefore = JSON.parse(k); localStorage.removeItem('slope.lost'); } } catch { /* (none) */ }
+  // (The last number gone bad, said in the menu under *Settings*: `noteProblem`.)
+  showProblem = () => {
+    try {
+      const all = JSON.parse(localStorage.getItem('slope.problems') ?? '[]') as { what: string; at: string }[];
+      const el = $('problemNote');
+      el.hidden = !all.length;
+      el.textContent = all.length ? `Problems seen, oldest first: ${all.map((k) => `(${new Date(k.at).toLocaleTimeString()}) ${k.what}`).join(' · ')}` : '';
+    } catch { /* (none) */ }
+  };
+  showProblem();
+  /** The card at the menu's head: the run, and whether it is ridden, watched (which demo) or walked in its cave. */
+  const showNow = () => {
+    say($('menuRun'), runs.find((r) => r.id === landKind)?.label ?? 'The groomed slope');
+    say($('menuDoing'), mode === 'ride' ? (foot ? 'On foot at the cave' : 'Riding') : demoKind === 'show' ? 'Watching the showcase' : demoKind === 'orcs' ? 'Watching the orc hunt' : 'Watching the demo run');
+    say($('menuResume'), mode === 'ride' ? 'Resume' : 'Watch on');
+  };
+  /** The menu's parts, one shown at a time, chosen by its tabs; the last chosen kept in this browser. */
+  const tabButtons = [...$('menuTabs').querySelectorAll<HTMLButtonElement>('button[data-tab]')];
+  const showTab = (k: string) => {
+    if (!tabButtons.some((b) => b.dataset.tab === k)) k = 'play';
+    for (const b of tabButtons) { const on = b.dataset.tab === k; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }
+    for (const sec of menuEl.querySelectorAll<HTMLElement>('section.tab')) sec.hidden = sec.dataset.tab !== k;
+    (menuEl.querySelector('.scroll') as HTMLElement).scrollTop = 0;
+    try { localStorage.setItem('slope.menuTab', k); } catch { /* (not kept) */ }
+  };
+  for (const b of tabButtons) b.addEventListener('click', () => showTab(b.dataset.tab!));
+  // (The arrow keys along the tabs, as tabs go.)
+  $('menuTabs').addEventListener('keydown', (e) => {
+    const i = tabButtons.findIndex((b) => b === document.activeElement), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (i < 0 || !d) return;
+    const next = tabButtons[(i + d + tabButtons.length) % tabButtons.length];
+    showTab(next.dataset.tab!); next.focus(); e.preventDefault(); e.stopPropagation();
+  });
+  showTab((() => { try { return localStorage.getItem('slope.menuTab') ?? 'play'; } catch { return 'play'; } })());
   const whos: [string, Who][] = [['Horse & rider', 'mounted'], ['Horse', 'horse'], ['Person', 'person']];
   const skiSets: [string, HorseSkis, string][] = [['Two long', 'pair', 'A long ski under each side, the fore and hind hooves bound to it'], ['Four short', 'four', 'A short ski under each hoof']];
   const whoButtons = whos.map(([label, w]) => button('skiers', label, () => setSkier(w)));
@@ -4787,7 +4990,6 @@ async function start() {
     } else newRideRun();
     air = null; crash = null; joints = jointsBefore = null;
     told = { text: '', small: '', bad: false, until: 0 };
-    hideSummary();
     mode = m;
     // (Back to watching: the demo run for the skier there is now, flown if a new skier was chosen while riding.)
     if (m === 'watch') { seat(); void useDemo(); }
@@ -4846,17 +5048,54 @@ async function start() {
   let stickHeld: number | null = null, knobAt = '';
   const holdStick = (e: PointerEvent) => {
     const r = stickEl.getBoundingClientRect(), half = r.width / 2;
+    // (Not drawn, its size nothing: let go. The stick is put away as the run ends, at the question of the way back, under the menu; a
+    // thumb still on it as it went, moved, was taken as so far over as no number (a length over nothing), and every number of the ride
+    // went so, and the eye with it: the picture black, on an iPad at every run's end ridden by the stick.)
+    if (!(half > 1)) { letGo(); return; }
     let x = (e.clientX - (r.left + half)) / (half * 0.82), y = ((r.top + half) - e.clientY) / (half * 0.82);
     const d = Math.hypot(x, y);
     if (d > 1) { x /= d; y /= d; }
-    stick.x = x; stick.y = y;
+    stick.x = Number.isFinite(x) ? x : 0; stick.y = Number.isFinite(y) ? y : 0;
   };
-  const letGo = () => { stick.x = 0; stick.y = 0; stickHeld = null; };
+  const letGo = () => { stick.x = 0; stick.y = 0; stickHeld = null; homeStick(); };
+  /**
+   * The stick where the thumb comes down (asked: "Can we make the left thumb movement control position "dynamic", placed where the
+   * player puts their left side thumb?"): on a phone or a tablet, a thumb put down anywhere on the left of the picture, under the
+   * strip at its top, brings the stick there, its middle under the thumb, and steers from there as it moves; let go, the stick goes back
+   * to its corner. (Not while the run's end is at its work or the skier lies fallen, when a tap begins the next run; nor over the
+   * picture's buttons, which take their own touches.) What is carried is fired by a finger on the rest of the picture.
+   */
+  const homeStick = () => { if (!stickEl.classList.contains('floating')) return; stickEl.classList.remove('floating'); stickEl.style.left = stickEl.style.top = stickEl.style.bottom = ''; };
+  const floatsStick = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse' || stickHeld !== null || mode !== 'ride' || menuOpen || stickEl.hidden || cat || crash || runOver) return false;
+    const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    const strip = parseFloat(getComputedStyle(document.body).getPropertyValue('--under')) || 70;
+    return x < r.width * 0.42 && y > strip + 10 && y < r.height - 4;
+  };
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!floatsStick(e)) return;
+    // (The stick's middle under the thumb, kept whole on the picture.)
+    const w = stickEl.offsetWidth, h = stickEl.offsetHeight;
+    stickEl.classList.add('floating');
+    stickEl.style.left = `${clamp(e.clientX - w / 2, 4, innerWidth - w - 4)}px`;
+    stickEl.style.top = `${clamp(e.clientY - h / 2, 4, innerHeight - h - 4)}px`;
+    stickEl.style.bottom = 'auto';
+    stickHeld = e.pointerId;
+    try { stickEl.setPointerCapture(e.pointerId); } catch { /* (a pointer it cannot take: followed by the canvas's own) */ }
+    holdStick(e);
+    // (The picture's own handling of a touch, firing or walking to it, not done for this one.)
+    e.preventDefault(); e.stopImmediatePropagation();
+  }, true);
+  canvas.addEventListener('pointermove', (e) => { if (stickHeld === e.pointerId) holdStick(e); });
+  canvas.addEventListener('pointerup', (e) => { if (stickHeld === e.pointerId) letGo(); });
+  canvas.addEventListener('pointercancel', (e) => { if (stickHeld === e.pointerId) letGo(); });
   stickEl.addEventListener('pointerdown', (e) => { stickHeld = e.pointerId; stickEl.setPointerCapture(e.pointerId); holdStick(e); e.preventDefault(); });
   stickEl.addEventListener('pointermove', (e) => { if (stickHeld === e.pointerId) holdStick(e); });
   stickEl.addEventListener('pointerup', letGo);
   stickEl.addEventListener('pointercancel', letGo);
   const showStick = () => {
+    // (Put away under a thumb, as the run ends or the way back is asked: let go of.)
+    if (stickHeld !== null && !(stickEl.offsetWidth > 1)) letGo();
     const half = stickEl.offsetWidth / 2 || 66, x = stickHeld !== null ? stick.x : ask.x, y = stickHeld !== null ? stick.y : tilting() ? ask.y : 0;
     const to = `translate(${(x * half * 0.82).toFixed(1)}px, ${(-y * half * 0.82).toFixed(1)}px)`;
     if (to !== knobAt) { knobAt = to; knob.style.transform = to; }
@@ -4881,7 +5120,8 @@ async function start() {
    */
   const RELEVEL = { still: deg(6), after: 2.5, over: 2, most: 0.35 };
   const canTilt = typeof DeviceOrientationEvent !== 'undefined';
-  let tiltWanted = true, tiltHeard = false, tiltAsking = false;
+  // (Off until chosen (asked: "disable tilt steering by default on mobile"): the stick steers at first.)
+  let tiltWanted = false, tiltHeard = false, tiltAsking = false;
   /** Whether tilting steers now: chosen, heard from, and no mouse. */
   const tilting = () => tiltWanted && tiltHeard && !document.body.classList.contains('mouse');
   const onTilt = (e: DeviceOrientationEvent) => {
@@ -4937,11 +5177,15 @@ async function start() {
   ];
   const backButtons = BACK_CHOICES.map(([w, label, title]) => button('waysSeg', label, () => setBackBy(w), title));
   showBackBy = () => backButtons.forEach((b, k) => b.classList.toggle('on', BACK_CHOICES[k][0] === backBy));
-  const tiltButtons = (['Stick', 'Tilt'] as const).map((label, k) => button('tiltSeg', label, () => setTilt(k === 1), k ? 'Tip the device to steer and to tuck, from however it is held as the run begins' : 'Steer by the stick at the lower left alone'));
+  const tiltButtons = (['Stick', 'Tilt'] as const).map((label, k) => button('tiltSeg', label, () => setTilt(k === 1, true), k ? 'Tip the device to steer and to tuck, from however it is held as the run begins' : 'Steer by the stick at the lower left alone'));
   $('tiltField').hidden = !canTilt;
-  const setTilt = (on: boolean) => {
+  /**
+   * Steering by tilting, or not; kept, `chosen` in the menu, as `steering`. (Not as `tilt`, which was kept as the page opened, chosen or
+   * not, while tilting was the first choice: every phone that had opened it kept tilting so, and would have gone on tilting.)
+   */
+  const setTilt = (on: boolean, chosen = false) => {
     tiltWanted = on;
-    keep('tilt', on ? '1' : '0');
+    if (chosen) keep('steering', on ? 'tilt' : 'stick');
     tiltButtons.forEach((b, k) => b.classList.toggle('on', (k === 1) === on));
     if (on) { levelTilt(); void listenTilt(); }
   };
@@ -4970,15 +5214,14 @@ async function start() {
     // (With Ctrl, Alt or the command key held, a key is the browser's own: Ctrl+R to load the page again had first switched to riding,
     // Ctrl+F the view to the free one, Ctrl+C to the cinematic.)
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    // (Space on a button: pressed, in the menu. Out of it, a pause, as it is anywhere else on the page: the keys' focus is left on the
-    // menu's button as the menu closes, and on *180* or *Skate* as they are clicked, and Space there had opened the menu again, or turned
-    // the skier round, where it was meant to pause. Let go of the button too, or the browser presses it as Space comes up.)
+    // (Space on a button: pressed, in the menu. Out of it, what Space is anywhere else on the page, a pause (or, riding with arms, an
+    // attack, below): the keys' focus is left on the menu's button as the menu closes, and on *180* or *Skate* as they are clicked, and
+    // Space there had opened the menu again, or turned the skier round. Let go of the button too, or the browser presses it as Space
+    // comes up.)
     if (e.target instanceof HTMLButtonElement && e.key === ' ') {
       if (menuOpen) return;
       e.target.blur();
-      togglePause();
-      e.preventDefault();
-      return;
+      if (!(mode === 'ride' && armed())) { togglePause(); e.preventDefault(); return; }
     }
     if (mode === 'ride' && ARROWS[e.key]) { want.keys[ARROWS[e.key]] = true; e.preventDefault(); return; }
     // (On foot, W, A, S and D as the arrows, by where the keys are whatever the keyboard's letters: riding, S and A are views.)
@@ -4988,6 +5231,12 @@ async function start() {
     if (mode === 'ride' && e.key.toLowerCase() === 'x' && !(e.target instanceof HTMLInputElement)) { start180(); e.preventDefault(); return; }
     if (mode === 'ride' && e.key.toLowerCase() === 'z' && !(e.target instanceof HTMLInputElement)) { if (!e.repeat) holdSkate(true); e.preventDefault(); return; }
     if (mode === 'ride' && e.key === 'Enter' && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLInputElement) && !menuOpen) { if (!e.repeat) askRestart(); e.preventDefault(); return; }
+    // (Carrying arms, Space attacks, held as the button is, in place of pausing; the arms aiming themselves, Q and E, or Tab, lock on
+    // the foe to the left or the right.)
+    if (mode === 'ride' && armed() && !menuOpen && !(e.target instanceof HTMLInputElement)) {
+      if (e.key === ' ') { if (!e.repeat) attackDown(); e.preventDefault(); return; }
+      if (rolling() && (e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'e' || e.key === 'Tab')) { cycleLock(e.key.toLowerCase() === 'q' ? -1 : 1); e.preventDefault(); return; }
+    }
     // (Asked the way back, by its number.)
     // (Asked the way back, by its number: 1 to 9, and 0 for the tenth.)
     const nth = e.key === '0' ? 9 : /^[1-9]$/.test(e.key) ? +e.key - 1 : -1;
@@ -4999,7 +5248,7 @@ async function start() {
     if (k === ' ') { togglePause(); e.preventDefault(); } else if (k === 'r') setMode(mode === 'ride' ? 'watch' : 'ride'); else if (k === 'h') setMenu(!menuOpen); else if (k === 'm') $('openMap').click(); else if (k === 'n') setMini(!miniOn); else if (k === 'i') setInfo(!infoOn); else if (v && !e.repeat) setView(v[1]);
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
-  window.addEventListener('keyup', (e) => { if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (WASD[e.code]) want.keys[WASD[e.code]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
+  window.addEventListener('keyup', (e) => { if (e.key === ' ') attackUp(); if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (WASD[e.code]) want.keys[WASD[e.code]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
   window.addEventListener('blur', () => { holdSkate(false); for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
 
   // Riding by mouse or touchpad (asked: "make better controls for desktop/laptop users, current is for touch screens. Mouse / touchpad
@@ -5016,6 +5265,13 @@ async function start() {
   const aimEl = $('aim'), aimDot = aimEl.querySelector('.dot') as HTMLElement;
   /** How far from the middle of the picture the pointer asks the most, in pixels: some three tenths of the picture's shorter side. */
   const aimReach = () => clamp(0.3 * Math.min(innerWidth, innerHeight), 120, 340);
+  /**
+   * How far to either side it asks the most: wider than up and down (asked: "the control overlay should be also wider and less
+   * obstructive"), some four tenths of the picture's breadth, so that the turns are asked more finely and the guide's sides stand out
+   * beyond the skier and what is about it in the middle of the picture.
+   */
+  const aimReachX = () => Math.max(aimReach(), clamp(0.42 * innerWidth, 160, 640));
+  let shownReachX = 0;
   let overPicture = false, shownReach = 0, aimDotAt = '';
   function letAimGo() { aim.on = aim.brake = false; aim.x = aim.y = 0; canvas.style.cursor = ''; }
   const byMouse = (on: boolean) => { if (document.body.classList.contains('mouse') !== on) document.body.classList.toggle('mouse', on); if (!on) letAimGo(); };
@@ -5023,7 +5279,7 @@ async function start() {
   addEventListener('pointerdown', (e) => byMouse(e.pointerType === 'mouse'), true);
   addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') byMouse(true); }, true);
   const aimAt = (e: PointerEvent) => {
-    const reach = aimReach(), nx = (e.clientX - innerWidth / 2) / reach, ny = (innerHeight / 2 - e.clientY) / reach;
+    const reach = aimReach(), nx = (e.clientX - innerWidth / 2) / aimReachX(), ny = (innerHeight / 2 - e.clientY) / reach;
     const inside = Math.abs(nx) <= 1 && Math.abs(ny) <= 1;
     if (inside) aim.on = true;
     // (A little give about the middle, so that the skier runs straight without the pointer being held on a point.)
@@ -5031,7 +5287,7 @@ async function start() {
     if (aim.on) { aim.x = give(nx); aim.y = give(ny); }
     aim.px = e.clientX; aim.py = e.clientY;
     // (Within the guide its mark is the pointer; outside it the mark stays at its edge, and the pointer is shown where it is.)
-    canvas.style.cursor = aim.on && inside ? 'none' : '';
+    canvas.style.cursor = aim.on && inside ? (guideOn ? 'none' : 'crosshair') : '';
   };
   const aiming = (e: PointerEvent) => e.pointerType === 'mouse' && mode === 'ride' && !menuOpen;
   /**
@@ -5069,12 +5325,15 @@ async function start() {
   canvas.addEventListener('pointerdown', (e) => {
     // (By touch, a tap on the picture while the run's end is at its work begins the next run at once, as a click does and Enter: a
     // phone has no Enter. Not in its first moment, where a finger may still be coming off the picture.)
-    if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && cat && cat.t > 0.4) { restart(); return; }
+    // (Not on a phone or a tablet with its strip, whose thumbs are on the picture now, the stick coming to the left one (asked, of runs
+    // begun again by themselves: "I had the instant reset still happen on silent warden ending"): a thumb steering as the run ended
+    // threw the whole way back away. There *Next run*, on the sheet at the foot, begins it at once.)
+    if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && cat && cat.t > 0.4 && !touchHud) { restart(); return; }
     // (On foot, the mouse its own: the left button attacking (or, with nothing carried, walking after the pointer), the right walking
     // after it; a tap with nothing carried walks to where it is.)
     if (footMouse(e)) {
       if (e.button === 2 || (e.button === 0 && !armed())) footPad.walk = true;
-      else if (e.button === 0) { firing = true; shotClock = SHOT; pull(); gunSound.wake(); footPad.facing = performance.now() + 700; }
+      else if (e.button === 0) { if (rolling()) lockNear(e.clientX, e.clientY); firing = true; shotClock = SHOT; pull(); gunSound.wake(); footPad.facing = performance.now() + 700; }
       canvas.setPointerCapture(e.pointerId);
       return;
     }
@@ -5085,6 +5344,8 @@ async function start() {
     }
     // (By touch, carrying the gun: a finger held on the picture fires it there, `finger`.)
     if (e.pointerType !== 'mouse' && mode === 'ride' && !menuOpen && !cat && armed()) {
+      // (The arms aiming themselves: a foe touched is locked on, and attacked.)
+      if (rolling()) lockNear(e.clientX, e.clientY);
       finger.id = e.pointerId; fingerAt(e);
       firing = true; shotClock = SHOT; pull(); gunSound.wake();
       canvas.setPointerCapture(e.pointerId);
@@ -5094,7 +5355,8 @@ async function start() {
     if (cat) { restart(); return; }
     // (Held onto while the button is down, so that the brake, or the trigger, is not let go of where the pointer crosses a control.)
     // (With the tommy gun, the button is its trigger, and Shift brakes.)
-    if (armed()) { firing = true; shotClock = SHOT; pull(); gunSound.wake(); } else aim.brake = true;
+    // (The arms aiming themselves: a foe clicked on is locked on, and attacked.)
+    if (armed()) { if (rolling()) lockNear(e.clientX, e.clientY); firing = true; shotClock = SHOT; pull(); gunSound.wake(); } else aim.brake = true;
     canvas.setPointerCapture(e.pointerId);
     aimAt(e);
   });
@@ -5114,10 +5376,11 @@ async function start() {
   }, { passive: false });
   /** The guide, a frame on: its reach, the mark where the pointer (or, not aiming, the keys or a trick) asks the skier to go. */
   const showAim = () => {
-    const reach = aimReach();
+    const reach = aimReach(), reachX = aimReachX();
     if (reach !== shownReach) { shownReach = reach; aimEl.style.setProperty('--reach', `${reach}px`); }
+    if (reachX !== shownReachX) { shownReachX = reachX; aimEl.style.setProperty('--reachX', `${reachX}px`); }
     const x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
-    const to = `translate(${(x * reach).toFixed(1)}px, ${(-y * reach).toFixed(1)}px)`;
+    const to = `translate(${(x * reachX).toFixed(1)}px, ${(-y * reach).toFixed(1)}px)`;
     if (to !== aimDotAt) { aimDotAt = to; aimDot.style.transform = to; }
     // (Asking to be brought in, while the pointer is over the picture and has not taken the skier; put away while it lies fallen, and
     // while the arm has it.)
@@ -5156,6 +5419,18 @@ async function start() {
   const arms = new Map<ArmKind, Group>(LADDER.map((a): [ArmKind, Group] => [a.kind, a.kind === 'smg' ? gun : a.make()]));
   for (const [k, g] of arms) if (k !== 'smg') { rimAll(g); g.visible = false; }
   const flames = new Flames(scene, gunRng.fork('flames'), ground), bolts = new Bolts(scene, gunRng.fork('bolts'));
+  // (Sparks of gold where a blow strikes hard, a critical; of blue-white where lightning strikes.)
+  const sparks = new Sparks(scene, gunRng.fork('sparks'), [3.6, 2.4, 0.7]), zapSparks = new Sparks(scene, gunRng.fork('zap sparks'), [1.4, 2, 3.6]);
+  /**
+   * The picture flashed a moment: blue-white as lightning strikes (`zap`), the more the more it struck; red at its edges as a crushing
+   * blow is taken (`hurt`).
+   */
+  const flashEl = $('flash');
+  const flashScreen = (kind: 'zap' | 'hurt', strength = 1) => {
+    flashEl.className = ''; flashEl.style.setProperty('--strength', strength.toFixed(2));
+    void flashEl.offsetWidth; flashEl.className = kind;
+  };
+  const hurtFlash = () => flashScreen('hurt');
   const sweep = new Sweep(scene), rockets = new Rockets(scene, gunRng.fork('rockets'));
   // (Where the rockets go off, the run's end's blast made small: a few of them, each used again in turn, put away once its smoke has
   // gone.)
@@ -5192,6 +5467,19 @@ async function start() {
   const heat = new Map<number, number>();
   // (The sword's swing so long that a click made in the last half of one is kept for the next.)
   const pull = () => { if (ready < (armNow().firing === 'swing' ? 0.75 : 0.25)) pulls = 1; };
+  /**
+   * *Attack*, beside ◀ ▶ at the lower right (and Space): pressed, as the button on the picture is, the trigger pulled, a cut begun;
+   * held, firing on (or the cut held drawn up); let go, let go of. ◀ ▶ lock on the foe to the left or the right (`cycleLock`).
+   */
+  const attackDown = () => { if (!armed() || mode !== 'ride' || cat) return; firing = true; shotClock = SHOT; pull(); gunSound.wake(); };
+  const attackUp = () => { firing = false; };
+  {
+    const attack = $('attack');
+    attack.addEventListener('pointerdown', (e) => { e.preventDefault(); attack.setPointerCapture(e.pointerId); attack.classList.add('down'); attackDown(); });
+    for (const kind of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) attack.addEventListener(kind, () => { attack.classList.remove('down'); attackUp(); });
+    attack.addEventListener('contextmenu', (e) => e.preventDefault());
+    for (const [id, by] of [['prevFoe', -1], ['nextFoe', 1]] as const) $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); cycleLock(by); });
+  }
   /** Each human's poles, put away while it carries the gun. */
   const poleSets: [Who, Object3D[]][] = [['person', gear.filter((p) => p.parent?.name.startsWith('hand_'))], ['mounted', jockeyGear]];
   /** Whether the gun is carried: riding, on a computer, by a human (the skier alone, or the horse's rider). */
@@ -5233,41 +5521,224 @@ async function start() {
     model.updateMatrixWorld(true);
     return { from: model.localToWorld(arm.muzzle.clone()), dir: new Vector3(0, 0, 1).transformDirection(model.matrixWorld) };
   };
+  // ---------------------------------------------------------------- the foe locked on, and the dice
+  /**
+   * The foe the arms are locked on (`setAiming`, *Auto*; and watching, the one the demo's rider fires at): which (-1, none); whether it
+   * was chosen (by ◀ ▶ or a touch: kept until it falls or is lost, not given up for a nearer one); how long it has been out of reach or
+   * sight (a moment's grace before another is taken); those that could be locked on, looked for every so often (`LOCK_SCAN`); the way
+   * the body that holds the arms faces, for the buttons to look by between frames.
+   */
+  type Mark = { orc: number; at: Vector3; tall: number; far: number; sx: number; sy: number };
+  const lock = { orc: -1, chosen: false, lost: 0, scan: 0, list: [] as Mark[], ahead: new Vector3(0, 0, 1) };
+  const LOCK_SCAN = 0.15, LOCK_GRACE = 0.5;
+  const diceRng = gunRng.fork('dice');
+  /** Whether the arms aim themselves at the foe locked on, and each attack at it is rolled: riding with *Auto*, and watching. */
+  const rolling = () => mode === 'watch' || autoAim;
+  /** The foe locked on, if it is still coming and within `reach` of `from`; else -1. */
+  const lockedIn = (from: Vector3, reach: number) => (lock.orc >= 0 && horde.coming(lock.orc) && horde.middle(lock.orc).distanceTo(from) <= reach ? lock.orc : -1);
+  const guardOf = (orc: number) => horde.kindOf(orc)?.guard ?? 10;
+  /** Rolled in the air, a little harder to strike true. */
+  const rollBonus = () => (mode === 'ride' && air ? -2 : 0);
+  /**
+   * Each foe the arm carried could be locked on: drawn, within its reach (`ARM_DICE.lock`; on foot, in the dungeon's close quarters, less),
+   * on the picture, and riding, where the arms can turn to it from the body (ahead of it, or for the sword, not behind it) and not behind
+   * the snow; with where it is on the picture, for ◀ ▶ to go across it by.
+   */
+  const lockable = (arm: Arm): Mark[] => {
+    const reach = foot ? Math.min(ARM_DICE[arm.kind].lock, arm.firing === 'swing' ? 12 : 40) : ARM_DICE[arm.kind].lock;
+    const from = rider.position, eye = from.clone().addScaledVector(UP, 1.4), ahead = lock.ahead, out: Mark[] = [];
+    for (const m of horde.marks()) {
+      const dx = m.at.x - from.x, dz = m.at.z - from.z, far = Math.hypot(dx, dz), on = dx * ahead.x + dz * ahead.z;
+      if (far > reach) continue;
+      if (!foot && (arm.firing === 'swing' ? on < -2 : on < far * 0.3)) continue;
+      const s = m.at.clone().project(camera);
+      if (s.z > 1 || Math.abs(s.x) > 1.05 || Math.abs(s.y) > 1.05) continue;
+      if (!foot && far > 4) { const d = m.at.clone().sub(eye), len = d.length(); if (snowAlong(eye, d.divideScalar(len), len) < len - 1) continue; }
+      out.push({ ...m, far, sx: s.x, sy: s.y });
+    }
+    return out;
+  };
+  const nearestOf = (list: Mark[]) => list.reduce<Mark | null>((a, m) => (!a || m.far < a.far ? m : a), null);
+  /**
+   * The lock a moment on (`dt`), riding with the arms aiming themselves: kept on the foe it has while it can be had (a moment's grace
+   * when it cannot), else on the nearest; not chosen, given up for one much nearer that has come up.
+   */
+  const relock = (arm: Arm, dt: number) => {
+    lock.scan -= dt;
+    const has = lock.orc >= 0 && horde.coming(lock.orc);
+    if (lock.scan > 0 && has) return;
+    lock.scan = LOCK_SCAN;
+    lock.list = lockable(arm);
+    const here = lock.list.find((m) => m.orc === lock.orc), nearest = nearestOf(lock.list);
+    if (here) lock.lost = 0; else lock.lost += LOCK_SCAN;
+    if (!has || (!here && lock.lost > LOCK_GRACE)) { lock.orc = nearest?.orc ?? -1; lock.chosen = false; lock.lost = 0; }
+    else if (here && !lock.chosen && nearest && nearest.orc !== here.orc && nearest.far < here.far * 0.6) lock.orc = nearest.orc;
+  };
+  /** Locked on the next foe across the picture, to the right (`by` 1) or the left (-1), round again past the last. */
+  const cycleLock = (by: number) => {
+    if (!armed() || mode !== 'ride' || !rolling()) return;
+    lock.list = lockable(armNow()); lock.scan = LOCK_SCAN;
+    const across = [...lock.list].sort((a, b) => a.sx - b.sx), i = across.findIndex((m) => m.orc === lock.orc);
+    if (!across.length) { lock.orc = -1; return; }
+    const to = i < 0 ? nearestOf(across)! : across[(i + (by > 0 ? 1 : -1) + across.length) % across.length];
+    lock.orc = to.orc; lock.chosen = true; lock.lost = 0;
+  };
+  /** Locked on the foe nearest a point on the picture (in pixels), if one is within a fingertip of it: a touch or a click on it. */
+  const lockNear = (px: number, py: number) => {
+    if (!armed() || mode !== 'ride' || !rolling()) return;
+    const list = lockable(armNow()), r = canvas.getBoundingClientRect();
+    let best: Mark | null = null, near = 56 * 56;
+    for (const m of list) {
+      const dx = ((m.sx + 1) / 2) * r.width + r.left - px, dy = ((1 - m.sy) / 2) * r.height + r.top - py, d = dx * dx + dy * dy;
+      if (d < near) { near = d; best = m; }
+    }
+    if (best) { lock.orc = best.orc; lock.chosen = true; lock.lost = 0; lock.list = list; lock.scan = LOCK_SCAN; }
+  };
+  /**
+   * The fight's numbers over the picture: the damage each blow does thrown up over the foe it struck (gold and larger, a critical), and
+   * *miss* where one missed (not more than one every so often for each, as the tommy gun misses many a time a second); kept to so many
+   * at once.
+   */
+  let dmgLive = 0;
+  const missedAt = new Map<number, number>();
+  const dmgPop = (p: Vector3, text: string, kind: string, small = '') => {
+    if (dmgLive > 36) return;
+    const at = overPictureAt(p);
+    if (!at) return;
+    const el = document.createElement('div');
+    el.className = `pop dmg ${kind}`; el.textContent = text;
+    if (small) { const s = document.createElement('small'); s.textContent = small; el.appendChild(s); }
+    el.style.left = `${(at[0] + gunRng.range(-14, 14)).toFixed(0)}px`; el.style.top = `${(at[1] - 18).toFixed(0)}px`;
+    dmgLive++;
+    el.addEventListener('animationend', () => { el.remove(); dmgLive--; });
+    popsEl.appendChild(el);
+  };
+  /**
+   * Damage done (hit points, as hard as a weapon found makes it) said over where it struck. A critical (asked: "we could have critical
+   * hits also") made much of: its number large and gilt, *critical* under it, a burst of sparks of gold where it struck, a ring of
+   * steel, and the view jolted; not more than one so every so often, as the tommy gun may strike hard several times a second.
+   */
+  let critAt = 0;
+  const dmgSaid = (p: Vector3, dmg: number, crit: boolean, burn = false) => {
+    const n = String(Math.round(dmg * horde.might));
+    if (!crit) { dmgPop(p, n, burn ? 'burn' : ''); return; }
+    dmgPop(p, n, 'crit', 'critical');
+    const now = performance.now();
+    if (now < critAt) return;
+    critAt = now + 250;
+    sparks.add(p, 26);
+    gunSound.hear('ring');
+    bladeJolt = Math.max(bladeJolt, 0.35);
+  };
+  const missSaid = (orc: number, p: Vector3) => {
+    const now = performance.now();
+    if ((missedAt.get(orc) ?? 0) > now) return;
+    missedAt.set(orc, now + 350);
+    dmgPop(p, 'miss', 'miss');
+  };
+  /** The last rolls, newest last, for the fight's line and for a script (`__slope.rolls`). */
+  /** (`arm`, `foe` for a foe's roll at the one on foot.) */
+  const rolls: { foe: string; arm: ArmKind | 'foe'; say: string; roll: Roll }[] = [];
+  let rollsMade = 0;
+  const noteRoll = (orc: number, arm: ArmKind | 'foe', r: Roll, say = rollSaid(r)) => {
+    rollsMade++;
+    rolls.push({ foe: horde.titleOf(orc), arm, say, roll: r });
+    if (rolls.length > 16) rolls.shift();
+  };
   /**
    * A round fired from `from` along `dir`, a little astray (`spread`), as far as `reach`: a tracer to where it strikes, and there an
    * orc falls or the snow flies.
    */
   /** The last round fired, from where and which way: for a script to tell where it went (`__slope.lastShot`). */
   let lastShot: { from: Vector3; dir: Vector3 } | null = null;
-  const fireRound = (from: Vector3, way: Vector3, spread: number, reach = 400) => {
+  /**
+   * A round's blow on one it struck, `orc`, going `dir`: its damage rolled (or, rolled to strike, `r`'s), said over it; down, counted;
+   * struck and not brought down, the cross where it was struck all the same.
+   */
+  const roundStrikes = (orc: number, dir: Vector3, arm: ArmKind, r: Roll | null) => {
+    const at = horde.middle(orc), b = r ? { dmg: r.dmg, crit: r.crit } : rollBlow(diceRng, arm), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6), b.dmg / HP);
+    if (struck) dmgSaid(at, b.dmg, b.crit);
+    if (struck?.down) { gunSound.grunt(); orcDowned(at, 'shot', struck.kind); }
+    else if (struck) { const on = overPictureAt(at); if (on) hitMark(on); }
+    burst(at, 3, 10);
+  };
+  /** A round flown from `from` along `dir` as far as `reach`, striking nothing: to the snow, which flies, or on out of sight. */
+  const roundAstray = (from: Vector3, dir: Vector3, reach: number) => {
+    const snowAt = snowAlong(from, dir, reach);
+    gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : reach, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
+  };
+  /** Where a round, or a rocket, that missed the foe whose middle is `mid` goes: a little wide of it, to one side and high or low. */
+  const wideOf = (from: Vector3, mid: Vector3, wide = 1) => {
+    const dir = mid.clone().sub(from).normalize(), side = new Vector3().crossVectors(dir, UP).normalize();
+    return mid.clone().addScaledVector(side, (gunRng.chance(0.5) ? 1 : -1) * gunRng.range(0.9, 1.8) * wide).addScaledVector(UP, gunRng.range(-0.3, 0.9)).sub(from).normalize();
+  };
+  const fireRound = (from: Vector3, way: Vector3, spread: number, arm: ArmKind, reach = 400) => {
+    // (The arms aiming themselves: the round at the foe locked on, rolled to strike it or to go wide of it.)
+    const foe = rolling() ? lockedIn(from, reach) : -1;
+    if (foe >= 0) {
+      const mid = horde.middle(foe), r = rollAttack(diceRng, arm, guardOf(foe), mid.distanceTo(from), rollBonus());
+      noteRoll(foe, arm, r);
+      if (r.hit) { const dir = mid.clone().sub(from).normalize(); lastShot = { from: from.clone(), dir: dir.clone() }; gunfire.fire(from, dir, mid.distanceTo(from), () => roundStrikes(foe, dir, arm, r)); return; }
+      missSaid(foe, mid);
+      const dir = wideOf(from, mid);
+      lastShot = { from: from.clone(), dir: dir.clone() };
+      roundAstray(from, dir, reach);
+      return;
+    }
     const dir = way.clone().add(new Vector3(gunRng.range(-spread, spread), gunRng.range(-spread, spread), gunRng.range(-spread, spread))).normalize();
     lastShot = { from: from.clone(), dir: dir.clone() };
     const snowAt = snowAlong(from, dir, reach), met = horde.hit(from, dir, Math.min(snowAt, reach));
-    if (met) {
-      const orc = met.orc;
-      gunfire.fire(from, dir, met.t, () => {
-        const at = horde.middle(orc), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6));
-        if (struck?.down) { gunSound.grunt(); orcDowned(at, 'shot', struck.kind); }
-        // (Struck and not brought down, the cross where it was struck all the same.)
-        else if (struck) { const on = overPictureAt(at); if (on) hitMark(on); }
-        burst(at, 3, 10);
-      });
-    } else gunfire.fire(from, dir, Number.isFinite(snowAt) ? snowAt : reach, Number.isFinite(snowAt) ? () => burst(from.clone().addScaledVector(dir, snowAt), 4, 14) : null);
+    if (met) gunfire.fire(from, dir, met.t, () => roundStrikes(met.orc, dir, arm, null));
+    else roundAstray(from, dir, reach);
   };
   /** A round from the tommy gun as it points: the tommy gun's own sound, and its kick. */
-  const shoot = () => { const { from, dir } = muzzleOf(armNow()); fireRound(from, dir, 0.012); gunSound.shot(); kick = 1; };
+  const shoot = () => { const arm = armNow(), { from, dir } = muzzleOf(arm); fireRound(from, dir, 0.012, arm.kind); gunSound.shot(); kick = 1; };
+  /**
+   * The shotgun's nine pellets at the foe locked on, each rolled: those that strike flown to it and their damage done together, as the
+   * first of them comes to it, one number said for them all; the rest wide of it.
+   */
+  const blastAt = (from: Vector3, foe: number) => {
+    const mid = horde.middle(foe), far = mid.distanceTo(from), each: Roll[] = [];
+    for (let i = 0; i < 9; i++) each.push(rollAttack(diceRng, 'shotgun', guardOf(foe), far, rollBonus()));
+    const hits = each.filter((r) => r.hit), crit = hits.some((r) => r.crit), dmg = hits.reduce((n, r) => n + r.dmg, 0);
+    const all: Roll = { die: Math.max(...each.map((r) => r.die)), bonus: each[0].bonus, guard: each[0].guard, hit: hits.length > 0, crit, dmg };
+    noteRoll(foe, 'shotgun', all, `9 pellets, ${hits.length} strike · ${dmg}`);
+    if (!hits.length) missSaid(foe, mid);
+    let first = true;
+    for (const r of each) {
+      if (!r.hit) { roundAstray(from, wideOf(from, mid, 1.4), 45); continue; }
+      const dir = mid.clone().add(new Vector3(gunRng.range(-0.25, 0.25), gunRng.range(-0.3, 0.3), gunRng.range(-0.25, 0.25))).sub(from).normalize();
+      const strikes = first;
+      first = false;
+      gunfire.fire(from, dir, far, strikes ? () => roundStrikes(foe, dir, 'shotgun', all) : null);
+    }
+  };
   /** The pistol's round, or the shotgun's blast: nine pellets spread wide, going no further than forty-five metres. */
   const fireOnce = (arm: Arm) => {
     const { from, dir } = muzzleOf(arm);
-    if (arm.kind === 'shotgun') { for (let i = 0; i < 9; i++) fireRound(from, dir, 0.06, 45); gunSound.hear('shotgun'); }
-    else if (arm.kind === 'bazooka') { rockets.launch(from, dir); burst(from.clone().addScaledVector(dir, -1.2), 4, 0); gunSound.hear('rocket'); }
-    else { fireRound(from, dir, 0.004); gunSound.hear('pistol'); }
+    if (arm.kind === 'shotgun') {
+      const foe = rolling() ? lockedIn(from, 45) : -1;
+      if (foe >= 0) blastAt(from, foe); else for (let i = 0; i < 9; i++) fireRound(from, dir, 0.06, 'shotgun', 45);
+      gunSound.hear('shotgun');
+    } else if (arm.kind === 'bazooka') {
+      // (At the foe locked on: rolled, a rocket that strikes flown at it; one that misses, at the snow a few metres wide of it, its blast
+      // catching it or not.)
+      const foe = rolling() ? lockedIn(from, ARM_DICE.bazooka.lock) : -1;
+      let way = dir;
+      if (foe >= 0) {
+        const mid = horde.middle(foe), r = rollAttack(diceRng, 'bazooka', guardOf(foe), mid.distanceTo(from), rollBonus());
+        noteRoll(foe, 'bazooka', { ...r, dmg: 0 }, rollSaid(r).replace(/ · .*$/, r.hit ? ' · straight at it' : ' · wide'));
+        way = r.hit ? mid.clone().sub(from).normalize() : wideOf(from, mid, 2.6);
+        if (!r.hit) missSaid(foe, mid);
+      }
+      rockets.launch(from, way); burst(from.clone().addScaledVector(way, -1.2), 4, 0); gunSound.hear('rocket');
+    } else { fireRound(from, dir, 0.004, arm.kind); gunSound.hear('pistol'); }
     kick = 1;
   };
   /**
    * The flamethrower a moment on (`dt`): fire poured hard from its mouth along its way, the gun shuddering with it (`Flames`); and
-   * every orc within some twenty-two metres of it, not much off its way and not behind the snow, in the fire; an orc a fifth of a
-   * second in it falls, burning.
+   * every orc within some twenty-two metres of it, not much off its way and not behind the snow, in the fire, burnt for so much rolled
+   * every `BURN_EVERY` seconds it is kept there (the first burn soon after it is caught): an orc falls burning in half a second or so.
    */
   const pourFire = (arm: Arm, dt: number) => {
     const { from, dir } = muzzleOf(arm);
@@ -5279,10 +5750,10 @@ async function start() {
       const d = o.at.clone().sub(from), far = d.length();
       if (far > 22 || d.divideScalar(far).dot(dir) < Math.cos(0.32) || snowAlong(from, d, far) < far - 0.5) continue;
       inFire.add(o.orc);
-      const h = (heat.get(o.orc) ?? 0) + dt;
-      heat.set(o.orc, h);
-      // (The harder one is to bring down, the longer the fire must be kept on it: a yeti, a second and a half and more.)
-      if (h > 0.2 * horde.tough(o.orc)) burnDown(o.orc, o.at, dir);
+      let h = (heat.get(o.orc) ?? BURN_EVERY * 0.6) + dt;
+      // (The harder one is to bring down, the longer the fire must be kept on it: a yeti, near two seconds.)
+      if (h >= BURN_EVERY) { h -= BURN_EVERY; const b = rollBlow(diceRng, 'flamer'); dmgSaid(o.at, b.dmg, b.crit, true); burnDown(o.orc, o.at, dir, b.dmg / HP); }
+      if (horde.coming(o.orc)) heat.set(o.orc, h);
     }
     // (Out of the fire, it cools: the fire must be kept on it.)
     for (const k of heat.keys()) if (!inFire.has(k)) heat.delete(k);
@@ -5308,8 +5779,10 @@ async function start() {
       const d = o.at.clone().sub(at), far = d.length();
       if (far > BOOM.reach) continue;
       const near = 1 - far / BOOM.reach, out = far > 0.01 ? d.setY(0).normalize() : new Vector3(1, 0, 0);
-      // (Every orc in reach brought down; a yeti, only near where it went off.)
-      const struck = horde.strike(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near), 3 + 8 * near);
+      // (Its damage rolled, the more the nearer: nearly all in reach brought down; a yeti, only near where it went off, and not always.)
+      const b = rollBlow(diceRng, 'bazooka', 0.4 + 0.6 * near);
+      const struck = horde.strike(o.orc, out.multiplyScalar(4 + 11 * near).addScaledVector(UP, 4 + 9 * near), b.dmg / HP);
+      if (struck) dmgSaid(o.at, b.dmg, b.crit);
       if (struck?.down) { gunSound.grunt(); orcDowned(o.at, 'blown', struck.kind); }
     }
   };
@@ -5345,8 +5818,21 @@ async function start() {
   const zap = (arm: Arm) => {
     const { from, dir } = muzzleOf(arm), snowAt = snowAlong(from, dir, 120), reach = Math.min(snowAt, 120);
     const through = [from.clone()], struck = new Set<number>();
-    let met = horde.hit(from, dir, reach)?.orc ?? -1;
-    if (met < 0) {
+    // (The arms aiming themselves: at the foe locked on, rolled; missing, the bolt goes into the snow beside it, and leaps no further.)
+    const foe = rolling() ? lockedIn(from, 120) : -1;
+    let met = foe >= 0 ? -1 : horde.hit(from, dir, reach)?.orc ?? -1, first: Roll | null = null;
+    if (foe >= 0) {
+      const mid = horde.middle(foe);
+      first = rollAttack(diceRng, 'lightning', guardOf(foe), mid.distanceTo(from), rollBonus());
+      noteRoll(foe, 'lightning', first);
+      if (first.hit) met = foe;
+      else {
+        missSaid(foe, mid);
+        const p = from.clone().add(wideOf(from, mid, 1.6).multiplyScalar(mid.distanceTo(from)));
+        p.y = ground(p.x, p.z);
+        through.push(p); burst(p, 2, 8);
+      }
+    } else if (met < 0) {
       let best = Math.tan((ZAP.aim * Math.PI) / 180);
       for (const o of horde.near(from, reach)) {
         const d = o.at.clone().sub(from), along2 = d.dot(dir);
@@ -5359,8 +5845,20 @@ async function start() {
       struck.add(met);
       const at = horde.middle(met);
       through.push(at);
-      const hurt = horde.strike(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), 2, false);
-      if (hurt?.down) { gunSound.grunt(); orcDowned(at, 'zapped', hurt.kind); }
+      // (Arcs crackling over each it strikes a while after, sparks thrown off it.)
+      const big = horde.kindOf(met)?.titles ? 1.15 : 0.6;
+      bolts.crackle(at, big, 0.75); zapSparks.add(at, 14, 7);
+      // (Each leap the weaker, `LEAP`.)
+      const b = first && struck.size === 1 ? { dmg: first.dmg, crit: first.crit } : rollBlow(diceRng, 'lightning', LEAP ** (struck.size - 1));
+      const hurt = horde.strike(met, new Vector3(0, 3, 0).addScaledVector(dir, 1.5), b.dmg / HP, false);
+      if (hurt) dmgSaid(at, b.dmg, b.crit);
+      // (Brought down: a bolt out of the sky onto it, thick, as if the sky had answered.)
+      if (hurt?.down) {
+        gunSound.grunt(); orcDowned(at, 'zapped', hurt.kind);
+        const sky = at.clone().add(new Vector3(gunRng.range(-6, 6), gunRng.range(26, 34), gunRng.range(-6, 6))), foot = at.clone(); foot.y = ground(at.x, at.z);
+        bolts.strike([sky, sky.clone().lerp(foot, 0.5).add(new Vector3(gunRng.range(-2, 2), 0, gunRng.range(-2, 2))), foot], 0.5, 2.2);
+        zapSparks.add(foot, 24, 10); snowBurst(foot, 1.2, 40, 4);
+      }
       burst(at, 2, 6);
       met = -1;
       let near = ZAP.leap;
@@ -5368,7 +5866,9 @@ async function start() {
     }
     if (through.length === 1) { const end = from.clone().addScaledVector(dir, Number.isFinite(snowAt) ? Math.min(snowAt, 30) : 30); through.push(end); burst(end, 2, 8); }
     bolts.strike(through);
+    flashScreen('zap', Math.min(1, 0.35 + 0.18 * struck.size));
     gunSound.hear('zap');
+    bladeJolt = Math.max(bladeJolt, 0.12 + 0.05 * struck.size);
     kick = 1;
   };
   /**
@@ -5397,6 +5897,9 @@ async function start() {
   /** Which side to cut at, the skier going at `vel`: where each within reach will be as the blade comes down. */
   const slashSide = (right: Vector3, vel: Vector3) => {
     const soon = SLASH.up + SLASH.cut, reach = slashReach() + 0.8;
+    // (The foe locked on, near enough to be cut at: at its side.)
+    const foe = rolling() && mode === 'ride' ? lockedIn(rider.position, reach + vel.length() * soon + 2) : -1;
+    if (foe >= 0) return (lastSide = horde.middle(foe).sub(rider.position).addScaledVector(vel, -soon).dot(right) >= 0 ? 1 : -1);
     let r = 0, l = 0;
     for (const o of horde.near(rider.position, reach + vel.length() * soon + 1)) {
       const d = o.at.clone().sub(rider.position).addScaledVector(vel, -soon).setY(0);
@@ -5422,9 +5925,20 @@ async function start() {
         const d = o.at.clone().sub(rider.position).setY(0), far = d.length();
         if (swing.struck.has(o.orc) || far > reach || d.dot(out) < -0.2 || d.dot(ahead) < -1.2) continue;
         swing.struck.add(o.orc);
+        // (Rolled, the arms aiming themselves: each the blade comes to may turn it, or be missed; a cut held full strikes surer. Its damage
+        // rolled either way, a held cut's the harder, `CHARGED`.)
+        const times = 1 + (CHARGED.dmg - 1) * power;
+        let dmg: number, crit = false;
+        if (rolling()) {
+          const r = rollAttack(diceRng, 'sword', guardOf(o.orc), 0, CHARGED.skill * power + rollBonus(), times);
+          noteRoll(o.orc, 'sword', r);
+          if (!r.hit) { missSaid(o.orc, o.at); continue; }
+          dmg = r.dmg; crit = r.crit;
+        } else ({ dmg, crit } = rollBlow(diceRng, 'sword', times));
         const push = out.clone().multiplyScalar(5 * (1 + 1.2 * power)).addScaledVector(ahead, 1.5).addScaledVector(vel, 0.35).addScaledVector(UP, 2.5 + 2 * power);
-        const struck = horde.strike(o.orc, push, 3 + 6 * power);
+        const struck = horde.strike(o.orc, push, dmg / HP);
         if (!struck) continue;
+        dmgSaid(o.at, dmg, crit);
         swing.blood = true;
         gunSound.hear('chop');
         bladeJolt = Math.max(bladeJolt, 0.25 + 0.45 * power);
@@ -5749,7 +6263,7 @@ async function start() {
   clearGun = () => {
     // (The wards' clocks begun again with the run, as all else of the arms is: they had gone on from where the last run left them.)
     emberClock = stormClock = 0;
-    horde.clear(); gunfire.clear(); splatter.clear(); flames.clear(); bolts.clear(); heat.clear(); sweep.clear(); rockets.clear();
+    horde.clear(); gunfire.clear(); splatter.clear(); flames.clear(); bolts.clear(); sparks.clear(); zapSparks.clear(); heat.clear(); sweep.clear(); rockets.clear();
     endArena(true); boostLeft = 0; endLaunches();
     for (const b of booms) b.blast.hide();
     swing = null; pulls = 0;
@@ -5762,6 +6276,8 @@ async function start() {
   const ARM_WON = 1.6, ARM_BLOCK = 5;
   const armBar = $('armBar'), armBarBlocks = armBar.querySelector<HTMLElement>('.blocks')!;
   const armBarNext = armBar.querySelector<HTMLElement>('.next')!, armBarLeft = armBar.querySelector<HTMLElement>('.left')!;
+  // (In the phone's strip, the arm carried and how many more to the next, in one line over the bar.)
+  const armBarNow = armBar.querySelector<HTMLElement>('.now')!, armBarTo = armBar.querySelector<HTMLElement>('.to')!;
   let armBarArm = -1, armWonAt = -Infinity, armBarTold = '';
   const armBarUp = (shown: boolean) => {
     const by = armAfter(slain), rung = LADDER.indexOf(by.arm), now = performance.now() / 1000;
@@ -5779,6 +6295,8 @@ async function start() {
     [...armBarBlocks.children].forEach((b, i) => (b as HTMLElement).style.setProperty('--f', clamp(got / ARM_BLOCK - i, 0, 1).toFixed(3)));
     say(armBarNext, won ? by.arm.name : by.next!.name);
     say(armBarLeft, won ? 'Taken up' : `${by.left} more`);
+    say(armBarNow, armNow().name);
+    say(armBarTo, won ? 'taken up' : `${by.left} to ${by.next!.name.toLowerCase()}`);
     const told = won ? `${by.arm.name} taken up` : `${got} of ${need} orcs toward the ${by.next!.name.toLowerCase()}`;
     if (told !== armBarTold) {
       armBarTold = told;
@@ -5812,12 +6330,12 @@ async function start() {
     };
   };
   /**
-   * Health, on foot in the cave (asked: dungeon stakes, so that a fight there can be lost): each blow takes some of it, the harder the
-   * foe strikes the more (`per` a blow as hard as an orc's); it comes back slowly once no blow has come for some seconds (`after`, then
-   * `back` a second); and all of it, on leaving the cave or on a new run. All gone, beaten: brought down there, the run over, and a new
-   * one begun from the top a few seconds later (`beaten`).
+   * Health, on foot in the cave (asked: dungeon stakes, so that a fight there can be lost): sixty hit points, each blow that strikes home
+   * taking as many as its damage rolled (`struck`: an orc's some six and a half, the barrow-king's sixteen); they come back slowly once
+   * no blow has come for some seconds (`after`, then `back` a second); and all of them, on leaving the cave or on a new run. All gone,
+   * beaten: brought down there, the run over, and a new one begun from the top a few seconds later (`beaten`).
    */
-  const HEALTH = { most: 100, per: 9, after: 4, back: 6, beaten: 3.5 };
+  const HEALTH = { most: 60, after: 4, back: 4, beaten: 3.5 };
   let health: number = HEALTH.most, sinceBlow = 0, beaten = 0;
   const healthEl = $('health');
   // (The pale part, what a blow has just taken, is the same width, drawn under it: it only follows more slowly, and later, `game.html`.)
@@ -5839,7 +6357,7 @@ async function start() {
     beaten = HEALTH.beaten;
     firing = false;
     tell('Beaten', `${what} brought you down · a new run in a moment`, true, 1e9);
-    showSummary('beaten');
+    if (!flyingDemo && !quiet) runOver = { what: 'Beaten in the cave', why: `${what} brought you down`, bad: true, drop: Number(downEl.textContent) || 0, time: ride.time };
   };
   /** Health coming back on foot, once no blow has come for a while. */
   const heal = (dt: number) => {
@@ -5852,9 +6370,9 @@ async function start() {
    * Struck by a foe come up to it on foot: health and points lost, and thrown back a step from it; the more, the harder it strikes (a
    * goblin, less than an orc; one of the dead, more; the barrow-king, two and a half times as much: `FoeKind.den`).
    */
-  const struck = (from: Vector3, kind: FoeKind) => {
-    const f = foot, cave = caveNow();
-    if (!f || !cave || mode !== 'ride' || beaten) return;
+  const struck = (from: Vector3, kind: FoeKind, who: number) => {
+    const f = foot, cave = caveNow(), den = kind.den;
+    if (!f || !cave || mode !== 'ride' || !den || beaten) return;
     // (A barrow ward worn: the blow turned aside, as often as it says.)
     if (kit().shield && wardRng.chance(kit().shield)) {
       const s = overPictureAt(rider.position.clone().addScaledVector(UP, 1.8));
@@ -5863,22 +6381,31 @@ async function start() {
       gunSound.hear('ring');
       return;
     }
-    // (Fewer points lost than before there was health to lose: the blow costs that now, most of all.)
-    const blow = kind.den?.blow ?? 1, lost = Math.round((100 * blow) / 10) * 10;
+    // (Rolled, as the arms' attacks are (asked: "enemies attacks against the player should also use rpg system"): its d20 and its skill
+    // against the guard of the one on foot, `GUARD`; missed, dodged; struck home, its damage rolled (a natural twenty, a crushing blow,
+    // its dice thrown twice), and as much lost as it did: thirty points a hit point, the meter's blocks by how hard it was against an
+    // orc's blow, thrown back as far.)
+    const name = horde.titleOf(who), r = rollAt(diceRng, den.skill, den.dmg, GUARD);
+    noteRoll(who, 'foe', r, `${name[0].toUpperCase()}${name.slice(1)} at you: ${rollSaid(r)}`);
+    const head = rider.position.clone().addScaledVector(UP, 1.8);
+    if (!r.hit) { dmgPop(head, 'dodged', 'miss'); gunSound.hear('swish'); return; }
+    const blow = r.dmg / 6.5, lost = r.dmg * 30;
     score = Math.max(0, score - lost);
     runStats.blows++;
     earnWild(-WILD.struck * blow);
     scoreEl.textContent = score.toLocaleString('en');
-    if (blow > 2) bladeJolt = Math.max(bladeJolt, 0.6);
-    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2 * Math.sqrt(blow)), o = land.group.position;
+    bladeJolt = Math.max(bladeJolt, r.crit ? 0.9 : blow > 2 ? 0.6 : 0.2);
+    const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2 * Math.sqrt(blow) * (r.crit ? 1.4 : 1)), o = land.group.position;
     const [x, z] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + away.x, f.z - o.z + away.z, walks() ? FOOT.person : FOOT.horse);
     f.x = x + o.x; f.z = z + o.z;
-    const s = overPictureAt(rider.position.clone().addScaledVector(UP, 1.8));
-    if (s) popUp(s, `−${lost}`, 'run', 'struck');
-    const what = kind.titles ? 'the barrow-king' : `${/^[aeiou]/.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
-    tell('Struck!', `${what} came at you`, true, 1.2);
+    dmgPop(head.clone().addScaledVector(UP, 0.3), String(r.dmg), r.crit ? 'hurt crit' : 'hurt', r.crit ? 'crushing blow' : '');
+    const s = overPictureAt(head);
+    if (s) popUp([s[0], s[1] + 30], `−${lost}`, 'run', 'struck');
+    if (r.crit) hurtFlash();
+    const what = kind.titles ? name : `${/^[aeiou]/.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
+    tell(r.crit ? 'Crushing blow!' : 'Struck!', `${what} came at you`, true, 1.2);
     gunSound.hear('grunt');
-    hurt(HEALTH.per * blow, what.replace(/^./, (c) => c.toUpperCase()));
+    hurt(r.dmg, what.replace(/^./, (c) => c.toUpperCase()));
   };
   // ---------------------------------------------------------------- loot
   /**
@@ -5902,7 +6429,8 @@ async function start() {
   const takeLoot = (item: Item) => {
     if (!pack) return;
     const on = pack.add(item);
-    lootCard.show(item, on);
+    foundRun.push(item.name);
+    lootCard.show(item, on, item.slot === 'weapon' && !weaponsFree() ? `in your pack · ${HELD_BACK.toLowerCase()}` : undefined);
     gunSound.hear('ring');
   };
   giveLeft = () => { for (const it of drops.clear()) takeLoot(it); };
@@ -5911,16 +6439,20 @@ async function start() {
     lootCard.step(performance.now() / 1000);
     if (drops.count) for (const it of drops.step(dt, focus().addScaledVector(UP, 1.1), camera.quaternion)) takeLoot(it);
   };
-  /** The weapon found and worn, riding: carried in place of the arm the foes brought down have given. */
-  const wornWeapon = (): Item | null => (pack && mode === 'ride' ? pack.wornIn('weapon') : null);
-  const carriedArms = new Map<string, Arm>();
   /**
-   * The arm carried riding: the weapon worn, as its arm is but quicker to fire as it says (and named for it); else the foes' gift. The
-   * gift if it is the greater arm: a common sword found, worn at once in the empty slot, had taken the bazooka from one who had earned it.
+   * Whether a weapon found may be carried (asked: "also disable looted weapons until the weapons progression is at bazooka level"):
+   * only once the foes brought down have given the last of their arms, the bazooka. Until then, found weapons are kept in the pack,
+   * worn there, but the foes' arm is carried, and the weapon's might is not had.
    */
+  const weaponsFree = () => armAfter(slain).next === null;
+  const HELD_BACK = 'Carried once the bazooka is taken up';
+  /** The weapon found and worn, riding, once it may be carried: carried in place of the arm the foes brought down have given. */
+  const wornWeapon = (): Item | null => (pack && mode === 'ride' && weaponsFree() ? pack.wornIn('weapon') : null);
+  const carriedArms = new Map<string, Arm>();
+  /** The arm carried riding: the weapon worn, as its arm is but quicker to fire as it says (and named for it); else the foes' gift. */
   const carried = (): Arm => {
-    const it = wornWeapon(), gift = armAfter(slain).arm;
-    if (!it?.arm || LADDER.findIndex((x) => x.kind === it.arm) < LADDER.indexOf(gift)) return gift;
+    const it = wornWeapon();
+    if (!it?.arm) return armAfter(slain).arm;
     let a = carriedArms.get(it.id);
     if (!a) {
       const of = LADDER.find((x) => x.kind === it.arm)!;
@@ -5964,7 +6496,8 @@ async function start() {
       burst(best.at, 2, 6);
       gunSound.hear('zap');
       wardRing.pulse();
-      const struck = horde.strike(best.orc, new Vector3(0, 3, 0), 2, false);
+      const b = rollBlow(wardRng, 'lightning'), struck = horde.strike(best.orc, new Vector3(0, 3, 0), b.dmg / HP, false);
+      if (struck) dmgSaid(best.at, b.dmg, b.crit);
       if (struck?.down) { gunSound.grunt(); orcDowned(best.at, 'zapped', struck.kind); }
     }
   };
@@ -5977,16 +6510,65 @@ async function start() {
     if (!pack) return;
     worn = pack.mods();
     carriedArms.clear();
-    packView($('pack'), pack, plainIn, () => {});
+    packView($('pack'), pack, plainIn, () => {}, (slot) => (slot === 'weapon' && !weaponsFree() && pack!.items.some((i) => i.slot === 'weapon') ? `${HELD_BACK}: until then, the foes' arm is carried.` : ''));
     $('packEmpty').hidden = !pack.items.length;
     const n = pack.items.length;
-    say($('packCount'), n ? `${n} found` : '');
+    say($('packCount'), n ? String(n) : '');
   };
   $('packEmpty').addEventListener('click', () => { if (pack && confirm('Let go of everything found, and forget the guidebooks read?')) pack.empty(); });
 
+  /** Where the arm was last aimed, for a script to see that it holds still (`__slope.aimed`). */
+  const aimedAt = new Vector3();
+  /** How an arm is used, said as it is taken up, the arms aiming themselves. */
+  const autoHint = (arm: Arm, touch: boolean) => {
+    const press = touch ? 'Attack' : 'Attack (Space, or a click)', hold = touch ? 'hold Attack' : 'hold Attack (Space, or the button)';
+    const how = arm.firing === 'swing' ? `${press} cuts at the foe locked on; hold to raise it, let go to cut harder` : arm.firing === 'single' ? `${press} fires at the foe locked on` : `${hold} to fire at the foe locked on`;
+    return `${how}; ${touch ? '◀ ▶ or a touch on a foe' : '◀ ▶ (Q, E) or a click on a foe'} locks on another`;
+  };
+  /**
+   * The fight shown, riding with the arms aiming themselves (`arm`; none, not): brackets about the foe locked on, sized to it, and a
+   * thin bar of its strength under them; and by *Attack* and ◀ ▶, its name, its strength in hit points, and the last roll made at it.
+   */
+  const lockEl = $('lockOn'), fightEl = $('fight'), attackEl = $('attack'), fightWho = fightEl.querySelector<HTMLElement>('.who')!;
+  const fightHp = fightEl.querySelector<HTMLElement>('.hpN')!, fightBar = fightEl.querySelector<HTMLElement>('.bar')!, fightRoll = fightEl.querySelector<HTMLElement>('.roll')!;
+  let lockAt = '', lockHp = '-', fightRolls = 0;
+  const showFight = (arm: Arm | null) => {
+    const on = !!arm && mode === 'ride' && rolling() && !cat;
+    if (fightEl.hidden === on) fightEl.hidden = !on;
+    document.body.classList.toggle('autoaim', on);
+    const foe = on && lock.orc >= 0 && horde.coming(lock.orc) ? lock.orc : -1, health = foe >= 0 ? horde.health(foe) : null;
+    const mid = foe >= 0 ? horde.middle(foe) : null, at = mid && overPictureAt(mid), mark = foe >= 0 ? lock.list.find((m) => m.orc === foe) : null;
+    if (!at || !health) { if (!lockEl.hidden) lockEl.hidden = true; }
+    else {
+      if (lockEl.hidden) lockEl.hidden = false;
+      // (As tall as it stands on the picture: its middle, and as far over it as it is tall.)
+      const top = overPictureAt(mid!.clone().addScaledVector(UP, (mark?.tall ?? 2) * 0.55)), tall = clamp(top ? Math.abs(at[1] - top[1]) * 2 : 40, 26, 220);
+      const to = `translate(${at[0].toFixed(0)}px, ${at[1].toFixed(0)}px)|${tall.toFixed(0)}`;
+      if (to !== lockAt) { lockAt = to; lockEl.style.transform = `translate(${at[0].toFixed(0)}px, ${at[1].toFixed(0)}px)`; lockEl.style.setProperty('--tall', `${tall.toFixed(0)}px`); }
+      const reachOf = arm!.firing === 'swing' ? slashReach() + 1.5 : ARM_DICE[arm!.kind].lock;
+      lockEl.classList.toggle('far', mid!.distanceTo(rider.position) > reachOf);
+      lockEl.classList.toggle('chosen', lock.chosen);
+    }
+    // (Its name and strength, and the last roll made at it, by the buttons.)
+    const hp = health ? `${Math.ceil(health.hp * HP)}|${Math.round(health.most * HP)}|${health.kneeling}` : '';
+    if (hp !== lockHp) {
+      lockHp = hp;
+      const k = health ? health.hp / health.most : 0;
+      lockEl.style.setProperty('--hp', k.toFixed(3)); fightBar.style.setProperty('--hp', k.toFixed(3));
+      say(fightWho, foe >= 0 ? horde.titleOf(foe) : on ? 'No foe in reach' : '');
+      say(fightHp, health ? (health.kneeling ? 'beaten · strike once more' : `${Math.ceil(health.hp * HP)} / ${Math.round(health.most * HP)} hp`) : '');
+      fightEl.classList.toggle('none', foe < 0);
+    }
+    if (on && rollsMade !== fightRolls && rolls.length) {
+      fightRolls = rollsMade; const r = rolls[rolls.length - 1];
+      say(fightRoll, r.say);
+      fightRoll.classList.toggle('hit', r.roll.hit); fightRoll.classList.toggle('crit', r.roll.crit); fightRoll.classList.toggle('against', r.arm === 'foe');
+      fightRoll.classList.remove('new'); void fightRoll.offsetWidth; fightRoll.classList.add('new');
+    }
+  };
   const armUp = (dt: number, now: Now) => {
-    // (A weapon found strikes harder: while it is the one carried, not set aside for the greater arm the foes have given.)
-    horde.might = 1 + (LADDER.includes(armNow()) ? 0 : kit().might);
+    // (A weapon found strikes harder.)
+    horde.might = 1 + (wornWeapon() ? kit().might : 0);
     const on = armed(), human = who === 'person' ? live : who === 'mounted' ? jockey : null, watching = mode === 'watch';
     document.body.classList.toggle('gun', on);
     const arm = armNow(), model = arms.get(arm.kind)!, touch = !document.body.classList.contains('mouse');
@@ -5994,7 +6576,7 @@ async function start() {
     // and each after it as it is taken up.)
     if (on && human && mode === 'ride' && armSaid !== arm.kind && !cat && !crash) {
       armSaid = arm.kind;
-      tell(arm.kind === 'sword' ? 'Sword' : `${arm.name}!`, touch ? arm.hint.replace('click or tap', 'tap').replace('a click', 'a tap').replace('hold to', 'hold a finger on the picture to') : arm.hint, false, 3.5);
+      tell(arm.kind === 'sword' ? 'Sword' : `${arm.name}!`, rolling() ? autoHint(arm, touch) : touch ? arm.hint.replace('click or tap', 'tap').replace('a click', 'a tap').replace('hold to', 'hold a finger on the picture to') : arm.hint, false, 3.5);
     }
     for (const [w, poles] of poleSets) for (const p of poles) p.visible = !((on || foot) && w === who);
     $('tally').hidden = !on;
@@ -6003,6 +6585,8 @@ async function start() {
     // (The sword out of its scabbard on the back while it is in the hand.)
     for (const [r, h] of hilts) if (h) h.visible = !(on && r === human && arm.kind === 'sword');
     if (!on || !human) {
+      lock.orc = -1;
+      showFight(null);
       if (bossShown.size) showBosses([]);
       if (horde.about) clearGun!();
       endArena(true);
@@ -6023,17 +6607,24 @@ async function start() {
     // spinning or upside down, and fired along where it points; else the trick's own, its grab, the gun in the right hand alone.)
     if (!watching && air && (firing || pulls || swing)) airAim = AIR_AIM; else airAim = Math.max(0, airAim - going);
     const holding = watching ? !!frame && !frame.air && Math.abs((frame.c as RideControls).spin ?? 0) < 0.3 : (!air || airAim > 0) && !crash && !ride.turn180 && !cat;
+    // (The frame of what holds the human, a skier's own, a horse's saddle's: whose right and ahead, in the scene, the sword cuts to, and
+    // the arms turn about.)
+    const hq = holder.getWorldQuaternion(new Quaternion());
+    const right = new Vector3(-1, 0, 0).applyQuaternion(hq).setY(0).normalize(), ahead = new Vector3(0, 0, 1).applyQuaternion(hq).setY(0).normalize();
+    lock.ahead.copy(ahead);
     let target: Vector3;
     if (watching) {
       // The nearest orc to be seen from the muzzle, within the arm's reach (`WATCH_REACH`): ahead, or, for the sword, at either side;
-      // none, the gun held on the snow some way ahead, and not fired. One there: fired at, a round a click for those fired so.
+      // none, the gun held on the snow some way ahead, and not fired. One there: fired at, a round a click for those fired so; locked on,
+      // for what is fired at it to be rolled.
       const [least, reach] = WATCH_REACH[arm.kind], from = arm.firing === 'swing' ? rider.position : muzzle;
       let best: Vector3 | null = null, most = reach;
-      for (const p of horde.aims()) {
-        const at = p, d = at.clone().sub(from), far = d.length();
+      lock.orc = -1;
+      for (const m of horde.marks()) {
+        const at = m.at, d = at.clone().sub(from), far = d.length();
         if (far < least || far > most || (arm.firing !== 'swing' && (d.x * go.x + d.z * go.z) / far < 0.35)) continue;
         if (arm.firing !== 'swing' && snowAlong(muzzle, at.clone().sub(muzzle).normalize(), at.distanceTo(muzzle)) < at.distanceTo(muzzle) - 1) continue;
-        best = at; most = far;
+        best = at; most = far; lock.orc = m.orc;
       }
       target = best ?? rider.position.clone().addScaledVector(go, 30).setY(ground(rider.position.x + go.x * 30, rider.position.z + go.z * 30));
       firing = !!best;
@@ -6045,11 +6636,18 @@ async function start() {
         target = p.setY(ground(p.x, p.z) + 0.5);
         firing = true;
       }
+    } else if (rolling()) {
+      // The arms aiming themselves: at the foe locked on (`relock`), its middle; none, on foot the way the body faces, riding the snow
+      // some way ahead, low.
+      relock(arm, going);
+      if (lock.orc >= 0) target = horde.middle(lock.orc);
+      else if (foot) target = rider.position.clone().addScaledVector(new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)), 8).setY(foot.y + 1.1);
+      else { const p = rider.position.clone().addScaledVector(go, 24); target = p.setY(ground(p.x, p.z) + 0.6); }
     } else {
       // What the guide's mark is over (or, by touch, the finger held on the picture, `finger`): the first orc or the snow along the
       // line from the eye through it.
       const reach = aimReach(), x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
-      ndc.set((x * reach) / (innerWidth / 2), (y * reach) / (innerHeight / 2));
+      ndc.set((x * aimReachX()) / (innerWidth / 2), (y * reach) / (innerHeight / 2));
       // (On foot, seen from above: the pointer, or the finger, where it is over the picture.)
       if (foot) ndc.copy(fingerAims() ? new Vector2(finger.x, finger.y) : footPad.ndc);
       else if (fingerAims()) {
@@ -6081,6 +6679,11 @@ async function start() {
       // within a stride of the floor pointed to as well; and the floor pointed to and none there, at chest height over it, so that what
       // is fired goes level across the room.)
       let foe: Vector3 | null = met ? horde.middle(met.orc) : null;
+      // (On foot by touch, no finger on the picture: ahead, the way it faces (asked: "something is also causing the aiming to flicker
+      // superfast when i enter a camp and dungeon, on iphone 15 chrome"). With no pointer the aim had stayed where the picture's middle
+      // is, which seen from above is the one on foot itself, and the gun turned to and fro about it every frame.)
+      const faces = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : null;
+      if (foot && faces && !fingerAims() && !document.body.classList.contains('mouse')) { target = rider.position.clone().addScaledVector(faces, 8); target.y = foot.y + 1.1; foe = null; }
       if (foot && !foe) {
         let near = 1.6;
         for (const p of horde.aims()) { const d = Math.hypot(p.x - target.x, p.z - target.z); if (d < near) { near = d; foe = p; } }
@@ -6090,7 +6693,10 @@ async function start() {
       // (Aimed nearer than three metres: on along the same way from the muzzle, thirty metres; it had been on along the line from the eye,
       // which from behind, from beside or from above looks down at the skier, and fired into the snow, or the floor, at its feet.)
       if (target.distanceTo(muzzle) < 3) {
-        const way = target.clone().sub(muzzle);
+        // (On foot, the way from its body, which the gun turning does not move, level; or, pointed at itself, the way it faces: from the
+        // muzzle, which moves as the gun turns to it, the way had turned round with the gun from frame to frame.)
+        const body = foot ? target.clone().sub(rider.position).setY(0) : null;
+        const way = body ? (body.lengthSq() > 0.36 ? body : faces!.clone()) : target.clone().sub(muzzle);
         if (foot || way.lengthSq() < 0.04) way.y = Math.max(way.y, -0.1 * Math.hypot(way.x, way.z));
         target = muzzle.clone().addScaledVector(way.lengthSq() > 1e-4 ? way.normalize() : go.clone(), 30);
       }
@@ -6101,7 +6707,7 @@ async function start() {
       // something is pulling the gun direction and often it just fires forward"): it had fired so at any snow within twelve metres ahead
       // too, and turned by the way the eye looks, nearly straight ahead from behind the skier, not by where the snow touched lies; on an
       // iPad, which shows more of the snow near the skier than a phone held sideways, at most of what was touched.)
-      if (fingerAims() && !met) {
+      if (fingerAims() && !met && !foot) {
         const rel = target.clone().sub(rider.position).setY(0);
         if (rel.x * go.x + rel.z * go.z < 1.5) {
           const level = rel.lengthSq() > 1e-4 ? rel : go.clone();
@@ -6111,12 +6717,17 @@ async function start() {
         }
       }
     }
-    // The gun turned to it from the muzzle, as far round as the arms let it (in the frame of what holds the human: a skier's own, a
-    // horse's saddle's; whose right and ahead, in the scene, the sword cuts to).
-    const hq = holder.getWorldQuaternion(new Quaternion());
-    const right = new Vector3(-1, 0, 0).applyQuaternion(hq).setY(0).normalize(), ahead = new Vector3(0, 0, 1).applyQuaternion(hq).setY(0).normalize();
+ // The gun turned to it from the muzzle, as far round as the arms let it.
+    aimedAt.copy(target);
+    showFight(watching ? null : arm);
     const d = target.sub(muzzle).normalize().applyQuaternion(hq.clone().invert());
     let yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
+    // (Aimed at no number, held straight ahead: posed so, the arms and the body over the hips went to no number for good, and were not
+    // drawn.)
+    if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) {
+      if (performance.now() - poseSaidAt > 5000) { poseSaidAt = performance.now(); noteProblem(`the arms' aim went to no number (${arm.kind}${lock.orc >= 0 ? ', locked on' : ''}${foot ? ', on foot' : ''}${air ? ', in the air' : ''})`); }
+      yaw = 0; pitch = 0;
+    }
     // (On foot the floor is level, and the gun with it: tipped down no more than it takes to reach a foe fallen low, nor up much.)
     if (foot && arm.firing !== 'swing') pitch = clamp(pitch, -0.3, 0.35);
     // (The sword, ready, held out towards what is aimed at, its point down; swung, at one side and then the other, `Rider.slash`, its
@@ -6136,7 +6747,7 @@ async function start() {
     }
     // (The force gathered in a held cut, a ring filling about the guide's mark.)
     const charging = swing?.held && swing.k >= SLASH_MARKS.up ? Math.round(swing.charge * 50) / 50 : -1;
-    if (charging !== shownCharge) { shownCharge = charging; aimEl.style.setProperty('--charge', String(Math.max(0, charging))); aimEl.classList.toggle('charging', charging >= 0); aimEl.classList.toggle('charged', charging >= 1); }
+    if (charging !== shownCharge) { shownCharge = charging; aimEl.style.setProperty('--charge', String(Math.max(0, charging))); attackEl.style.setProperty('--charge', String(Math.max(0, charging))); aimEl.classList.toggle('charging', charging >= 0); aimEl.classList.toggle('charged', charging >= 1); }
     // Fired on the snow, each arm as it is fired: the tommy gun while the button is held (or an orc is in its sights, watching), the
     // first round as it is pressed; the pistol and the shotgun a round, or a blast, a click; the flamethrower pouring fire while held;
     // the lightning gun a bolt every third of a second while held; the sword a swing a click.
@@ -6157,7 +6768,10 @@ async function start() {
     kick *= Math.exp(-dt * 18);
     gunfire.step(going, camera.quaternion);
     flames.step(going, camera.quaternion);
-    bolts.step(going);
+    bolts.step(going, camera.quaternion);
+    sparks.step(going); zapSparks.step(going);
+    // (The lightning gun held firing: small arcs crackling about its mouth between bolts.)
+    if (arm.kind === 'lightning' && holding && firing && going > 0 && gunRng.chance(going * 14)) bolts.crackle(muzzle, 0.13, 0.12);
     sweep.step(going);
     rockets.step(going, camera.quaternion, rocketStrikes, boomAt, (at, v) => flames.trail(at, v));
     boomClock += going;
@@ -6284,7 +6898,7 @@ async function start() {
   const leaveFoot = () => {
     if (!foot) return;
     const c = caveNow();
-    if (c) underground(c, false, 0);
+    if (c) underground(c, false, false, 0);
     foot = null; stopping = false;
     healAll();
     document.body.classList.remove('on-foot');
@@ -6325,7 +6939,8 @@ async function start() {
     return o.clone().addScaledVector(d, (foot.y + 0.05 - o.y) / d.y);
   };
   /** Where what is carried is aimed on foot: the floor (or an orc) under the finger on the picture, or the pointer. */
-  const footAim = () => footGround(fingerAims() ? new Vector2(finger.x, finger.y) : footPad.ndc);
+  // (The arms aiming themselves, the foe locked on.)
+  const footAim = () => (rolling() && lock.orc >= 0 && horde.coming(lock.orc) ? horde.middle(lock.orc) : footGround(fingerAims() ? new Vector2(finger.x, finger.y) : footPad.ndc));
   /** The pointer over the picture, on foot: where it is kept, a cross over the picture. Gives back whether it was taken so. */
   const footMouse = (e: PointerEvent) => {
     if (!foot || mode !== 'ride' || menuOpen || e.pointerType !== 'mouse') return false;
@@ -6452,27 +7067,32 @@ async function start() {
   /**
    * Under the snow on foot, seen from above: the cave cut away over its floors (`Cave.overhead`); the snow over it and all that lies on
    * the snow (the land, the woods, the poles, the kickers, the tracks) not drawn, and the sky behind it all gone dark, as a dungeon is
-   * drawn from above in the dark. Back out, all as it was.
+   * drawn from above in the dark. Back out, all as it was. And just inside, in the tunnel where only the mound lies over it (`shallow`;
+   * asked: "when player just inside the dungeon or coming out, the outdoor camp and snow can be shown"): the cave cut away as inside,
+   * the mound with it, but the land about, the camp and the snow still drawn, and the sky as it is, through the hole the land has for
+   * the tunnel.
    */
   let under = false;
-  const underground = (cave: Cave, on: boolean, floor: number) => {
+  const underground = (cave: Cave, on: boolean, shallow: boolean, floor: number) => {
     cave.overhead(!!foot && mode === 'ride', on, floor);
-    uUnder.value = on ? 1 : 0;
-    if (on === under) return;
-    under = on;
-    for (const c of cave.group.parent?.children ?? []) if (c !== cave.group) c.visible = !on;
-    for (const k of kicks) if (k.group) k.group.visible = !on;
-    for (const m of watchTracks) m.visible = !on && ((m.geometry.drawRange.count ?? 0) > 0);
+    const dark = on && !shallow;
+    uUnder.value = dark ? 1 : 0;
+    if (dark === under) return;
+    under = dark;
+    for (const c of cave.group.parent?.children ?? []) if (c !== cave.group) c.visible = !dark;
+    for (const k of kicks) if (k.group) k.group.visible = !dark;
+    for (const m of watchTracks) m.visible = !dark && ((m.geometry.drawRange.count ?? 0) > 0);
   };
   /** How far into the cave's dark the eye is (0 to 1): the sun and the sky dimmed by as much, and the picture drawn brighter. */
   let caveDark = 0;
   const stepCave = (dt: number, seconds: number) => {
     const cave = caveNow();
-    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; return; }
+    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; caveLights.lantern.intensity = caveLights.fire.intensity = 0; return; }
     const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
     // (On foot the view is from above, out in the air over the snow: how dark it is, is how dark it is where the one on foot is.)
     caveDark = cave.darkness(at && mode === 'ride' ? at : eye);
-    underground(cave, !!at && mode === 'ride' && cave.inside(at.x, at.z), at ? at.y : 0);
+    const into = !!at && mode === 'ride' && cave.inside(at.x, at.z);
+    underground(cave, into, into && cave.shallow(at!.x, at!.z), at ? at.y : 0);
     const ahead = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : undefined;
     cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0, ahead);
   };
@@ -6671,7 +7291,21 @@ async function start() {
     if (overSide) camera.rotateY(-overSide);
     if (overUp) camera.rotateX(overUp);
   };
-  const placeView = (now: Now, dt: number) => {
+  /**
+   * What the views are given, kept sane (asked, of the eye gone to no number riding, "the eye went to no number: begun again (eye bad,
+   * rider ok, view behind, blur 0.5)"): the view's own easing (`across`, `ahead`, `travel`, `eyeOff`, `lookOff`, `isoTurn`) eases on from
+   * itself, and one step given no number had it so for good. So a step's numbers gone bad are taken as the last good ones, said once a
+   * while (`noteProblem`), and the easing gone bad anyway is begun again from behind the skier.
+   */
+  let goodNow: Now | null = null, viewSaidAt = -1e9;
+  const saneNow = (now: Now): Now => {
+    const bad = (['down', 'left', 'way', 'speed'] as const).filter((k) => !Number.isFinite(now[k]));
+    if (!bad.length) { goodNow = now; return now; }
+    if (performance.now() - viewSaidAt > 5000) { viewSaidAt = performance.now(); noteProblem(`the view was given no number (${bad.join(', ')}; ${pictureState()})`); }
+    return { ...now, ...(goodNow ? { down: goodNow.down, left: goodNow.left, way: goodNow.way, speed: goodNow.speed } : { down: 0, left: 0, way: 0, speed: 0 }) };
+  };
+  const placeView = (given: Now, dt: number) => {
+    const now = saneNow(given);
     const at = focus(), f = land.at(now.down, 0);
     across += ((mode === 'ride' ? 1 : 0.35) * now.left - across) * (placed ? ease(dt, 3) : 1);
     const p = land.at(now.down, across), follow = new Vector3(p.x, at.y, p.z), down = runDir(f), aside = runLeft(f);
@@ -6728,6 +7362,16 @@ async function start() {
         camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j));
         camera.rotateZ(Math.sin(w * 53) * 0.02 * bladeJolt);
       }
+    }
+    // (The easing gone to no number all the same, from the snow under the eye, or what it looks at: begun again, behind the skier.)
+    const fine = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    if (view !== 'cinema' && view !== 'free' && (!fine(camera.position) || !fine(eyeOff) || !fine(lookOff) || !fine(ahead) || !fine(travel) || !Number.isFinite(across)) && fine(at)) {
+      const what = [!fine(eyeOff) && 'eyeOff', !fine(lookOff) && 'lookOff', !fine(ahead) && 'ahead', !fine(travel) && 'travel', !Number.isFinite(across) && 'across', !fine(isoTurn) && 'isoTurn'].filter(Boolean).join(', ');
+      if (performance.now() - viewSaidAt > 5000) { viewSaidAt = performance.now(); noteProblem(`the view's easing went to no number (${what || 'the eye'}; ${pictureState()})`); }
+      const d0 = runDir(f).setY(0).normalize();
+      across = Number.isFinite(now.left) ? now.left : 0; ahead.copy(d0); travel.copy(d0); isoTurn.copy(d0);
+      eyeOff.set(0, 3.4, 0).addScaledVector(d0, -9); lookOff.set(0, 0.6, 0).addScaledVector(d0, 6);
+      camera.position.copy(at).add(eyeOff); camera.lookAt(at.clone().add(lookOff));
     }
     if (view !== 'free') keepInPicture(at);
     lastRider.copy(at);
@@ -6956,6 +7600,50 @@ async function start() {
   // What has just happened, over the picture.
   const toldBox = $('told'), toldText = toldBox.querySelector('.text') as HTMLElement, toldSmall = toldBox.querySelector('.small') as HTMLElement;
   let toldShown = '';
+  /**
+   * The run's end on a phone or a tablet (asked, of the run's end: a sheet at the foot): over its lower part, as the way back to the
+   * top plays above it, what became of the run, its points, how far down and how long; the tricks landed, what was brought down and what
+   * was found; and on to the map of the runs, or the next run at once. What has just happened is not said over the picture as well.
+   */
+  const runEndEl = $('runEnd');
+  let runEndKey = '';
+  $('runEndMap').addEventListener('click', () => showMap());
+  $('runEndNext').addEventListener('click', () => restart());
+  const sayLostBefore = () => {
+    if (!lostBefore || mode !== 'ride' || ride.time < 0.5) return;
+    tell('The graphics failed last time', `${lostBefore.doing}: ${lostBefore.why}`.slice(0, 180), true, 10);
+    lostBefore = null;
+  };
+  const stepRunEnd = () => {
+    sayLostBefore();
+    // (On foot only once beaten there: the sheet over the cave until the new run.)
+    const over = runOver, on = mode === 'ride' && !!over && (!foot || beaten > 0) && !trip;
+    if (document.body.classList.contains('ended') !== on) document.body.classList.toggle('ended', on);
+    if (runEndEl.hidden === on) runEndEl.hidden = !on;
+    if (!on || !over) { runEndKey = ''; return; }
+    const downed = orcsOn ? horde.downed : 0, key = `${over.what}|${over.why}|${score}|${tricksRun}|${downed}|${foundRun.length}`;
+    if (key === runEndKey) return;
+    runEndKey = key;
+    say($('runEndRun'), runs.find((r) => r.id === landKind)?.label ?? 'The groomed slope');
+    const what = $('runEndWhat');
+    say(what, over.what);
+    what.classList.toggle('bad', over.bad);
+    say($('runEndWhy'), over.why);
+    say($('runEndPoints'), score.toLocaleString('en'));
+    say($('runEndBest'), bestBefore > 0 && score > bestBefore ? 'points · new best' : best > 0 && score < best ? `points · best ${best.toLocaleString('en')}` : 'points');
+    say($('runEndDrop'), `${Math.round(over.drop)} m`);
+    say($('runEndTime'), `${Math.round(over.time)} s`);
+    say($('runEndTimeSaid'), over.timeSaid ? `riding · ${over.timeSaid}` : 'riding');
+    // (And the rest of what the run came to: how fast it went, the best trick, the foes by kind, the chest, the blows taken.)
+    const st = runStats, top = st.tricks.reduce<{ name: string; pts: number } | null>((a, b) => (!a || b.pts > a.pts ? b : a), null);
+    const said = [`${tricksRun} ${tricksRun === 1 ? 'trick' : 'tricks'} landed${top ? ` (best ${top.name}, +${top.pts.toLocaleString('en')})` : ''}`];
+    if (st.top > 0) said.push(`top speed ${(st.top * 3.6).toFixed(0)} km/h`);
+    if (orcsOn) said.push(`${downed} brought down${st.foes.size ? ` (${[...st.foes].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(', ')})` : ''}`);
+    if (st.chest) said.push('the chest opened');
+    if (st.blows) said.push(`${st.blows} ${st.blows === 1 ? 'blow' : 'blows'} taken`);
+    if (foundRun.length) said.push(`found: ${foundRun.join(', ')}`);
+    say($('runEndLine'), said.join(' · '));
+  };
   const showTold = () => {
     const on = mode === 'ride' && !!told.text && ride.time < told.until, key = on ? `${told.text}|${told.small}|${told.bad}` : '';
     if (key === toldShown) return;
@@ -7085,11 +7773,13 @@ async function start() {
   setDistance(Number(kept('distance') ?? 1) || 1);
   setOffPiste(query.has('offpiste') ? query.get('offpiste') !== '0' : kept('offpiste') !== '0');
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
+  setAiming(query.has('aim') ? query.get('aim') !== 'free' : kept('aiming') !== 'free');
   setInfo(query.has('info') ? query.get('info') !== '0' : kept('info') === '1');
+  setGuide(query.has('guide') ? query.get('guide') !== '0' : kept('guide') === '1');
   setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
   setSlowmo(query.has('slowmo') ? query.get('slowmo') !== '0' : kept('slowmo') === '1');
   resetScore();
-  setTilt(kept('tilt') !== '0');
+  setTilt(kept('steering') === 'tilt');
   {
     const k = kept('backBy');
     backBy = BACK_CHOICES.some(([w]) => w === k) ? (k as BackBy) : 'ask';
@@ -7278,18 +7968,32 @@ async function start() {
   const clockEl = $('clock'), speedEl = $('speed'), downEl = $('down');
   let headAt = -1, headOf: Demo | null = null;
   /**
-   * A frame, and the next asked for whatever came of this one: asked for only at the end of it, a frame that threw had been the last,
-   * the picture stopped for good with nothing said. What throws said in the console, the first few times in a row.
+   * Every frame, whatever becomes of the one before (asked: "on iphone 15 the game freezes now for some reason after first starting the
+   * game and choosing a run from the splash map ... if i reload the page and go play, then it works"): each frame asked for again once
+   * it is done, as it always was, but now even if it threw, so that one thing gone wrong does not stop the picture for good; and what
+   * went wrong said over the picture, the first time, so that it can be told of.
    */
-  let framesFailed = 0;
+  let frameFailed = false;
   const frame = async () => {
-    try { await drawFrame(); framesFailed = 0; } catch (e) { if (framesFailed++ < 3) console.error(e); }
+    try { await frameOnce(); } catch (e) {
+      console.error(e);
+      if (!frameFailed) { frameFailed = true; tell('Something went wrong', String((e as Error)?.message ?? e).slice(0, 140), true, 8); }
+    }
     requestAnimationFrame(frame);
   };
-  const drawFrame = async () => {
+  /**
+   * The shaders being made ready (`warmSoon`), while they are: what was taken out of the scene is not let go of under them. And the
+   * longest a frame waits for them, `WARM_WAIT` milliseconds: on an iPhone opened afresh, with nothing yet made for it, the wait after a
+   * run was chosen on the map could go on with the picture stood still, and never end. Past it, the picture goes on, what is not yet
+   * ready made as it is first drawn (a stutter, at worst).
+   */
+  let warming: Promise<unknown> | null = null;
+  // (Longer as the page opens, behind its loading screen, where a phone was seen to take four seconds over them all.)
+  const WARM_WAIT = 3000, WARM_WAIT_OPENING = 12000;
+  const frameOnce = async () => {
     if (benching) return;
     // (What was taken out of the scene since the last frame let go of, now that no frame is making shaders ready: `toLetGo`.)
-    for (const f of toLetGo.splice(0)) f();
+    if (!warming) for (const f of toLetGo.splice(0)) f();
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
     // (Riding, slowed through a jump if so chosen: `stepSlowmo`. What keeps pace with the clock on the wall, the picture's blur, not.)
     const now = performance.now(), realDt = fixedDt || Math.min(0.1, (now - then) / 1000);
@@ -7323,13 +8027,13 @@ async function start() {
       at = { down: f.s, left: f.left, speed: crash ? 0 : ride.speed, way: ride.way, ski: ride.way, skid: 0, tuck: ride.tuck, brake: ride.brake };
       // (Until the arm has it in its claw, the ride goes on: lain in the snow, or stood at the foot of the run.)
       if (foot) at = stepFoot(playing && !menuOpen ? dt : 0);
-      // (Beaten on foot in the cave: a moment to see it, and the card of the run, and a new run from the top.)
-      if (beaten > 0 && playing && !menuOpen && (beaten -= dt) <= 0) { beaten = 0; restart(); }
       else if (!cat?.held) {
-        for (let i = 0; i < steps; i++) { poseLater = i < steps - 1; askRide(); at = stepRide(dt / steps); }
+        for (let i = 0; i < steps; i++) { poseLater = i < steps - 1; askRide(); at = stepRide(dt / steps); checkStep(); }
         poseLater = false; unposed = 0;
         if (mode === 'ride' && !crash && !cat && !carting) runStats.top = Math.max(runStats.top, air ? 0 : ride.speed);
       }
+      // (Beaten on foot in the cave: a moment to see it, and the sheet of the run, and a new run from the top.)
+      if (beaten > 0 && playing && !menuOpen && (beaten -= dt) <= 0) { beaten = 0; restart(); }
       if (playing && !menuOpen) stepCamp();
       // (A run over: fallen and lain still, or stopped at the foot of the run; and the arm comes for it.)
       // (Or, the run to end in the whirlwind, ridden into it.)
@@ -7355,6 +8059,8 @@ async function start() {
     // (The tommy gun in the hands of whoever carries it, after the pose it was put in, and fired; or put away.)
     armUp(dt, at);
     stepLoot(mode === 'ride' && playing && !menuOpen ? dt : 0);
+    stepMaking();
+    stepRunEnd();
     // (Where the skier is: on its skis, lain in the snow, or in the arm's hands or thrown.)
     const where = cat ? cat.at.clone() : focus();
     land.keepAbout(where.x, where.z);
@@ -7377,24 +8083,125 @@ async function start() {
     // once as it is drawn: made so, the page stood frozen for the four seconds they took, the loading screen's bar with it, and they
     // took a second and more longer. With WebGPU only: with WebGL 2, made this way they took twice as long, ten seconds for five.)
     // (And everything else there is with it: `warmSoon`. Opening, drawn this frame behind the loading screen; later, only made ready.)
+    keepSane();
     let unwarm: (() => void) | null = null;
-    if (warmWanted) {
+    // (Not while shaders given up on are still being made: asked for again once they are.)
+    if (warmWanted && !warming) {
       warmWanted = false;
       const opening = drawnFrames >= 0;
       unwarm = showEverything();
-      if (webgpu || !opening) try { await (blurNow() > 0 ? scenePass : sharpPass).compileAsync(renderer); } catch (e) { console.warn(e); }
+      if (webgpu || !opening) {
+        // (The pass sets the renderer drawing into its own target while it waits, and puts it back once done: put back here too if it
+        // is given up on, so that the frame draws to the picture.)
+        const target = renderer.getRenderTarget(), mrt = renderer.getMRT(), context = renderer.contextNode;
+        const made = (blurNow() > 0 ? scenePass : sharpPass).compileAsync(renderer).catch((e) => console.warn(e));
+        const done = made.then(() => { if (warming === done) warming = null; });
+        warming = done;
+        const inTime = await Promise.race([made.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), opening ? WARM_WAIT_OPENING : WARM_WAIT))]);
+        // (Given up on, no longer waited on at all: what was taken out of the scene let go of as ever, and what is wanted made ready next
+        // time. Waited on until it came, which on an iPad it might never, nothing let go of was let go of, and the land turned inside out,
+        // which is the whole land made again, piled up behind it each time.)
+        if (!inTime) { console.warn('Grand Horse Mountain went on without waiting longer for its shaders'); renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context; warming = null; }
+      }
       if (!opening) { unwarm(); unwarm = null; }
     }
     if (blurNow() > 0) {
       uShutter.value = clamp(1 / 60 / Math.max(realDt, 1e-3), 0.005, 3) * blurLevel;
       uBlur.value = blurLevel;
       // (The land turning over in focus as it does, rather than the skier, small in the middle of it.)
-      uFocus.value = Math.max(3, camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position));
+      // (A number gone bad here blackens the whole picture, every point of it blurred by it: kept to a sane one.)
+      const focusAt = camera.position.distanceTo(cat?.flip ? cat.eye.look : rider.position);
+      uFocus.value = Number.isFinite(focusAt) ? Math.max(3, focusAt) : 10;
       pipeline.render();
     } else sharp.render();
     unwarm?.();
+    probeBlack(now);
     // (For a script making a video a frame at a time: told once each frame is drawn, `__slope.everyFrame`.)
     afterFrame?.();
+  };
+  /**
+   * Whether the picture is being drawn at all (asked: "Ipad chrome: screen turned black after upside down world transition"; "Gui
+   * visible and player moving"): every four seconds, just after a frame is drawn, the picture taken small; once it has been seen drawn
+   * on this page (so that a browser that gives back nothing of its picture is never taken for a black one), black or empty three times
+   * over, outdoors, where nothing is ever black, and the graphics are taken to have failed: the page opened again, drawn more simply.
+   */
+  /** What was so as the picture came out black, for what is kept of it (`noteLost`): the eye and the rider sane or not, and the run's state. */
+  const pictureState = () => {
+    const ok = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    return [`eye ${ok(camera.position) ? 'ok' : 'bad'}`, `rider ${ok(rider.position) ? 'ok' : 'bad'}`, `view ${view}`, ride.ended ? 'ended' : '', asking ? 'asking' : '', crash ? 'fallen' : '', cat ? `way ${cat.by}` : '', inside ? 'inside out' : '', foot ? 'on foot' : '', `blur ${blurLevel}`].filter(Boolean).join(', ');
+  };
+  /**
+   * Each step of the ride looked at as it is taken (asked, the eye and the rider gone to no number again on an iPad, never here): the
+   * first of the ride's numbers to go so, which, what it was a step before and what was going on, said (`noteProblem`); and set back to
+   * the step before. The rider placed at no number, the same, and put back where the ride is. So nothing gone so reaches the eye.
+   */
+  const goodRide: Record<string, number> = {};
+  const doingNowly = () => [
+    air ? `in the air (${air.kind}, ${air.name}, t ${air.t.toFixed(2)} of ${air.T.toFixed(2)})` : '', crash ? `fallen (${crash.why})` : '', ride.turn180 ? `a ${ride.turn180.kind} 180` : '',
+    carting ? 'on the cart' : '', inside ? 'inside out' : '', ride.skating ? 'skating' : '', ride.ended ? 'ended' : '', stopping ? 'stopping at the camp' : '',
+    `${who}`, `speed ${Number(goodRide.speed ?? 0).toFixed(1)}`, `way ${Number(goodRide.way ?? 0).toFixed(2)}`, `stones ${Number(goodRide.stones ?? 0).toFixed(2)}`, `deep ${Number(goodRide.deep ?? 0).toFixed(2)}`,
+  ].filter(Boolean).join(', ');
+  let stepSaidAt = -1e9;
+  const checkStep = () => {
+    const r = ride as unknown as Record<string, unknown>, bad: string[] = [];
+    for (const k in r) if (typeof r[k] === 'number' && !Number.isFinite(r[k] as number)) bad.push(k);
+    const fine = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    const q = rider.quaternion, placedOk = !crash ? fine(rider.position) && [q.x, q.y, q.z, q.w].every(Number.isFinite) : true;
+    if (!bad.length && placedOk) { for (const k in r) if (typeof r[k] === 'number') goodRide[k] = r[k] as number; return; }
+    if (performance.now() - stepSaidAt > 3000) {
+      stepSaidAt = performance.now();
+      noteProblem(bad.length ? `the ride's ${bad.join(', ')} went to no number in a step (${doingNowly()})` : `the rider was placed at no number in a step (${doingNowly()})`);
+    }
+    // (Set back: the ride's numbers to the step before; the rider to where the ride is, upright.)
+    for (const k of bad) r[k] = goodRide[k] ?? 0;
+    if (!placedOk || bad.length) { rider.position.set(ride.x, ride.y, ride.z); rider.quaternion.identity(); rider.updateMatrixWorld(true); placed = false; }
+  };
+  /**
+   * The eye and the rider kept sane each frame: a place gone to no number (as from a length of nothing made one), drawn, blackens the
+   * picture for good. Seen so, the run begun again from its top (the ride's own numbers gone bad), or the eye put back behind the rider;
+   * and said, the first time.
+   */
+  let insaneSaid = false;
+  const keepSane = () => {
+    const ok = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+    // (The ride's own eased numbers, its lean, its facing and the rest, set right where they stand: gone to no number, each eased on from
+    // itself kept to it for good. Only its place gone so begins the run again.)
+    const r = ride as unknown as Record<string, unknown>, fixed: string[] = [];
+    for (const k in r) if (typeof r[k] === 'number' && !Number.isFinite(r[k] as number) && !['x', 'y', 'z', 'down', 'left'].includes(k)) { r[k] = 0; fixed.push(k); }
+    if (fixed.length) noteProblem(`the ride's ${fixed.join(', ')} went to no number: set to nothing (${pictureState()})`);
+    const rideOk = [ride.x, ride.y, ride.z, ride.speed, ride.way, ride.down, ride.left].every(Number.isFinite);
+    if (rideOk && ok(rider.position) && ok(camera.position)) return;
+    const what = `${rideOk ? '' : 'the ride '}${ok(rider.position) ? '' : 'the rider '}${ok(camera.position) ? '' : 'the eye'}`.trim();
+    const bad = ['x', 'y', 'z', 'speed', 'way', 'down', 'left'].filter((k) => !Number.isFinite((ride as unknown as Record<string, number>)[k]));
+    noteProblem(`${what} went to no number${bad.length ? ` (${bad.join(', ')})` : ''}: ${!rideOk || !ok(rider.position) ? 'begun again' : 'the eye put back'} (${pictureState()})`);
+    if (!insaneSaid) { insaneSaid = true; tell('Something went wrong', `${what} went to no number: set right`, true, 6); }
+    if (!rideOk || !ok(rider.position)) { restart(); return; }
+    camera.position.copy(rider.position).add(new Vector3(0, 4, -8));
+    camera.lookAt(rider.position);
+    placed = false;
+  };
+  const probe = document.createElement('canvas');
+  probe.width = probe.height = 8;
+  const probeCtx = probe.getContext('2d', { willReadFrequently: true });
+  let probeAt = 0, probing = false, probeSeen = false, blackFor = 0;
+  const probeBlack = (now: number) => {
+    if (!probeCtx || probing || fallingBack || now < probeAt || typeof createImageBitmap === 'undefined') return;
+    probeAt = now + 4000;
+    if (document.hidden || drawnFrames >= 0 || foot || caveDark > 0.3 || menuOpen) return;
+    probing = true;
+    createImageBitmap(canvas, { resizeWidth: 8, resizeHeight: 8 }).then((bmp) => {
+      probeCtx.clearRect(0, 0, 8, 8);
+      probeCtx.drawImage(bmp, 0, 0);
+      bmp.close();
+      const d = probeCtx.getImageData(0, 0, 8, 8).data;
+      let most = 0;
+      for (let i = 0; i < d.length; i += 4) most = Math.max(most, Math.min(d[i + 3], Math.max(d[i], d[i + 1], d[i + 2])));
+      if (most >= 24) { probeSeen = true; blackFor = 0; return; }
+      if (!probeSeen) return;
+      blackFor++;
+      console.warn(`Grand Horse Mountain: the picture came out black (${blackFor})`);
+      if (blackFor >= 3) fallBack(`the picture went black (${pictureState()})`, true);
+    }).catch(() => { /* (not to be told) */ }).finally(() => { probing = false; });
   };
   const __look = (off: Vector3) => { heldLook = null; view = 'free'; controls.enabled = true; const at = focus(); camera.position.copy(at).add(off); controls.target.copy(at).addScaledVector(UP, 0.9); controls.update(); lastRider.copy(at); placed = true; };
   // (For a script that drives the page: where it is, and to put it anywhere; riding, what the pointer would ask.)
@@ -7490,6 +8297,12 @@ async function start() {
     offPiste: () => ({ allowed: offPisteOn, now: offPisteOk(), for: +offPisteFor.toFixed(2), edges: land.edges(ride.down), reach: reachAt(ride.down), left: +ride.left.toFixed(1) }),
     // (The trigger, held or let go, as the button is, and pulled once as a click does.)
     trigger: (on: boolean) => { firing = on; if (on) { shotClock = SHOT; pull(); } },
+    // (The arms aiming themselves: `aiming('free' | 'auto')`; the foe locked on, and its strength in hit points; `cycle(1)` to the right;
+    // the last rolls made, newest last.)
+    aiming: (how?: 'auto' | 'free') => { if (how) setAiming(how === 'auto'); return autoAim ? 'auto' : 'free'; },
+    target: () => { const h = lock.orc >= 0 ? horde.health(lock.orc) : null; return h && horde.coming(lock.orc) ? { orc: lock.orc, name: horde.titleOf(lock.orc), kind: horde.kindOf(lock.orc)?.name, hp: Math.ceil(h.hp * HP), most: Math.round(h.most * HP), chosen: lock.chosen, far: +horde.middle(lock.orc).distanceTo(rider.position).toFixed(1), lockable: lock.list.length } : null; },
+    cycle: (by = 1) => { cycleLock(by); return lock.orc; },
+    rolls: () => rolls.map((r) => ({ foe: r.foe, arm: r.arm, say: r.say })),
     // (The nearest tree ahead of the skier down the run, within `most` metres along it and `wide` either side: how far down the run
     // and across it its middle stands, and how far out it reaches, `Land.treeNear`.)
     treeAhead: (most = 120, wide = 25) => {
@@ -7602,8 +8415,9 @@ async function start() {
     // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
     cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), knoll: !!c.site.knoll, camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
-    // the gate, before the chest, or in room `back` (by its number); or, `chest`, a step from the chest, to open it.)
-    goCave: (where: 'ride' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'chest' = 'camp', back = 50) => {
+    // the gate, before the chest, or in room `back` (by its number); or, `chest`, a step from the chest, to open it; or, `tunnel`, `back`
+    // metres in from the mouth.)
+    goCave: (where: 'ride' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'chest' | 'tunnel' = 'camp', back = 50) => {
       const c = caveNow();
       if (!c) return false;
       if (mode !== 'ride') setMode('ride');
@@ -7611,7 +8425,7 @@ async function start() {
       // (`cart`: stopped `back` metres down the run from the camp, its end the rocket cart, to be driven back up into it.)
       if (where === 'cart') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s + back, f.left); placeKickers(ride.down); Object.assign(ride, { way: 0, speed: 0, ended: true }); ending = 'cart'; return true; }
       if (where === 'ride') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s - back, f.left); placeKickers(ride.down); ride.way = 0; ride.speed = 8; placed = false; return true; }
-      const sp = where === 'chest' ? { x: c.chest.at.x + 1.2, z: c.chest.at.z, heading: -Math.PI / 2 } : c.spot(where, back);
+      const sp = where === 'chest' ? { x: c.chest.at.x + 1.2, z: c.chest.at.z, heading: -Math.PI / 2 } : where === 'tunnel' ? { ...sitePoint(c.site, back, 0), heading: Math.atan2(c.site.ax, c.site.az) } : c.spot(where, back);
       if (!foot) { const f = land.frame(sp.x + o.x, sp.z + o.z); putAt(f.s, f.left); ride.speed = 0; skisOff(); }
       Object.assign(foot!, { x: sp.x + o.x, z: sp.z + o.z, y: c.floorUnder(sp.x, sp.z) ?? land.height(sp.x + o.x, sp.z + o.z), heading: sp.heading, speed: 0, room: -1 });
       placed = false;
@@ -7632,6 +8446,31 @@ async function start() {
     },
     // (Health on foot: what is left of it, or, given `by`, that much lost, as a blow takes it.)
     hurt: (by?: number) => { if (by) hurt(by, 'A script'); return { health: +health.toFixed(1), beaten: +beaten.toFixed(2), onFoot: !!foot }; },
+    aimed: () => aimedAt.toArray().map((v) => +v.toFixed(2)),
+    // (The shaders made from now on, each by what it was made for, its name (or its parent's) and its material: for a script to see
+    // what was not made ready ahead (`warmSoon`). `shaders(true)` begins counting afresh; `shaders()` says what has been made since.)
+    shaders: (fresh = false) => {
+      const pipes = (renderer as unknown as { _pipelines?: { caches: Map<unknown, unknown>; getForRender: (o: { object: Object3D; material: Material }, p?: unknown) => unknown } })._pipelines;
+      if (!pipes) return null;
+      const w = window as unknown as { __late?: string[]; __lateOn?: boolean };
+      if (!w.__lateOn) {
+        w.__lateOn = true; w.__late = [];
+        const was = pipes.getForRender.bind(pipes);
+        pipes.getForRender = (o, p) => {
+          const n = pipes.caches.size, r = was(o, p);
+          if (pipes.caches.size > n) { let at: Object3D | null = o.object, name = ''; while (at && !name) { name = at.name; at = at.parent; } w.__late!.push(`${name || o.object.type} · ${o.material.type}${o.material.name ? ` ${o.material.name}` : ''}`); }
+          return r;
+        };
+      }
+      if (fresh) w.__late = [];
+      return { total: pipes.caches.size, since: [...new Set(w.__late)] };
+    },
+    // (Whether the picture has been seen drawn, and how many times over since it came out black: `probeBlack`.)
+    blackProbe: () => ({ seen: probeSeen, black: blackFor }),
+    // (The view's easing sent to no number, as it was seen to go on an iPad, for a script to see it set right: `placeView`.)
+    spoilView: () => { eyeOff.set(NaN, NaN, NaN); },
+    // (What it draws by, WebGPU or WebGL 2, and how simply.)
+    graphics: () => ({ webgpu, safe: safe.level }),
     pack: () => pack && { items: pack.items.map((i) => ({ name: i.name, slot: i.slot, rarity: i.rarity, mods: i.mods, worn: pack!.worn[i.slot] === i.id })), read: [...pack.read], kit: { ...worn }, carried: carried().name, drops: drops.count },
     wear: (slot: Slot, n: number) => { if (!pack) return; const of = pack.items.filter((i) => i.slot === slot); pack.wear(slot, n < 0 ? null : of[n]?.id ?? null); },
     emptyPack: () => pack?.empty(),

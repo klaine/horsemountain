@@ -17,7 +17,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
-import { attribute, texture, uniform, uv, vec3 } from 'three/tsl';
+import { attribute, clamp as clampNode, float, texture, uniform, uv, vec3 } from 'three/tsl';
 import type { Rng } from '../src/core/rng';
 import type { Stance } from '../src/figures/alpine';
 import { FORE_GRIP, MUZZLE, tommyGun } from './slopeGun';
@@ -50,7 +50,7 @@ export const LADDER: Arm[] = [
   { kind: 'shotgun', name: 'Shotgun', after: 15, firing: 'single', every: 0.75, hint: 'a click a blast, a spread of shot', muzzle: new Vector3(0, BORE, 0.78), fore: 0.36, kick: 1.8, stance: 'shoulder', make: () => shotgun() },
   { kind: 'flamer', name: 'Flamethrower', after: 20, firing: 'stream', every: 1 / 30, hint: 'hold to pour fire on them', muzzle: new Vector3(0, BORE, 0.66), fore: 0.32, kick: 0.35, make: () => flamer() },
   { kind: 'smg', name: 'Tommy gun', after: 25, firing: 'auto', every: 60 / 700, hint: 'hold to fire', muzzle: MUZZLE, fore: FORE_GRIP, kick: 1, stance: 'shoulder', make: () => tommyGun() },
-  { kind: 'lightning', name: 'Lightning gun', after: 30, firing: 'bolt', every: 0.45, hint: 'hold to throw lightning, which leaps from orc to orc', muzzle: new Vector3(0, BORE + 0.01, 0.6), fore: 0.3, kick: 0.4, stance: 'shoulder', make: () => lightningGun() },
+  { kind: 'lightning', name: 'Lightning gun', after: 30, firing: 'bolt', every: 0.5, hint: 'hold to throw lightning, which leaps from orc to orc', muzzle: new Vector3(0, BORE + 0.01, 0.6), fore: 0.3, kick: 0.4, stance: 'shoulder', make: () => lightningGun() },
   { kind: 'bazooka', name: 'Bazooka', after: 35, firing: 'single', every: 1.1, hint: 'a click a rocket, which blows up all about where it strikes', muzzle: new Vector3(0, TUBE, 0.66), fore: 0.34, kick: 2.6, stance: 'tube', make: () => bazooka() },
 ];
 /** The arm carried after `slain` orcs brought down; and the next, and how many more it wants. */
@@ -365,76 +365,192 @@ export class Flames {
   clear(): void { this.licks.length = 0; this.soot.length = 0; this.pools.length = 0; this.fire.count = 0; this.smoke.count = 0; }
 }
 
-/** A bolt of lightning: the points it leaps through, how old it is, how long it lasts, and its crooked course as it is now drawn. */
-interface Bolt { through: Vector3[]; age: number; life: number; path: Vector3[]; redrawn: number }
+/**
+ * A bolt of lightning: the points it leaps through, how old it is, how long it lasts, how thick it is drawn, and its crooked course as
+ * it is now drawn with its branches; a crackle is many small arcs about a point, thrown anew every moment while it lasts.
+ */
+interface Bolt { through: Vector3[]; age: number; life: number; thick: number; path: Vector3[]; forks: Vector3[][]; redrawn: number }
+interface Crackle { at: Vector3; r: number; age: number; life: number; arcs: Vector3[][]; redrawn: number }
+interface Glow { at: Vector3; age: number; life: number; size: number }
+
+/** How bright a bolt is `k` of the way through its life: it strikes, dims, strikes again, and again, and fades (as lightning does). */
+const restrike = (k: number) => (k < 0.18 ? 1 : k < 0.28 ? 0.25 : k < 0.42 ? 0.95 : k < 0.5 ? 0.2 : 0.8 * (1 - (k - 0.5) / 0.5));
 
 /**
- * The lightning gun's bolts: from its mouth to the first orc and on from each to the next it leaps to, a crooked line of blue-white
- * light, its crooks thrown anew every few hundredths of a second as it flickers, gone in a moment; and a forked branch here and there.
+ * The lightning gun's bolts (asked: "can we make lightning gun a bit less powerful but visually way more impressive?"): from its mouth
+ * to the first orc and on from each to the next it leaps to, a crooked line of white-hot light wrapped in a soft blue glow, its crooks
+ * thrown anew every few hundredths of a second as it flickers; branches forking off it and forking again, the longer the nearer the
+ * mouth; and lightning's way of striking, dimming and striking again before it fades. Where it strikes, a flash of blue-white light;
+ * and about each it struck, arcs crackling over it a while after (`crackle`). A bolt out of the sky, thicker, onto one it brings down
+ * (`strike`, `thick`).
  */
 export class Bolts {
   private readonly bolts: Bolt[] = [];
-  private readonly mesh: InstancedMesh;
+  private readonly crackles: Crackle[] = [];
+  private readonly glows: Glow[] = [];
+  private readonly core: InstancedMesh;
+  private readonly sheath: InstancedMesh;
+  private readonly halo: InstancedMesh;
   private readonly m = new Matrix4();
   private readonly q = new Quaternion();
   private readonly s = new Vector3();
   private readonly p = new Vector3();
-  constructor(scene: Scene, private readonly rng: Rng, private readonly most = 600) {
-    const paint = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending });
-    paint.colorNode = vec3(0.55, 0.75, 1).mul(6);
-    this.mesh = new InstancedMesh(new BoxGeometry(1, 1, 1).translate(0, 0, 0.5), paint, most);
-    this.mesh.frustumCulled = false;
-    this.mesh.count = 0;
-    scene.add(this.mesh);
+  private readonly mostHalo: number;
+  constructor(scene: Scene, private readonly rng: Rng, private readonly most = 900) {
+    // (Its white-hot core; about it a sheath of deep electric blue, and soft blue blooms along it and where it strikes, laid over what
+    // is behind, not added to it: added, blue-white light was lost against the snow, white itself.)
+    const paint = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+    paint.colorNode = vec3(0.86, 0.94, 1).mul(4);
+    const box = new BoxGeometry(1, 1, 1).translate(0, 0, 0.5);
+    this.core = new InstancedMesh(box, paint, most);
+    const blue = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+    blue.colorNode = vec3(0.18, 0.42, 1.25);
+    blue.opacityNode = float(0.7);
+    this.sheath = new InstancedMesh(box, blue, most);
+    const soft = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+    const fall = clampNode(float(1).sub(uv().sub(0.5).length().mul(2)), 0, 1);
+    soft.colorNode = vec3(0.3, 0.55, 1.4);
+    soft.opacityNode = fall.pow(1.8).mul(0.75);
+    this.mostHalo = Math.round(most * 0.7);
+    this.halo = new InstancedMesh(new PlaneGeometry(1, 1), soft, this.mostHalo);
+    this.halo.renderOrder = 1; this.sheath.renderOrder = 2; this.core.renderOrder = 3;
+    for (const mesh of [this.core, this.sheath, this.halo]) { mesh.frustumCulled = false; mesh.count = 0; scene.add(mesh); }
   }
-  /** A bolt through `through` (its mouth first), lasting `life` seconds. */
-  strike(through: Vector3[], life = 0.16): void {
+  /** A bolt through `through` (its mouth first), lasting `life` seconds, `thick` times as thick as the gun's; a flash where it ends. */
+  strike(through: Vector3[], life = 0.36, thick = 1): void {
     if (through.length < 2) return;
-    this.bolts.push({ through: through.map((p) => p.clone()), age: 0, life, path: [], redrawn: -1 });
+    this.bolts.push({ through: through.map((p) => p.clone()), age: 0, life, thick, path: [], forks: [], redrawn: -1 });
+    for (let i = 1; i < through.length; i++) this.flash(through[i], 3.4 * Math.sqrt(thick), life * 1.2);
+    this.flash(through[0], 1.3, life * 0.8);
   }
+  /** Arcs crackling over a body `r` metres about `at`, for `life` seconds. */
+  crackle(at: Vector3, r: number, life = 0.7): void {
+    this.crackles.push({ at: at.clone(), r, age: 0, life, arcs: [], redrawn: -1 });
+  }
+  /** A bloom of light at `at`, `size` metres across, gone in `life` seconds. */
+  flash(at: Vector3, size: number, life = 0.25): void { this.glows.push({ at: at.clone(), age: 0, life, size }); }
   /** The crooked course from point to point: each leap broken at every metre or so, each break thrown aside by a fraction of the leap. */
-  private crook(through: Vector3[]): Vector3[] {
+  private crook(through: Vector3[], wild = 0.06, most = 0.9): Vector3[] {
     const out: Vector3[] = [through[0].clone()];
     for (let i = 1; i < through.length; i++) {
-      const a = through[i - 1], b = through[i], len = a.distanceTo(b), steps = Math.max(2, Math.min(18, Math.round(len / 1.1)));
+      const a = through[i - 1], b = through[i], len = a.distanceTo(b), steps = Math.max(2, Math.min(22, Math.round(len / 0.9)));
       for (let k = 1; k <= steps; k++) {
         const p = a.clone().lerp(b, k / steps);
-        if (k < steps) { const w = Math.min(0.9, len * 0.06); p.add(new Vector3(this.rng.range(-w, w), this.rng.range(-w, w), this.rng.range(-w, w))); }
+        if (k < steps) { const w = Math.min(most, len * wild); p.add(new Vector3(this.rng.range(-w, w), this.rng.range(-w, w), this.rng.range(-w, w))); }
         out.push(p);
       }
     }
     return out;
   }
-  step(dt: number): void {
-    let n = 0;
+  /** Branches off a course: here and there along it, off askew, a few metres, and now and then a branch off a branch. */
+  private branch(path: Vector3[], into: Vector3[][], depth = 0): void {
+    for (let k = 1; k < path.length - 1; k++) {
+      if (!this.rng.chance(depth ? 0.12 : 0.3)) continue;
+      const along = path[k + 1].clone().sub(path[k - 1]).normalize(), len = this.rng.range(1.2, 4) / (depth + 1);
+      const off = new Vector3(this.rng.range(-1, 1), this.rng.range(-0.7, 0.5), this.rng.range(-1, 1)).normalize().add(along.multiplyScalar(0.6)).normalize();
+      const fork = this.crook([path[k], path[k].clone().addScaledVector(off, len)], 0.15, 0.5);
+      into.push(fork);
+      if (depth < 1) this.branch(fork, into, depth + 1);
+    }
+  }
+  step(dt: number, eye?: Quaternion): void {
+    let n = 0, h = 0;
+    const segment = (a: Vector3, c: Vector3, w: number) => {
+      if (n >= this.most || w < 0.002) return;
+      this.p.subVectors(c, a);
+      const len = this.p.length();
+      if (len < 1e-4) return;
+      this.q.setFromUnitVectors(Z, this.p.divideScalar(len));
+      this.core.setMatrixAt(n, this.m.compose(a, this.q, this.s.set(w, w, len)));
+      this.sheath.setMatrixAt(n++, this.m.compose(a, this.q, this.s.set(w * 3.6 + 0.025, w * 3.6 + 0.025, len)));
+    };
+    const bloom = (at: Vector3, size: number) => {
+      if (h >= this.mostHalo || size < 0.02 || !eye) return;
+      this.halo.setMatrixAt(h++, this.m.compose(at, eye, this.s.set(size, size, size)));
+    };
     for (let i = 0; i < this.bolts.length; i++) {
       const b = this.bolts[i];
       b.age += dt;
       if (b.age >= b.life) { this.bolts.splice(i--, 1); continue; }
-      // (Its crooks thrown anew every three hundredths of a second: lightning flickers.)
-      if (Math.floor(b.age / 0.03) !== b.redrawn) { b.redrawn = Math.floor(b.age / 0.03); b.path = this.crook(b.through); }
-      const thick = 0.05 * (1 - b.age / b.life) + 0.015;
-      const segment = (a: Vector3, c: Vector3, w: number) => {
-        if (n >= this.most) return;
-        this.p.subVectors(c, a);
-        const len = this.p.length();
-        if (len < 1e-4) return;
-        this.q.setFromUnitVectors(Z, this.p.divideScalar(len));
-        this.mesh.setMatrixAt(n++, this.m.compose(a, this.q, this.s.set(w, w, len)));
-      };
-      for (let k = 1; k < b.path.length; k++) {
-        segment(b.path[k - 1], b.path[k], thick);
-        // (A fork off here and there, short and thin.)
-        if (k % 4 === 2) {
-          const off = b.path[k].clone().add(new Vector3(this.rng.range(-1, 1), this.rng.range(-0.6, 0.6), this.rng.range(-1, 1)).multiplyScalar(1.2));
-          segment(b.path[k], off, thick * 0.5);
-        }
+      // (Its crooks and branches thrown anew every three hundredths of a second: lightning flickers.)
+      if (Math.floor(b.age / 0.03) !== b.redrawn) { b.redrawn = Math.floor(b.age / 0.03); b.path = this.crook(b.through); b.forks = []; this.branch(b.path, b.forks); }
+      const bright = restrike(b.age / b.life), thick = (0.06 * bright + 0.01) * b.thick;
+      for (let k = 1; k < b.path.length; k++) segment(b.path[k - 1], b.path[k], thick);
+      for (const f of b.forks) for (let k = 1; k < f.length; k++) segment(f[k - 1], f[k], thick * 0.45);
+      for (let k = 0; k < b.path.length; k += 2) bloom(b.path[k], 2 * bright * b.thick);
+    }
+    for (let i = 0; i < this.crackles.length; i++) {
+      const c = this.crackles[i];
+      c.age += dt;
+      if (c.age >= c.life) { this.crackles.splice(i--, 1); continue; }
+      const k = 1 - c.age / c.life;
+      if (Math.floor(c.age / 0.05) !== c.redrawn) {
+        c.redrawn = Math.floor(c.age / 0.05);
+        c.arcs = [];
+        const on = () => c.at.clone().add(new Vector3(this.rng.range(-1, 1), this.rng.range(-1.2, 1), this.rng.range(-1, 1)).normalize().multiplyScalar(c.r * this.rng.range(0.6, 1.1)));
+        for (let a = 0, m = 1 + Math.round(3 * k); a < m; a++) c.arcs.push(this.crook([on(), on()], 0.25, 0.3));
       }
+      for (const arc of c.arcs) for (let j = 1; j < arc.length; j++) segment(arc[j - 1], arc[j], 0.012 + 0.012 * k);
+      bloom(c.at, c.r * 2.2 * k * (0.7 + 0.3 * this.rng.next()));
+    }
+    for (let i = 0; i < this.glows.length; i++) {
+      const g = this.glows[i];
+      g.age += dt;
+      if (g.age >= g.life) { this.glows.splice(i--, 1); continue; }
+      const k = g.age / g.life;
+      bloom(g.at, g.size * (1 + 0.4 * k) * (1 - k) ** 1.5);
+    }
+    if (n || this.core.count) { this.core.instanceMatrix.needsUpdate = true; this.sheath.instanceMatrix.needsUpdate = true; }
+    if (h || this.halo.count) this.halo.instanceMatrix.needsUpdate = true;
+    this.core.count = n; this.sheath.count = n;
+    this.halo.count = h;
+  }
+  clear(): void { this.bolts.length = 0; this.crackles.length = 0; this.glows.length = 0; this.core.count = 0; this.sheath.count = 0; this.halo.count = 0; }
+}
+
+/**
+ * Sparks thrown from where a blow strikes hard (a critical; asked: "we could have critical hits also"): short streaks of hot light
+ * flying out and falling, drawn along the way they go, dimming as they cool.
+ */
+export class Sparks {
+  private readonly at: { p: Vector3; v: Vector3; age: number; life: number }[] = [];
+  private readonly mesh: InstancedMesh;
+  private readonly m = new Matrix4();
+  private readonly q = new Quaternion();
+  private readonly s = new Vector3();
+  private readonly d = new Vector3();
+  constructor(scene: Scene, private readonly rng: Rng, colour: [number, number, number], private readonly most = 240) {
+    const paint = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending });
+    paint.colorNode = vec3(...colour);
+    this.mesh = new InstancedMesh(new BoxGeometry(1, 1, 1).translate(0, 0, -0.5), paint, most);
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
+    scene.add(this.mesh);
+  }
+  /** `n` sparks thrown out from `p` every way, upward more than down, `fast` metres a second at the most. */
+  add(p: Vector3, n: number, fast = 9): void {
+    for (let i = 0; i < n && this.at.length < this.most; i++) {
+      const v = new Vector3(this.rng.range(-1, 1), this.rng.range(-0.3, 1.2), this.rng.range(-1, 1)).normalize().multiplyScalar(this.rng.range(0.3, 1) * fast);
+      this.at.push({ p: p.clone(), v, age: 0, life: this.rng.range(0.25, 0.6) });
+    }
+  }
+  step(dt: number): void {
+    let n = 0;
+    for (let i = 0; i < this.at.length; i++) {
+      const s = this.at[i];
+      s.age += dt;
+      if (s.age >= s.life) { this.at.splice(i--, 1); continue; }
+      s.v.y -= 9.8 * dt; s.v.multiplyScalar(Math.exp(-dt * 1.5));
+      s.p.addScaledVector(s.v, dt);
+      const speed = s.v.length(), k = 1 - s.age / s.life, w = 0.03 * k + 0.006;
+      if (speed < 1e-3) continue;
+      this.q.setFromUnitVectors(Z, this.d.copy(s.v).divideScalar(speed));
+      this.mesh.setMatrixAt(n++, this.m.compose(s.p, this.q, this.s.set(w, w, Math.min(0.6, speed * 0.04) * k + 0.02)));
     }
     if (n || this.mesh.count) this.mesh.instanceMatrix.needsUpdate = true;
     this.mesh.count = n;
   }
-  clear(): void { this.bolts.length = 0; this.mesh.count = 0; }
+  clear(): void { this.at.length = 0; this.mesh.count = 0; }
 }
 const Z = new Vector3(0, 0, 1);
 

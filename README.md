@@ -30,13 +30,13 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
 - **The orc hunt**, once *Orcs & weapons* is on in the menu (*Orc hunt* there, or `O`): a second demo run, the horse
   and its rider, the wildest trick each kicker will give them (a cork 720, a double backflip, a 900 and a switch 900, a superman whip
   backflip 360, a double cork 1080...), and the rider shooting down the orcs coming up the run with a tommy gun as they go.
-- **Riding it yourself**, seen from behind: on a phone or a tablet, tipping it steers, from however it is held as each run begins:
+- **Riding it yourself**, seen from behind: on a phone or a tablet, once *Tilt* is chosen under *Steering* in the menu (the stick at first), tipping it steers, from however it is held as each run begins:
   its right edge lowered (as a wheel is turned, or tipped lying flat) to turn right, further to skid; its top tipped away to tuck,
-  toward you to stand straight (*Steering* in the menu: *Tilt*, at first, or *Stick*); held still a few seconds a little off level, it
+  toward you to stand straight; held still a few seconds a little off level, it
   takes that as level again by itself. The stick at the lower left steers too, and
   takes over while a thumb is on it: to either side to turn (carved, or skidded out at its rim), up to tuck, down to stand straight
-  (an iPhone asks, at the first touch, whether the game may read how it is held). With a mouse or a touchpad, the pointer steers from wherever it is over
-  the picture, no button held: to either side of the middle to turn (skidded out at the sides of the faint guide drawn about the skier),
+  (an iPhone asks, as *Tilt* is chosen, whether the game may read how it is held). With a mouse or a touchpad, the pointer steers from wherever it is over
+  the picture, no button held: to either side of the middle to turn (skidded out at the sides of the guide that can be drawn about the skier, wide and faint, hidden at first: *Mouse steering guide* in the menu under *Settings*, kept in the browser, `?guide=1`; hidden, the pointer is a cross),
   above it to tuck, below to stand straight; it takes the skier once it is brought within the guide, and lets it go, running straight,
   when it leaves the picture. Held down, its button brakes; a right click (a tap with two fingers) turns you round; scrolled or
   pinched, the view comes nearer or goes further off. The arrow keys too, and Shift to brake. You may ride out past the poles, off the marked piste, as far as you like over the land about the run (all of it
@@ -88,28 +88,46 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   jump's in-run of ice and snow falling from its top toward the top of the run; you drop in, crouched as a ski jumper is, take off
   from its table and fly all the way back as a ski jumper flies, laid out over your skis, and your parachute lets you down at the top.
   And choosing another run while you ride one (on the map, `M`), you are taken there the same way: the new run is made while you ride
-  on, *Off to* it said over the picture, and then one of the ways that carry you through the air (the one you keep, if it is one, or
+  on, *Off to* it said over the picture (on a phone, where making it holds the page for seconds, the ride is held meanwhile under a card
+with a turning wheel, saying what is being done, until the new run and its shaders are ready; on a computer the card is said as you
+ride on), and then one of the ways that carry you through the air (the one you keep, if it is one, or
   one by chance) takes you to its top where it lies in the world, kilometres off, over the country between; the old run is let go of
   once you are down. The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
-  A card under the line that says how the run ended tells what it came to: the points, the time to the foot (the best time on each run
-  kept in the browser too), the drop or how far down it got, the top speed, the tricks landed and the best of them, the foes brought down
-  by kind, the chest, the blows taken. Enter (once the run is over; mid-run, twice within two seconds), a click, or on a phone a tap,
-  begins the next run at once. Riding wins points, thrown up over the picture where
+  The sheet at the foot of the picture says what the run came to: the points, the time to the foot (the best time on each run kept in
+  the browser too), how far down it got, the top speed, the tricks landed and the best of them, the foes brought down by kind, what was
+  found, the chest, the blows taken. Enter (once the run is over; mid-run, twice within two seconds), a click, or on a phone *Next run* on the sheet at the foot (a tap on the picture is a thumb steering), begins the next run at once. Riding wins points, thrown up over the picture where
   they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the
   longer in the air, and its length; the most won in one run on each slope is kept in the browser, and shown beside them. With *Orcs & weapons* on in the menu (off at first), the skier alone or the
   horse's rider carries a weapon in place of its poles, and takes up a better one as it brings orcs down, counted over every run
   until the page is opened again: first the sword, a long one for both hands drawn from its back (its scabbard left empty there),
   a cut at a click (or a tap), a second and a half to each, drawn up quickly over a shoulder and down past that side at once (the side the orcs within reach will be on as it
   comes down, else the right and the left in turn), then brought back slowly; held, the blade waits drawn up, a ring filling about the guide's mark, and cuts as it is let
-  go, a whole one (0.8 seconds) reaching near half as far again and three times as hard, a yeti cleft at a blow (200 points, *cleaved*); each blow struck home felt, a chop,
+  go, a whole one (0.8 seconds) reaching near half as far again and over twice and a half as hard, a yeti cleft at a blow more often than not (200 points, *cleaved*); each blow struck home felt, a chop,
   the view jolted, the blade's sweep turned red; and you can ride them down too; ten more down, a pistol, held out in both hands on straight arms, a shot a click; fifteen more, a shotgun, put to the shoulder, a spread
   of shot a click; twenty more, a flamethrower, held, a jet of burning fuel thrown some twenty metres that splashes over the snow and
   leaves it burning; twenty-five more, the tommy gun, put to the shoulder, held to fire; thirty more, a lightning gun, held, a bolt every
-  0.45 seconds, which leaps from orc to orc, four at the most; thirty-five more, a bazooka, laid on the shoulder, a rocket a click, which blows up all within seven metres of where it strikes, the run's end's
-  explosion made small. On a computer each is aimed at the guide's mark, the button firing it (and Shift braking); on a
-  phone or a tablet, a finger on the picture fires it there, an orc near the finger aimed at itself, while tilting or the stick
-  steers (fewer orcs at a time there). What is carried is said beside the count, and a card at the lower right, beside the tricks' meter and drawn as it is, fills
+  half second, which leaps from orc to orc, four at the most: white-hot and wrapped in a blue glow, forking and forking again, striking,
+  dimming and striking again as lightning does, the picture flashing blue-white with it, arcs crawling over each it struck and sparks
+  thrown off it, small arcs crackling about the gun's mouth while it is held, and a bolt out of the sky onto each it brings down; thirty-five more, a bazooka, laid on the shoulder, a rocket a click, which blows up all within seven metres of where it strikes, the run's end's
+  explosion made small. How they are aimed is chosen in the menu, *Aiming* (kept in the browser; `?aim=free`): *Auto*, at first, the
+  arms aim themselves, locked on a foe (the nearest they can reach and see ahead, the sword's at either side; kept until it falls or is
+  lost, given up for one come much nearer), brackets about it and a thin bar of its strength under them; *Attack* strikes at it (Space,
+  or the mouse button; held, firing on, or the sword held drawn up), and ◀ ▶ beside it lock on the next foe to the left or the right
+  across the picture (Q and E, or Tab), as does a click or a touch on one; by them, its name, its hit points, and the last roll made at
+  it. On a computer they lie at the lower left, where the stick is not; by touch, *Attack* large in the lower right corner, ◀ ▶ beside
+  it, the 180 and *Skate* over it. Each attack at the foe locked on is rolled (`game/slopeDice.ts`), as a tabletop game rolls it: a
+  twenty-sided die and the arm's skill (less in the air, and for each ten metres past where it strikes true) against how hard the foe
+  is to strike, its guard (a goblin's and a wolf's higher than an orc's, the draugr's lower); a natural twenty always strikes and strikes
+  hard, a critical, its damage dice thrown twice (the sword's on 18 and over, the pistol's, the lightning gun's and the bazooka's on 19),
+  a natural one always misses; and what is not rolled to strike (aimed by hand, a blast, fire, a leap of lightning, a ward) strikes hard
+  as often. A critical's number is thrown up large and gilt, *critical* under it, with a burst of golden sparks, a ring and a jolt. What strikes rolls its damage (the sword 4d6+14, the
+  pistol 2d6+7, each of the shotgun's nine pellets 1d6+2, the tommy gun 1d8+3, the flamethrower 2d6+4 for each fifth of a second a foe
+  is kept in its fire, lightning 2d8+13 and seven tenths as much at each leap, a rocket 8d8+50 at the heart of its blast), thrown up over
+  the foe as it is done (gold, a critical; *miss* where it missed); a round that misses goes wide of it, a rocket into the snow a few
+  metres off, whose blast may catch it all the same. *Free*: each is aimed at the guide's mark, the button firing it (and Shift
+  braking); on a phone or a tablet, a finger on the picture fires it there, an orc near the finger aimed at itself, while tilting or
+  the stick steers; what is aimed true strikes, and only its damage is rolled. (Fewer orcs at a time on a phone or a tablet.) What is carried is said beside the count, and a card at the lower right, beside the tricks' meter and drawn as it is, fills
   toward the next, a block for every five brought down, the arm named at its head and how many more at its foot, gilt as it is taken up.
   With *Orcs & weapons* on, how wild the tricks are is earned, not chosen: the slider becomes a meter of eight blocks, empty as the page
   opens, filled by each trick landed (the more it is worth the more of a block, up to a whole one) and each foe brought down (a tenth of
@@ -118,19 +136,20 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   said beside it. Only full, at *Wild 8/8*, do the guidebooks' tricks come up off the kickers, and then as often as the wildest. Orcs come up the
   run in hordes to be brought down, red blood on the snow (none from the burnt or the struck by lightning), how many counted with
   the info; each shot, burnt or struck down a hundred points and a white cross where a round struck, each run down or cut down a
-  hundred and fifty, and a double, a triple, for each downed hard on the last. Not only orcs: each horde is of one kind
+  hundred and fifty, and a double, a triple, for each downed hard on the last. Each foe has so many hit points: an orc 24, a goblin 16,
+  a wolf 20, the draugr 36, a yeti 100, a barrow-king 160; run down, one takes 30. Not only orcs: each horde is of one kind
   (`game/slopeFoes.ts`): orcs, crouched; goblins, small and quick, running in packs of up to ten; wolves, galloping up faster
   than anything and cutting across towards the skier's line (half as much again); further down, the draugr, the frozen dead,
-  shambling, pale and iced, who take two blows and do not bleed (half as much again); and yetis, twice a man's height in
-  shaggy white fur, one or two at a time, who take eight (a round is one blow, the sword three, lightning two, running one
-  down two, fire kept on them a second and a half, a rocket only near where it goes off), worth five times an orc. One
+  shambling, pale and iced, who take a blow more than an orc and do not bleed (half as much again); and yetis, twice a man's height in
+  shaggy white fur, one or two at a time, who take many (a cut held full, or a rocket's heart, near enough; fire kept on them near
+  two seconds), worth five times an orc. One
   struck and not brought down reels a moment, and a white cross shows where it was struck. A yeti comes with a name, and met (within
   fifty-five metres, or struck) its strength shows in a long thin bar across the foot of the picture, what a blow takes left pale a
   moment before it drains; brought down, a *Felled* banner. Where yetis come, riding, an arena is laid for the fight
   (`game/slopeArena.ts`): a quarter-pipe across the run some way below them, its face curving up to near upright at a blue lip with a
   flag at either end. Ridden into, it carries the skier up its face and throws it straight up off the lip, as a halfpipe's wall does
-  (spins and flips can be made up there), and it comes down onto the face again going back up the run; up the run, its speed run out,
-  it turns round and comes down again, so that it passes the yeti again and again. The yeti is kept between the pipe and some fifty
+  (spins and flips can be made up there), and it comes down onto the face again going back up the run, to the yeti; up there
+  you steer and skate as anywhere (only on the pipe's face, its speed run out, are you turned back down it). The yeti is kept between the pipe and some fifty
   metres above where it came, coming after the skier; four boosters, amber crystals over the snow, lie up the run from the pipe's foot,
   each a push of some thirteen metres a second taken by riding through it (and back nine seconds later). Kickers are taken away about
   it while it stands. A yeti beaten does not fall: it goes down on its knees, its name pulsing gold on its bar, and the next blow, of
@@ -150,7 +169,7 @@ rider gets down and leaves the horse standing by the rack. Drive the rocket cart
 Dungeons), and the controls are its own: W A S D (or the arrows) go up, down, left and right across the picture, running (Shift,
 walking); the mouse aims, and a click attacks (with nothing carried, walks to where it is; the right button always walks there, held, after
 the pointer); by touch, the stick goes, and a tap attacks there (or walks there); the wheel, or *Distance*, brings the view nearer or
-further. Into the mouth and down a tunnel of rough rock to a gate of dressed stone, the snow over it all no longer drawn, the dark about,
+further. Into the mouth and down a tunnel of rough rock to a gate of dressed stone, the camp and the snow about still drawn over its first metres (where only the mound lies over it), then the snow over it all no longer drawn, the dark about,
 and the cave cut away over a height above its floors, its roofs and the tops of its walls, the cut stone capped dark. Behind the gate, a dungeon made afresh each time the page is
 opened (the same while it stays open; its seed is in `__slope.cave()`, and `?dungeon=` a given one brings it back), grown as watabou's
 One Page Dungeon grows one, by tags dealt with it (`?tags=` names any): its size (*small*, most often, *medium* or *large*: five to
@@ -167,11 +186,15 @@ at the gate, and each room said as you come into it. What has not been seen of i
 they come into sight (within eighteen metres, nothing solid between, through doorways too), and stay; foes in it are seen only while in
 sight. On foot in it, the minimap shows its plan as far as it has been seen, turned as the view is, you at its middle. With *Orcs & weapons* on, what you carry comes in with you, held as on skis on the walk (aimed with the pointer), and foes come at you in the dungeon: out of rooms some way off and out of sight, a pack at a time, of orcs (two to four), goblins (three
 to five, quick, striking light) or the draugr (two to four, slow, striking hard), finding their way to you round the walls, through the
-doorways and up and down the stairs, striking at you as they come up to you (health lost, in a bar at the foot of the picture, and 100 points, for an orc's blow, less for a
-goblin's, more for one of the dead's, and you are thrown back a step; health comes back slowly once no blow has come for four seconds,
-and all of it as you leave the cave; all gone, you are beaten, and a new run begins from the top); and now and then, alone and no sooner than a minute and a half after the
+doorways and up and down the stairs, striking at you as they come up to you, each blow rolled as yours are: its d20 and its skill against your guard of 12 (a goblin's
++4, an orc's +3, the dead's +2, the barrow-king's +5), *dodged* when it misses; struck home, its damage rolled (an orc 1d8+2, a goblin
+1d6, one of the dead 1d10+4, the barrow-king 2d8+7; a natural twenty a crushing blow, its dice thrown twice, the picture reddening at
+its edges), said in red over you, thirty points lost for each hit point of it, the meter's blocks as hard as it was against an orc's,
+and you are thrown back as far; and as many hit points of your health lost, in a bar at the foot of the picture (sixty of them, coming
+back slowly once no blow has come for four seconds, and all of them as you leave the cave; all gone, you are beaten, and a new run
+begins from the top); and now and then, alone and no sooner than a minute and a half after the
 last, a barrow-king, a crowned draugr half as tall again as a man, named, its strength in the bar across the foot of the picture,
-taking fourteen blows, striking two and a half times as hard as an orc; shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
+of 160 hit points, striking two and a half times as hard as an orc; shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there (come in on the cart, too: down, the run carried on as before the cart came).
 
 **Loot.** Riding, the chest at a dungeon's end gives something besides its gold, and every great one felled leaves something
@@ -186,16 +209,31 @@ air), masters' boots land a spin or a flip come up some degrees short, hobnailed
 landing. *Wards*, about you while you carry arms, a ring on the snow as far as each reaches, flaring as it acts: an ember ward burns
 every foe within it, a storm ward calls lightning down out of the sky on the nearest every couple of seconds, a barrow ward turns
 aside the blows of the orcs in the dungeon, a magpie's charm adds to the points won for tricks and foes. *Weapons*: an arm of the foes' ladder made
-better, striking harder and (what fires) firing quicker, carried in place of the arm the foes have given while it is worn, unless the
-foes have given a greater one. Without *Orcs & weapons*, or riding the horse alone, neither wards nor weapons are found. And
+better, striking harder and (what fires) firing quicker, carried in place of the arm the foes have given while it is worn, but only
+once the foes have given the last of theirs, the bazooka: until then it waits in the pack, said so there and as it is found. Without *Orcs & weapons*, or riding the horse alone, neither wards nor weapons are
+found. And
 *guidebooks*, read as they are found and learned for good: *The Rodeo Scrolls* (a rodeo 540 and 900), *The Barrelwright's Almanac*
 (the double barrel roll), the *Codex of the Three Turnings* (the triple backflip) and the *Treatise on the Triple Cork* (triple corks
 of 1440 and 1800), the trick chosen off a kicker then sometimes theirs, when the air it gives is long enough and the slider wild
 enough (with *Orcs & weapons* on, only with the meter full, at *Wild 8/8*). Nothing worn alters the demo runs. `?pack=0` rides with nothing found, without forgetting what is kept.
 
+**On a phone or a tablet**, held either way, what is read sits in one slim strip across the top: the arm carried and how many more
+to the next over a thin bar, how wild the tricks are (eight pips, earned with *Orcs & weapons* on; else a *Mild*–*Wild* slider), and
+the menu as a square button of its own. What has just happened is said under the strip (a great one's bar and what is found under
+that); the run is a slim rail at the right, its top, its kickers in brass, the cave and its foot along it and an arrow for how far down
+you are, tapped for the minimap (tapped again, the rail). The bottom is left to the thumbs: the stick, its *Tuck* and *Straight*
+inside its ring (or wherever the left thumb comes down on the left of the picture, under the strip: the stick comes to it there, and
+goes back to its corner as it is let go; a finger on the rest of the picture fires what is carried), and *Skate* and *180* as two round buttons at the lower right. The run's end is a sheet at the foot (a card held
+sideways): what became of it, its points, how far down and how long, the tricks landed, what was brought down and found, and *Map of
+the runs* or *Next run*. On a computer the same, held as a phone held sideways is (larger on a screen of a good height), the minimap kept
+whole at the right rather than the rail, and no stick.
+
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
-the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. In it, riding, *Restart run* first, at its
-top; then *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;
+the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. At its head a card names the run and
+what you are doing, with *Resume*, *Restart run* (riding) and *Map of the runs*; under it four tabs, one part shown at a time and the
+last chosen kept: *Play* (the demos or riding, the orcs and weapons, off piste, steering, the way back, the runs), *Pack*, *Skier & view*
+(the skier, the skis, the camera, slow motion) and *Settings* (the minimap, the info, the snow, resolution and blur, the keys). In
+more detail: *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;
 riding is held while the menu is open), *Slope* (*Map of the runs*, the map the game opens on, or `M`; eight runs down the mountain: *Silent Warden* from beside its highest summit along a crest; *Pale
 Crown*, longer, down a spur into the wooded foothills above a bay; *Ashbridge*, short and steep, along the foot of the range
 under its rock walls to a lake in a glen; *Carndale*, long and gentle, down a wooded spur in the west to a lake; *Warden's Spur*, from
@@ -210,7 +248,7 @@ off to begin with) and *Picture* (the snow detailed or plain, the minimap shown 
 hidden, how finely the picture is drawn, *Auto* going on, past half as finely, to drawing without the blur and then with softer shadows
 while frames still come slowly, and kept for next time; the blur). Escape or `H` opens and closes it. `M` opens the map of the runs (riding, the ride held while it is open; the dungeon under the run ridden marked at its mouth, an arch,
 and its plan as far as it has been seen drawn in ink in a box of its own in a corner, walls inked, rooms paper, halls hatched, stairs
-ruled, a red dot where you stand in it). `R` switches between watching and riding; `Space` pauses, the demo or the ride (*Paused* in the middle of the picture, clicked or tapped to go on).
+ruled, a red dot where you stand in it). `R` switches between watching and riding; `Space` pauses, the demo or the ride (*Paused* in the middle of the picture, clicked or tapped to go on; riding with arms, it attacks).
 
 The info at the top left (what the skier is doing, how fast, how far down, the points and the orcs brought down) is hidden at
 first, the picture clear: *Info at the top left* in the menu under *Picture* shows it (`I`; `?info=1`), kept in the browser.
@@ -280,7 +318,7 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   `game/slopeArm.ts`, the robot arm at the run's end, the parachute, and the throw's flight; `game/slopeStorm.ts`, the tornado,
   `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, `game/slopePlane.ts`, the airplane, `game/slopeIce.ts`, the ice jump, and
   `game/slopeInvert.ts`, the land turned inside out, and `game/slopeCart.ts`, the rocket cart, the run's other ends; `game/slopeGun.ts`, the tommy gun, its
-  tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the hordes coming up the run; `game/slopeFoes.ts`, what they are made of (orcs, goblins, wolves, the draugr and yetis); `game/slopeArena.ts`, the arena laid where yetis come (the quarter-pipe and the boosters); `game/slopeLoot.ts`, the loot (what may be found, drawn, kept, worn and shown);
+  tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the hordes coming up the run; `game/slopeFoes.ts`, what they are made of (orcs, goblins, wolves, the draugr and yetis, their hit points and guard); `game/slopeDice.ts`, the dice the fight is rolled with; `game/slopeArena.ts`, the arena laid where yetis come (the quarter-pipe and the boosters); `game/slopeLoot.ts`, the loot (what may be found, drawn, kept, worn and shown);
   `game/slopeSplatter.ts`, their blood on the snow; `game/slopeDungeon.ts`, the cave on Silent Warden, its camp and the dungeon in it (where it is, the snow levelled and cut for it, the rooms grown, the torches' light worked out); `game/slopeFoot.ts`, on foot there, the person by the packs' walk and jog and the horse's walk and trot made here; `game/slopeProps.ts`, the props the dungeon is furnished with; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.
 - `src/maps/inkWorld.ts`: the world's ink map, as klaine/dungeons draws it (the map of the runs is a stretch of it).
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse

@@ -112,7 +112,45 @@
     #menu .wide.map { margin: 0 0 8px; }
     #menu .keys { margin: 20px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-dim); }
     #menu .keys.more { margin-top: 6px; }
-    #menu h2 #packCount { font: 600 10.5px/1 var(--sans); letter-spacing: .04em; text-transform: none; color: var(--ink-dim); }
+    /* (Asked: "redo the menu also for usability in mind for the player, similar style": what is ridden and the way back to it first, a
+       card at its head (*Resume*, *Restart run*, *Map of the runs*); then four parts, one shown at a time, chosen by tabs, the last
+       chosen kept: *Play*, *Pack*, *Skier & view*, *Settings*.) */
+    #menu .now { display: grid; gap: 10px; margin: 12px 14px 0; padding: 12px; border-radius: 14px; background: rgba(232, 226, 214, .06); }
+    #menu .now .here { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+    #menu .now .run { min-width: 0; font: 700 12px/1.2 "Cinzel", var(--serif); letter-spacing: .14em; text-transform: uppercase; color: var(--brass); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #menu .now .doing { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+    #menu .now .acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    #menu .now .acts .go { grid-column: 1 / -1; }
+    #menu .now #restarts[hidden] + .map { grid-column: 1 / -1; }
+    #menu .now .acts button { min-height: 46px; padding: 0 8px; border-radius: 12px; background: transparent; border-color: var(--edge); font-weight: 650; font-size: 13.5px; }
+    #menu .now .acts button.go { background: var(--brass); color: var(--on-brass); border-color: var(--brass); font-weight: 700; }
+    #restarts { display: contents; }
+    #restarts[hidden] { display: none; }
+    #menu .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; margin: 12px 14px 4px; padding: 3px; border-radius: 12px;
+      background: rgba(232, 226, 214, .06); border: 1px solid var(--rule); }
+    #menu .tabs button { min-height: 40px; padding: 0 4px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-dim); font-weight: 650; font-size: 12.5px; white-space: nowrap; }
+    #menu .tabs button:hover:not([aria-selected="true"]) { color: var(--ink); background: var(--band); }
+    #menu .tabs button[aria-selected="true"] { background: var(--brass); color: var(--on-brass); }
+    #menu .tabs #packCount:not(:empty) { margin-left: 5px; padding: 1px 6px; border-radius: 8px; font-size: 10.5px; background: rgba(232, 226, 214, .16); }
+    #menu .tabs button[aria-selected="true"] #packCount { background: rgba(26, 20, 8, .18); }
+    #menu section.tab > :first-child { margin-top: 10px; }
+    #menu section.tab > h2:first-child { margin-top: 14px; }
+    /* (Held sideways, the picture short: the run and its buttons in one row, the tabs slimmer, so that most of the panel is its part.) */
+    @media (max-height: 500px) and (orientation: landscape) {
+      #menu .head { padding-top: 4px; padding-bottom: 4px; }
+      #menu .now { gap: 7px; margin-top: 8px; padding: 8px 10px; }
+      #menu .now .acts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+      #menu .now .acts .go { grid-column: auto; }
+      #menu .now #restarts[hidden] + .map { grid-column: auto; }
+      #menu .now .acts button { min-height: 38px; padding: 0 10px; font-size: 12.5px; }
+      #menu .tabs { margin-top: 8px; }
+      #menu .tabs button { min-height: 34px !important; font-size: 12px !important; }
+    }
+    @media (pointer: coarse) {
+      #menu .seg button { min-height: 44px; }
+      #menu .tabs button { min-height: 44px; font-size: 13px; }
+      #menu .cards button { padding: 12px 14px 13px; }
+    }
     #menu .pack-note { margin-top: 0; }
     #menu .pack { display: grid; gap: 5px; margin-top: 8px; }
     #menu .pack .slot { margin: 8px 0 1px; font: 600 12px/1.2 var(--sans); color: var(--ink-dim); }
@@ -122,6 +160,7 @@
     #menu .pack .item span:first-of-type { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
     #menu .pack div.item span:first-of-type { font-size: 12px; letter-spacing: 0; text-transform: none; }
     #menu .wide.quiet { color: var(--ink-dim); background: transparent; font-weight: 600; }
+    #menu .pack .note.held { margin: 0 0 2px; color: var(--brass); }
     #menu .pack .item.on { background: rgba(224, 176, 112, .14); border-color: var(--brass); }
     #menu .note { margin: 12px 0 0; font-size: 12px; line-height: 1.45; color: var(--ink-dim); }
     #menu .note button { margin-top: 6px; min-height: 32px; font-size: 12px; }
@@ -130,7 +169,7 @@
     @media (pointer: coarse) { #menu .keys { display: none; } }
     /* (A phone held upright: a sheet from the foot, over the lower part of the picture, the skier still seen above it.) */
     @media (max-width: 600px) and (orientation: portrait) {
-      #menu { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 62vh; max-height: 62dvh; border-radius: 18px 18px 0 0; border-bottom: 0;
+      #menu { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 78vh; max-height: 78dvh; border-radius: 18px 18px 0 0; border-bottom: 0;
         padding-bottom: env(safe-area-inset-bottom, 0px); animation-name: sheetUp; }
       #menu .head { padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
       #menu .scroll { padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px)); }
@@ -204,27 +243,28 @@
        is over the picture; and about the skier, faint over the snow, a guide to it: its reach (the corners), where a turn skids (out at
        either side), what the pointer's height asks, and its mark. While the pointer has not yet taken the skier, it asks to be brought in. */
     body.mouse #stick { display: none; }
-    #aim { display: none; position: fixed; left: 50%; top: 50%; z-index: 1; width: calc(2 * var(--reach, 230px)); height: calc(2 * var(--reach, 230px));
-      transform: translate(-50%, -50%); pointer-events: none; --line: rgba(18, 22, 30, .3); }
-    body.riding.mouse:not(.menu-open) #aim { display: block; }
+    /* (Wider than it is high, and faint (asked: "the control overlay should be also wider and less obstructive"): its corners small,
+       the skids at its sides a line each, its words small; no line across its middle, its mark saying where the pointer is.) */
+    #aim { display: none; position: fixed; left: 50%; top: 50%; z-index: 1; width: calc(2 * var(--reachX, 300px)); height: calc(2 * var(--reach, 230px));
+      transform: translate(-50%, -50%); pointer-events: none; --line: rgba(18, 22, 30, .2); }
+    body.riding.mouse.guide:not(.menu-open) #aim { display: block; }
     #aim.fallen { display: none !important; }
     /* (Seen from above, the pointer is the way to go from the skier, not a turn and a tuck against the middle: only its mark.) */
     #aim.iso > :not(.dot) { display: none; }
-    #aim .skid { position: absolute; top: 12%; bottom: 12%; width: 10%; border-style: solid; border-color: var(--line); border-width: 0;
-      background: linear-gradient(to bottom, transparent, var(--skid) 30% 70%, transparent); }
+    #aim .skid { position: absolute; top: 22%; bottom: 22%; width: 10%; border-style: dashed; border-color: var(--line); border-width: 0; }
     #aim .skid.l { left: 0; border-right-width: 1px; }
     #aim .skid.r { right: 0; border-left-width: 1px; }
-    #aim .rail { position: absolute; top: 50%; width: 30%; height: 2px; margin-top: -1px; background: var(--line); }
+    #aim .rail { display: none; }
     #aim .rail.l { left: 0; }
     #aim .rail.r { right: 0; }
-    #aim .corner { position: absolute; width: 18px; height: 18px; border: 0 solid var(--line); }
-    #aim .corner.tl { left: 0; top: 0; border-width: 2px 0 0 2px; }
-    #aim .corner.tr { right: 0; top: 0; border-width: 2px 2px 0 0; }
-    #aim .corner.bl { left: 0; bottom: 0; border-width: 0 0 2px 2px; }
-    #aim .corner.br { right: 0; bottom: 0; border-width: 0 2px 2px 0; }
+    #aim .corner { position: absolute; width: 12px; height: 12px; border: 0 solid var(--line); }
+    #aim .corner.tl { left: 0; top: 0; border-width: 1.5px 0 0 1.5px; }
+    #aim .corner.tr { right: 0; top: 0; border-width: 1.5px 1.5px 0 0; }
+    #aim .corner.bl { left: 0; bottom: 0; border-width: 0 0 1.5px 1.5px; }
+    #aim .corner.br { right: 0; bottom: 0; border-width: 0 1.5px 1.5px 0; }
     /* (Dark, as the lines are, to be read against the snow and the sky.) */
-    #aim .say { position: absolute; left: 50%; transform: translateX(-50%); font: 700 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase;
-      color: rgba(18, 22, 30, .62); text-shadow: 0 0 4px rgba(255, 255, 255, .7); white-space: nowrap; }
+    #aim .say { position: absolute; left: 50%; transform: translateX(-50%); font: 700 9px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase;
+      color: rgba(18, 22, 30, .38); text-shadow: 0 0 3px rgba(255, 255, 255, .5); white-space: nowrap; }
     #aim .up { top: 4px; }
     #aim .down { bottom: 4px; }
     #aim .say.skids { top: auto; bottom: 14%; transform: none; opacity: .8; }
@@ -234,7 +274,7 @@
     body.onfoot #aim, body.onfoot #skate, body.onfoot #stance { display: none !important; }
     #aim .here { display: none; bottom: 18%; padding: 6px 12px 7px; border-radius: 6px; background: var(--sheet); border: 1px solid var(--brass);
       font: 600 12px/1.2 var(--sans); letter-spacing: .02em; text-transform: none; color: var(--ink); text-shadow: none; }
-    #aim.lost { --line: rgba(18, 22, 30, .55); }
+    #aim.lost { --line: rgba(18, 22, 30, .45); }
     #aim.lost .here { display: block; }
     #aim .dot { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; box-sizing: border-box;
       background: var(--brass); border: 2px solid var(--on-brass); box-shadow: 0 1px 5px rgba(0, 0, 0, .35); }
@@ -434,7 +474,7 @@
     /* (Riding, the run begun again the first thing in the menu (asked: "make restart run the top menu item in menu if a run is
        ongoing"), over *Play*; watching, not there.) */
     #restart { font-weight: 600; }
-    #restarts #restart { margin-top: 14px; }
+
 
     /* What has just happened: a landing named, or a fall, over the upper middle of the picture. */
     #told { position: fixed; left: 50%; top: calc(16% + env(safe-area-inset-top, 0px)); transform: translate(-50%, -6px); padding: 8px 18px 9px; text-align: center;
@@ -454,20 +494,6 @@
     #paused b { font: 900 22px/1.05 "Cinzel", var(--serif); letter-spacing: .12em; text-transform: uppercase; }
     #paused span { font-size: 12px; color: var(--ink-dim); }
     body.mouse #paused .touch-only, body:not(.mouse) #paused .mouse-only { display: none; }
-    /* What a run came to, at its end (the foot, a fall, or beaten in the cave): under the line that says how it ended, a row each for
-       the points, the time, the drop, the speed, the tricks, the foes, the chest and the blows, as far as there is anything to say. */
-    #summary { position: fixed; left: 50%; top: calc(16% + 70px + env(safe-area-inset-top, 0px)); translate: -50% 0; z-index: 3; pointer-events: none;
-      width: min(360px, calc(100vw - var(--gutter-l) - var(--gutter-r))); box-sizing: border-box; padding: 10px 16px 12px;
-      background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; animation: lootIn .45s ease-out both; }
-    #summary[hidden], body.choosing #summary, body.menu-open #summary { display: none; }
-    #summary .cap { font: 700 10.5px/1 "Cinzel", var(--serif); letter-spacing: .2em; text-transform: uppercase; color: var(--brass); }
-    #summary .rows { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
-    #summary dt { font-size: 12px; color: var(--ink-dim); padding-top: 2px; }
-    #summary dd { margin: 0; font: 600 14.5px/1.3 var(--sans); color: var(--ink); }
-    #summary dd small { display: block; font-size: 11.5px; font-weight: 500; color: var(--ink-dim); }
-    #summary dd .best { color: #ffe07a; }
-    @media (max-height: 560px) { #summary { top: calc(8px + env(safe-area-inset-top, 0px)); padding: 7px 12px 8px; } #summary .rows { gap: 2px 10px; } #summary dd { font-size: 13px; } body.asking #summary { display: none; } }
-    @media (prefers-reduced-motion: reduce) { #summary { animation: none; } }
     /* Health, on foot in the cave: a thin bar at the foot of the picture, what a blow takes shown pale a moment before it drains, as the
        great ones' bars are; the bars of the great ones raised over it while it is shown. */
     #health { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); translate: -50% 0; z-index: 2; pointer-events: none;
@@ -594,8 +620,239 @@
     #status .bytes { margin-top: 4px; color: var(--ink-dim); font-size: 12px; font-variant-numeric: tabular-nums; min-height: 1.45em; }
     #status.failed .say { margin-top: 26px; color: var(--warn); text-transform: none; letter-spacing: .02em; font: 600 14px/1.4 var(--sans); }
     #status.failed .bar { display: none; }
+
+    /* On a phone or a tablet (asked: "the vertical view is cluttered with the bars.. propose me a better gui"; then "implement! also
+       similar style for horizontal but fit for horizontal use"): what is read in one slim strip across the top (the arms toward the next,
+       how wild the tricks are, the menu as a button of its own); what has just happened under it; the run as a slim rail at the right,
+       tapped for the minimap; the bottom left to the thumbs alone, the stick with its words inside its ring and the skate and the 180
+       as two round buttons at the lower right; the run's end a sheet at the foot. (`body.hud`: no mouse, as the page opened.) */
+    #rail, #runEnd, #armBar .now, #armBar .to { display: none; }
+    /* Another run being made, riding (asked: "it froze for a while after selecting the new location, it didnt show that it is loading the
+       other run"): the ride held, and a card saying where to and what is being done, its wheel turning even while the page works. */
+    #making { position: fixed; left: 50%; top: calc(22% + env(safe-area-inset-top, 0px)); translate: -50% 0; z-index: 4; display: flex; align-items: center; gap: 13px;
+      box-sizing: border-box; min-width: min(260px, calc(100vw - 32px)); max-width: calc(100vw - 32px); padding: 12px 16px 13px; border-radius: 14px;
+      background: var(--sheet); border: 1px solid var(--rule); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); pointer-events: none; }
+    #making[hidden] { display: none; }
+    #making .spin { flex: none; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 2.5px solid rgba(232, 226, 214, .22); border-top-color: var(--brass); animation: spin .9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #making .say { display: grid; gap: 3px; min-width: 0; flex: 1; }
+    #making b { font: 700 15px/1.2 var(--sans); color: var(--ink); }
+    #making span { font-size: 12px; color: var(--ink-dim); }
+    #making .bar { position: relative; height: 3px; margin-top: 5px; border-radius: 2px; overflow: hidden; background: var(--band-strong); }
+    #making .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--k, 0) * 100%); background: var(--brass); transition: width .3s ease-out; }
+    body.choosing #making, body.menu-open #making { display: none; }
+    body.hud { --strip: 44px; --stripTop: calc(12px + env(safe-area-inset-top, 0px)); --under: calc(var(--stripTop) + var(--strip) + 8px); --wildW: 150px; --menuW: 44px; }
+    body.hud #menuButton { top: var(--stripTop); width: var(--menuW); height: var(--strip); min-height: 0; padding: 0; border-radius: 12px; justify-content: center; font-size: 0; gap: 0; }
+    body.hud #armBar, body.hud #tricky .wild { position: fixed; top: var(--stripTop); height: var(--strip); box-sizing: border-box; border-radius: 12px; border-color: transparent;
+      background: var(--sheet); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+    body.hud #armBar { left: var(--gutter-l); right: calc(var(--gutter-r) + var(--menuW) + var(--wildW) + 16px); bottom: auto; min-width: 0; }
+    body.hud #armBar:not([hidden]) { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); grid-template-rows: auto 5px; align-content: center; align-items: baseline; gap: 6px 7px; padding: 0 11px; }
+    body.hud #armBar .cap, body.hud #armBar .next, body.hud #armBar .left { display: none; }
+    body.hud #armBar .now { display: block; grid-column: 1; grid-row: 1; font: 700 11px/1 "Cinzel", var(--serif); letter-spacing: .1em; text-transform: uppercase; color: var(--brass);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    body.hud #armBar .to { display: block; grid-column: 2; grid-row: 1; justify-self: end; font: 600 11px/1 var(--sans); color: var(--ink-dim); white-space: nowrap; }
+    body.hud #armBar.won .to { color: #ffe07a; }
+    body.hud #armBar .blocks { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; flex-direction: row; width: auto; height: 5px; gap: 2px; }
+    body.hud #armBar .blocks i { flex: 1 1 0; height: 5px; border: 0; border-radius: 2px;
+      background: linear-gradient(to right, var(--brass) calc(var(--f, 0) * 100%), rgba(232, 226, 214, .16) calc(var(--f, 0) * 100%)); }
+    body.hud #armBar.won { border-color: #ffe07a; }
+    body.hud #armBar.won .blocks i { box-shadow: none; background: #ffe07a; }
+    body.hud #tricky .wild { right: calc(var(--gutter-r) + var(--menuW) + 8px); width: var(--wildW); padding: 0 10px; display: flex; flex-direction: row; align-items: center; gap: 6px; }
+    body.hud #tricky .wild .cap { display: none; }
+    body.hud #tricky .wild > span { font: 700 9px/1 "Cinzel", var(--serif); letter-spacing: .06em; }
+    body.hud #tricky .wild > span:nth-of-type(3) { order: 1; }
+    body.hud #tricky input { order: 2; writing-mode: horizontal-tb; direction: ltr; flex: 1; min-width: 0; width: auto; height: var(--strip); }
+    body.hud #tricky .wild > span:nth-of-type(2) { order: 3; }
+    body.hud #tricky.earned .wild > span:nth-of-type(3) { display: none; }
+    body.hud #tricky.earned .wild > span:nth-of-type(2) { order: 1; }
+    body.hud #tricky.earned #wildMeter { order: 2; flex-direction: row; flex: 1; width: auto; height: 11px; gap: 2px; }
+    body.hud #wildMeter i { flex: 1 1 0; height: 11px; border-radius: 2px;
+      background: linear-gradient(to right, var(--brass) calc(var(--f, 0) * 100%), rgba(232, 226, 214, .12) calc(var(--f, 0) * 100%)); }
+    body.hud #tricky.earned #wildLvl { order: 3; font-size: 10.5px; }
+    body.hud #tricky { position: static; width: auto; }
+    body.hud #skate, body.hud #stance { position: fixed; width: 64px; height: 64px; min-height: 0; border-radius: 50%; border-color: var(--rule);
+      -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); z-index: 2; }
+    body.hud #stance { right: var(--gutter-r); bottom: calc(28px + env(safe-area-inset-bottom, 0px)); font-size: 17px; }
+    body.hud #skate { right: calc(var(--gutter-r) + 72px); bottom: calc(100px + env(safe-area-inset-bottom, 0px)); font-size: 13.5px; }
+    body.hud #stick { bottom: calc(28px + env(safe-area-inset-bottom, 0px)); width: 136px; height: 136px; }
+    body.hud #stick .up { top: 9px; }
+    body.hud #stick .down { bottom: 9px; }
+    body.hud #stick .say { font-size: 9.5px; letter-spacing: .14em; color: rgba(255, 255, 255, .82); }
+    /* (What has just happened, under the strip, across it; a great one's bar and what is found under that.) */
+    body.hud #told { top: var(--under); left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); max-width: none; transform: translateY(-6px); text-align: left;
+      padding: 8px 13px 9px; border-radius: 12px; border-color: transparent; }
+    body.hud #told.shown { transform: none; }
+    body.hud #told.bad { border-color: var(--warn); }
+    body.hud #told .text { font-size: 16px; }
+    body.hud #bosses { top: var(--under); bottom: auto; left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); width: auto; translate: 0 0; }
+    body.hud:has(#bosses .boss) #told { top: calc(var(--under) + 44px); }
+    body.hud #loot { top: calc(var(--under) + 64px); left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); width: auto; translate: 0 0; }
+    body.hud #loot.on { animation-name: lootInHud; }
+    @keyframes lootInHud { from { opacity: 0; translate: 0 -14px; scale: .94; } to { opacity: 1; translate: 0 0; scale: 1; } }
+    body.hud #where { top: var(--under); }
+    body.hud.info #told { top: calc(var(--under) + 78px); }
+    /* (The run as a rail: its top, its kickers as brass ticks, the cave, its foot; how far down it the skier is. The minimap, tapped.) */
+    body.hud #rail:not([hidden]) { display: block; position: fixed; top: var(--under); right: var(--gutter-r); z-index: 2; width: 30px; height: min(300px, 36vh); padding: 0;
+      border: 0; border-radius: 15px; background: rgba(11, 10, 9, .5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+    #rail .track, #rail .done { position: absolute; left: 13.5px; top: 14px; width: 3px; border-radius: 2px; }
+    #rail .track { bottom: 14px; background: rgba(232, 226, 214, .32); }
+    #rail .done { height: calc((100% - 28px) * var(--at, 0)); background: var(--ink); }
+    #rail .ticks { position: absolute; left: 0; right: 0; top: 14px; bottom: 14px; }
+    #rail .ticks i { position: absolute; left: 10px; width: 10px; height: 3px; margin-top: -1.5px; border-radius: 2px; background: var(--brass); }
+    #rail .ticks i.top { background: #3a8f4a; left: 9px; width: 12px; }
+    #rail .ticks i.foot { background: var(--ink); left: 8px; width: 14px; height: 4px; }
+    #rail .ticks i.cave { left: 9px; width: 12px; height: 12px; margin-top: -6px; border-radius: 3px; background: transparent; border: 1.5px solid var(--ink); box-sizing: border-box; }
+    #rail .me { position: absolute; left: 8px; top: calc(14px + (100% - 28px) * var(--at, 0)); width: 0; height: 0; margin-top: -9px;
+      border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 11px solid #ff6a3a; }
+    body.hud #mini { top: var(--under); }
+    body.hud.miniOpen #mini { pointer-events: auto; cursor: pointer; }
+    body.choosing #rail, body.menu-open #rail { display: none !important; }
+    /* (The run's end: what became of it, its points, how far down and how long; what was landed, brought down and found; and on.) */
+    body.hud #runEnd:not([hidden]) { display: grid; position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; gap: 12px; box-sizing: border-box;
+      padding: 18px max(18px, env(safe-area-inset-left, 0px)) calc(22px + env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-right, 0px));
+      border-radius: 20px 20px 0 0; background: rgba(11, 10, 9, .88); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); animation: sheetUp .35s ease-out; }
+    #runEnd .head { display: grid; justify-items: center; gap: 4px; text-align: center; }
+    #runEnd .run { font: 700 10.5px/1 "Cinzel", var(--serif); letter-spacing: .2em; text-transform: uppercase; color: var(--brass); }
+    #runEnd .what { font: 900 23px/1.1 "Cinzel", var(--serif); letter-spacing: .03em; color: var(--ink); }
+    #runEnd .what.bad { color: #ff9a7a; }
+    #runEnd .why { font-size: 12.5px; color: var(--ink-dim); }
+    #runEnd .why:empty { display: none; }
+    #runEnd .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; text-align: center; }
+    #runEnd .stats div { display: grid; gap: 3px; padding: 9px 4px; border-radius: 12px; background: rgba(232, 226, 214, .07); }
+    #runEnd .stats b { font: 700 19px/1.1 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; }
+    #runEnd .stats span { font-size: 11px; color: var(--ink-dim); }
+    #runEnd .line { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-dim); text-align: center; }
+    #runEnd .line:empty { display: none; }
+    #runEnd .acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    #runEnd .acts button { min-height: 48px; border-radius: 12px; font-weight: 650; font-size: 15px; background: transparent; border-color: var(--edge); }
+    #runEnd .acts button.go { background: var(--brass); color: var(--on-brass); border-color: var(--brass); font-weight: 700; }
+    body.hud.ended #told, body.hud.ended #stick, body.hud.ended #skate, body.hud.ended #stance { display: none; }
+    body.asking #runEnd, body.menu-open #runEnd, body.choosing #runEnd { display: none !important; }
+    /* (On a computer too (asked: "renew the desktop gui as well"): the same strip, what has just happened, the great ones' bars and what
+       is found, and the run's end as a card; the minimap kept whole at the right, there being room, and no stick. A screen of a good
+       height has it all a little larger than a phone held sideways.) */
+    @media (orientation: landscape) and (min-height: 600px) {
+      body.hud { --strip: 44px; --stripTop: calc(12px + env(safe-area-inset-top, 0px)); --wildW: 168px; --menuW: 44px; }
+      body.hud #armBar { width: 290px; }
+      body.hud #tricky .wild { left: calc(var(--gutter-l) + 298px); }
+      body.hud #skate, body.hud #stance { width: 60px; height: 60px; }
+      body.hud #stance { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); font-size: 16px; }
+      body.hud #skate { right: calc(var(--gutter-r) + 66px); bottom: calc(90px + env(safe-area-inset-bottom, 0px)); font-size: 13px; }
+      body.hud #told .text { font-size: 18px; }
+    }
+    /* (Held sideways: the strip at the top left, shorter; the rail shorter; the stick and the buttons smaller; the run's end a card at
+       the foot, its numbers and its buttons in one row.) */
+    @media (orientation: landscape) {
+      body.hud { --strip: 38px; --stripTop: calc(8px + env(safe-area-inset-top, 0px)); --wildW: 146px; --menuW: 40px; }
+      body.hud #armBar { right: auto; width: 230px; }
+      body.hud #tricky .wild { right: auto; left: calc(var(--gutter-l) + 238px); }
+      body.hud #tricky:has(#armBar[hidden]) .wild { left: var(--gutter-l); }
+      body.hud #told { left: 50%; right: auto; width: max-content; max-width: min(460px, calc(100vw - 160px)); transform: translate(-50%, -6px); text-align: center; }
+      body.hud #told.shown { transform: translate(-50%, 0); }
+      body.hud #bosses { left: 50%; right: auto; width: min(460px, calc(100vw - 200px)); translate: -50% 0; }
+      body.hud #loot { left: 50%; right: auto; width: min(360px, calc(100vw - 200px)); translate: -50% 0; top: calc(var(--under) + 48px); }
+      body.hud #loot.on { animation-name: lootIn; }
+      body.hud #rail:not([hidden]) { height: min(200px, calc(100vh - var(--under) - 150px)); width: 26px; }
+      #rail .track, #rail .done { left: 11.5px; }
+      #rail .ticks i { left: 8px; } #rail .ticks i.top, #rail .ticks i.cave { left: 7px; } #rail .ticks i.foot { left: 6px; }
+      #rail .me { left: 6px; }
+      body.hud #stick { width: 104px; height: 104px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+      body.hud #stick .knob { width: 42px; height: 42px; margin: -21px 0 0 -21px; }
+      body.hud #stick .up { top: 7px; } body.hud #stick .down { bottom: 7px; }
+      body.hud #stick .say { font-size: 8.5px; }
+      body.hud #skate, body.hud #stance { width: 52px; height: 52px; }
+      body.hud #stance { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); font-size: 15px; }
+      body.hud #skate { right: calc(var(--gutter-r) + 58px); bottom: calc(74px + env(safe-area-inset-bottom, 0px)); font-size: 12px; }
+      body.hud #runEnd:not([hidden]) { left: 50%; right: auto; width: min(620px, calc(100vw - 24px)); translate: -50% 0; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+        grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 14px; padding: 12px 14px; border-radius: 16px; }
+      body.hud #runEnd .head { grid-column: 1 / -1; grid-template-columns: auto auto 1fr; align-items: baseline; justify-items: start; gap: 10px; }
+      body.hud #runEnd .what { font-size: 17px; }
+      body.hud #runEnd .stats div { padding: 6px 4px; }
+      body.hud #runEnd .stats b { font-size: 16px; }
+      body.hud #runEnd .line { grid-column: 1 / -1; grid-row: 3; text-align: left; font-size: 11.5px; }
+      body.hud #runEnd .acts { grid-template-columns: auto auto; }
+      body.hud #runEnd .acts button { min-height: 42px; padding: 0 14px; font-size: 14px; }
+    }
     @media (prefers-reduced-motion: reduce) { #status .bar::after { animation: none; } }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    /* The fight, the arms aiming themselves (asked: "Can we find a nice way to leave out human aiming? Like auto targeting and just attack
+       button and maybe cycle target buttons next to attack"): brackets about the foe locked on, a thin bar of its strength under them
+       (dimmed while it is out of the arm's reach; brass, chosen); and *Attack* between ◀ and ▶, over them the foe's name, its hit
+       points, and the last roll made at it. On a computer at the lower left, where the stick is not; by touch, *Attack* large in the
+       lower right corner, ◀ ▶ beside it, the 180 and *Skate* over it. */
+    #lockOn { position: fixed; left: 0; top: 0; z-index: 3; pointer-events: none; --tall: 60px; width: 0; height: 0; }
+    #lockOn .c { position: absolute; width: 11px; height: 11px; border: 0 solid #fff; filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(0, 0, 0, .7)); }
+    #lockOn .tl { left: calc(var(--tall) * -.32 - 4px); top: calc(var(--tall) * -.5); border-width: 2.5px 0 0 2.5px; }
+    #lockOn .tr { left: calc(var(--tall) * .32 - 7px); top: calc(var(--tall) * -.5); border-width: 2.5px 2.5px 0 0; }
+    #lockOn .bl { left: calc(var(--tall) * -.32 - 4px); top: calc(var(--tall) * .5 - 11px); border-width: 0 0 2.5px 2.5px; }
+    #lockOn .br { left: calc(var(--tall) * .32 - 7px); top: calc(var(--tall) * .5 - 11px); border-width: 0 2.5px 2.5px 0; }
+    #lockOn.chosen .c { border-color: #ffe07a; }
+    #lockOn.far { opacity: .5; }
+    #lockOn .hp { position: absolute; left: -22px; top: calc(var(--tall) * .5 + 5px); width: 44px; height: 4px; background: rgba(12, 10, 10, .75);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
+    #lockOn .hp i { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--hp, 1) * 100%); background: #d23a2c; transition: width .1s linear; }
+    @media (prefers-reduced-motion: no-preference) { #lockOn:not([hidden]) .c { animation: lockIn .25s ease-out; } }
+    @keyframes lockIn { from { scale: 1.6; opacity: 0; } }
+    #fight { position: fixed; left: var(--gutter-l); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: grid;
+      grid-template-columns: 38px 86px 38px; grid-template-areas: "foe foe foe" "prev attack next"; gap: 6px 5px; align-items: center; }
+    #fight[hidden] { display: none; }
+    #fight .foe { grid-area: foe; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 6px; width: 170px; box-sizing: border-box; padding: 6px 8px 5px;
+      background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; }
+    #fight .who { font: 700 11px/1.15 "Cinzel", var(--serif); letter-spacing: .06em; text-transform: uppercase; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #fight .hpN { font: 600 10.5px/1.15 var(--sans); color: var(--ink-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #fight .bar { grid-column: 1 / -1; position: relative; height: 4px; background: rgba(255, 255, 255, .08); border-radius: 2px; overflow: hidden; }
+    #fight .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--hp, 0) * 100%); background: linear-gradient(#d23a2c, #8a1a12); transition: width .1s linear; }
+    #fight .roll { grid-column: 1 / -1; min-height: 1.2em; font: 600 10px/1.2 var(--sans); color: var(--ink-dim); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #fight .roll.hit { color: var(--ink); }
+    #fight .roll.crit { color: #ffe07a; }
+    #fight .roll.new { animation: rollNew .35s ease-out; }
+    @keyframes rollNew { from { filter: brightness(2); } }
+    #fight.none .who { color: var(--ink-dim); text-transform: none; font: italic 600 12px/1.15 var(--serif); letter-spacing: .02em; }
+    #fight.none .bar { visibility: hidden; }
+    #fight button { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; min-height: 40px; padding: 0; background: var(--sheet); border-color: var(--rule); }
+    #prevFoe { grid-area: prev; } #nextFoe { grid-area: next; }
+    #fight #prevFoe, #fight #nextFoe { font-size: 13px; border-radius: 20px; }
+    #fight #attack { grid-area: attack; position: relative; overflow: hidden; border-radius: 20px; font: 800 13px/1 "Cinzel", var(--serif); letter-spacing: .08em; text-transform: uppercase;
+      border-color: var(--brass); color: var(--brass); }
+    /* (A cut held drawn up, the force it gathers filling it from the foot.) */
+    #fight #attack::before { content: ""; position: absolute; inset: 0; background: var(--brass); opacity: .45; transform-origin: bottom; transform: scaleY(var(--charge, 0)); }
+    #fight #attack.down { background: var(--brass); color: var(--on-brass); }
+    body.menu-open #fight, body.menu-open #lockOn, body.asking #fight, body.choosing #fight, body.choosing #lockOn, body.ended #fight { display: none !important; }
+    #pops .pop.dmg { font: 800 17px/1 var(--sans); color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, .7), 0 0 6px rgba(0, 0, 0, .6); animation: dmgUp .75s ease-out forwards; }
+    #pops .pop.dmg.crit { font-size: 25px; color: #ffd25a; text-shadow: 0 2px 0 rgba(20, 10, 0, .6), 0 0 14px rgba(255, 170, 40, .8); animation-duration: 1s; }
+    #pops .pop.dmg.burn { font-size: 13px; color: #ffb066; }
+    #pops .pop.dmg.miss { font: italic 600 13px/1 var(--serif); color: rgba(235, 235, 235, .85); }
+    @keyframes dmgUp { 0% { opacity: 0; transform: translateY(4px) scale(.7); } 15% { opacity: 1; transform: translateY(-4px) scale(1.15); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-34px) scale(.95); } }
+    @media (prefers-reduced-motion: reduce) { #pops .pop.dmg { animation: popFade .75s ease-out forwards; } }
+    body.hud #fight { left: auto; right: var(--gutter-r); bottom: calc(28px + env(safe-area-inset-bottom, 0px)); grid-template-columns: 46px 46px 78px;
+      grid-template-areas: "foe foe ." "prev next attack"; gap: 6px 6px; }
+    body.hud #fight .foe { width: 98px; padding: 5px 7px 4px; }
+    body.hud #fight .roll { font-size: 9px; }
+    body.hud #fight #attack { width: 78px; height: 78px; border-radius: 50%; font-size: 13px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+    body.hud #fight #prevFoe, body.hud #fight #nextFoe { width: 46px; height: 46px; min-height: 0; border-radius: 50%; align-self: end; margin-bottom: 4px; font-size: 15px; }
+    body.hud.autoaim #stance { right: calc(var(--gutter-r) + 10px); bottom: calc(118px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; font-size: 15px; }
+    body.hud.autoaim #skate { right: calc(var(--gutter-r) + 10px); bottom: calc(184px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
+    @media (orientation: landscape) {
+      body.hud #fight { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); grid-template-columns: 40px 40px 64px; }
+      body.hud #fight #attack { width: 64px; height: 64px; font-size: 11.5px; }
+      body.hud #fight #prevFoe, body.hud #fight #nextFoe { width: 40px; height: 40px; }
+      body.hud.autoaim #stance { right: calc(var(--gutter-r) + 76px + 92px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 14px; }
+      body.hud.autoaim #skate { right: calc(var(--gutter-r) + 76px + 92px + 54px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 11px; }
+      body.hud #fight .foe { width: 90px; }
+    }
+    /* (Lightning striking flashes the picture blue-white a moment; a crushing blow taken reddens its edges. Criticals, gilt and larger,
+       *critical* under them; a blow taken, its number in red; a foe's roll at you, red in the fight's line.) */
+    #flash { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; }
+    #flash.zap { background: radial-gradient(ellipse at 50% 45%, rgba(170, 205, 255, .5), rgba(70, 110, 255, .3) 75%); animation: flashZap .28s ease-out forwards; }
+    #flash.hurt { background: radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(170, 10, 0, .65)); animation: flashZap .6s ease-out forwards; }
+    @keyframes flashZap { 0% { opacity: calc(var(--strength, 1) * .7); } 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { #flash { display: none; } }
+    #pops .pop.dmg.crit { font-size: 30px; letter-spacing: .01em; }
+    #pops .pop.dmg small { display: block; margin-top: 2px; font: 800 9px/1 var(--sans); letter-spacing: .2em; text-transform: uppercase; text-align: center; }
+    #pops .pop.dmg.hurt { color: #ff5a46; font-size: 20px; text-shadow: 0 1px 0 rgba(0, 0, 0, .7), 0 0 10px rgba(120, 0, 0, .7); }
+    #pops .pop.dmg.hurt.crit { font-size: 30px; color: #ff3a2a; }
+    #fight .roll.against { color: #ff8a7a; }
+    #fight .roll.against.hit { color: #ff5a46; }
   </style>
 </head>
 <body>
@@ -607,8 +864,9 @@
   </div>
   <button id="menuButton" type="button" aria-expanded="false" aria-controls="menu" title="Menu (H)"><span class="bars" aria-hidden="true"></span>Menu</button>
   <canvas id="mini" hidden aria-hidden="true"></canvas>
+  <button id="rail" type="button" hidden aria-label="How far down the run: tap for the minimap"><i class="track"></i><i class="done"></i><span class="ticks"></span><i class="me"></i></button>
   <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
-  <button id="paused" type="button" hidden><b>Paused</b><span class="mouse-only">Space or click to go on</span><span class="touch-only">Tap to go on</span></button>
+  <button id="paused" type="button" hidden><b>Paused</b><span class="mouse-only">Click to go on</span><span class="touch-only">Tap to go on</span></button>
   <div id="offPiste" hidden role="alert"><span class="say">Back to the marked slopes</span><b class="n">5</b></div>
   <div id="stick" hidden role="group" aria-label="Steer: to either side to turn, up to tuck, down to stand straight"><div class="base"></div><div class="knob"></div><span class="say up">Tuck</span><span class="say down">Straight</span></div>
   <div id="aim" aria-hidden="true"><i class="skid l"></i><i class="skid r"></i><i class="rail l"></i><i class="rail r"></i><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="say up">Tuck</span><span class="say down">Straight</span><span class="say skids l">Skid</span><span class="say skids r">Skid</span><span class="say here">Point in here to steer</span><i class="dot"></i></div>
@@ -616,14 +874,27 @@
     <button id="skate" type="button" aria-label="Skate: hold for skating strides, a little more speed" title="Hold to skate, a stride with each leg in turn, for a little more speed (hold Z)">Skate</button>
     <button id="stance" type="button" aria-label="180 to switch" title="Turn round on the snow, to riding backwards (switch) or back: a pop, a nose butter, a smooth 180 or a tail butter, in turn (X, or a right click on the picture)">180</button>
     <div class="wild"><span class="cap">Tricks</span><span>Wild</span><input id="wild" type="range" min="0" max="1" step="0.01" value="0.5" aria-orientation="vertical" aria-label="How wild the tricks off the kickers are, from mild to wild"><div id="wildMeter" role="meter" aria-valuemin="0" aria-valuemax="8" aria-valuenow="0" aria-label="How wild the tricks off the kickers are, earned by tricks landed and foes brought down" title="Filled by tricks landed and foes brought down, emptied by falls and blows taken; full, the guidebooks' tricks come up"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Mild</span><b id="wildLvl">0/8</b></div>
-    <div id="armBar" hidden role="progressbar" aria-valuemin="0"><span class="cap">Arms</span><span class="next"></span><div class="blocks"></div><span class="left"></span></div>
+    <div id="armBar" hidden role="progressbar" aria-valuemin="0"><span class="cap">Arms</span><span class="now"></span><span class="next"></span><span class="to"></span><div class="blocks"></div><span class="left"></span></div>
   </div>
+  <div id="lockOn" hidden aria-hidden="true"><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i><span class="hp"><i></i></span></div>
+  <div id="fight" hidden role="group" aria-label="The fight: the foe locked on, and attacking it">
+    <div class="foe" aria-live="polite"><span class="who"></span><span class="hpN"></span><div class="bar"><i></i></div><span class="roll"></span></div>
+    <button id="prevFoe" type="button" aria-label="Lock on the foe to the left" title="Lock on the foe to the left (Q)">◀</button>
+    <button id="attack" type="button" aria-label="Attack the foe locked on" title="Attack the foe locked on; held, fire on, or raise the sword to cut harder (Space, or the mouse button)">Attack</button>
+    <button id="nextFoe" type="button" aria-label="Lock on the foe to the right" title="Lock on the foe to the right (E, or Tab)">▶</button>
+  </div>
+  <div id="flash" aria-hidden="true"></div>
   <div id="pops" aria-hidden="true"></div>
-  <div id="summary" hidden aria-live="polite"><div class="cap">The run</div><dl class="rows"></dl></div>
-  <div id="health" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span class="cap">Health</span><div class="bar"><i class="lag"></i><i class="fill"></i></div></div>
+  <div id="health" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="60" aria-valuenow="60"><span class="cap">Health</span><div class="bar"><i class="lag"></i><i class="fill"></i></div></div>
   <div id="bosses" aria-live="polite"></div>
   <div id="felled" aria-hidden="true"><b>Felled</b><small></small></div>
   <div id="loot" aria-live="polite"><div class="kind"></div><div class="name"></div><ul class="lines"></ul><div class="where"></div></div>
+  <div id="runEnd" hidden role="dialog" aria-labelledby="runEndWhat">
+    <div class="head"><span class="run" id="runEndRun"></span><span class="what" id="runEndWhat">The foot of the run</span><span class="why" id="runEndWhy"></span></div>
+    <div class="stats"><div><b id="runEndPoints">0</b><span id="runEndBest">points</span></div><div><b id="runEndDrop">0 m</b><span>vertical</span></div><div><b id="runEndTime">0 s</b><span id="runEndTimeSaid">riding</span></div></div>
+    <p class="line" id="runEndLine"></p>
+    <div class="acts"><button id="runEndMap" type="button">Map of the runs</button><button id="runEndNext" type="button" class="go">Next run</button></div>
+  </div>
   <div id="backTo" hidden role="dialog" aria-labelledby="backToWhat">
     <div class="what" id="backToWhat">Back to the top</div>
     <div class="ways" role="group" aria-label="How to get back to the top"></div>
@@ -647,47 +918,71 @@
   </div>
   <div id="menu" hidden role="dialog" aria-label="Menu" tabindex="-1">
     <div class="head"><span class="what">Grand Horse Mountain</span><button id="menuClose" class="close" type="button" title="Close the menu (H)" aria-label="Close the menu">✕</button></div>
-    <div class="scroll">
-      <div id="restarts" hidden><button id="restart" class="wide" type="button" title="Start the run again from the top (Enter)">Restart run</button></div>
-      <h2>Play</h2>
-      <div class="seg big" id="modes"></div>
-      <div class="field" id="pisteField"><span class="label">Off piste</span><div class="seg" id="pisteSeg" role="group" aria-label="Off piste"></div></div>
-      <div class="field" id="orcsField"><span class="label">Orcs &amp; weapons</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and weapons"></div></div>
-      <div class="field" id="tiltField" hidden><span class="label">Steering</span><div class="seg" id="tiltSeg" role="group" aria-label="Steering"></div></div>
-      <div class="field" id="waysField"><span class="label">Back to the top</span><div class="seg rows" id="waysSeg" role="group" aria-label="How to get back to the top as a run ends"></div></div>
-      <div id="playback">
-        <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
-        <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
+    <div class="now">
+      <div class="here"><span class="run" id="menuRun">Silent Warden</span><span class="doing" id="menuDoing">Riding</span></div>
+      <div class="acts">
+        <button id="menuResume" class="go" type="button" title="Back to it (H, or Escape)">Resume</button>
+        <div id="restarts" hidden><button id="restart" type="button" title="Start the run again from the top (Enter)">Restart run</button></div>
+        <button id="openMap" class="map" type="button" title="The map of the runs, to choose one to ride (M)">Map of the runs</button>
       </div>
-      <h2>Pack <span id="packCount"></span></h2>
-      <p class="note pack-note">Found in the chests at the ends of the dungeons and on the great ones felled, kept in this browser. Click one to wear it; weapons and wards act with <i>Orcs &amp; weapons</i> on.</p>
-      <div class="pack" id="pack" role="group" aria-label="What has been found"></div>
-      <button id="packEmpty" class="wide quiet" type="button" hidden>Empty the pack</button>
-      <h2>Slope</h2>
-      <button id="openMap" class="wide map" type="button" title="The map of the runs, to choose one to ride (M)">Map of the runs</button>
-      <div class="cards" id="lands" role="group" aria-label="Slope"></div>
-      <h2>Skier</h2>
-      <div class="seg" id="skiers" role="group" aria-label="Skier"></div>
-      <div class="field" id="skisets" hidden><span class="label">Skis</span><div class="seg" role="group" aria-label="Skis"></div></div>
-      <h2>Camera</h2>
-      <div class="seg" id="views" role="group" aria-label="View"></div>
-      <div class="field" id="slowmoField"><span class="label">Jumps in slow motion</span><div class="seg" id="slowmoSeg" role="group" aria-label="Jumps off the kickers in slow motion, in the cinematic view"></div></div>
-      <label class="row slider"><span class="label">Distance</span><input id="distance" type="range" min="0.5" max="3" step="0.05" value="1" aria-label="How far the view is from the skier"><output id="distanceOut">1.0×</output></label>
-      <h2>Picture</h2>
-      <div class="field" id="snows"><span class="label">Snow</span><div class="seg" role="group" aria-label="Snow"></div></div>
-      <div class="field" id="infoField"><span class="label">Info at the top left</span><div class="seg" id="infoSeg" role="group" aria-label="What the skier is doing and how fast, at the top left"></div></div>
-      <div class="field" id="miniField"><span class="label">Minimap</span><div class="seg" id="miniSeg" role="group" aria-label="Minimap"></div></div>
-      <div class="field"><span class="label">Resolution</span><div class="seg" id="resolutions" role="group" aria-label="Resolution"></div></div>
-      <p class="note" id="safeNote" hidden><span></span> <button type="button">Try full detail</button></p>
-      <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
-      <p class="keys"><kbd>H</kbd> or <kbd>Esc</kbd> menu · <kbd>M</kbd> map · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
-      <p class="keys more"><b>Views</b> <kbd>C</kbd> cinema · <kbd>B</kbd> behind · <kbd>S</kbd> beside · <kbd>A</kbd> from above · <kbd>F</kbd> free</p>
-      <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
-      <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Z</kbd> (held) skate · <kbd>Enter</kbd> start over (twice, mid-run) · <kbd>1</kbd>–<kbd>0</kbd> the way back</p>
-      <p class="keys more"><b>On foot</b> <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or arrows walk · click to strike</p>
-      <p class="keys more"><b>Arms</b> <span id="armKeys">with Orcs &amp; weapons on</span></p>
+    </div>
+    <div class="tabs" id="menuTabs" role="tablist" aria-label="The menu's parts">
+      <button type="button" role="tab" data-tab="play" aria-controls="tabPlay">Play</button>
+      <button type="button" role="tab" data-tab="pack" aria-controls="tabPack">Pack<span id="packCount"></span></button>
+      <button type="button" role="tab" data-tab="view" aria-controls="tabView">Skier &amp; view</button>
+      <button type="button" role="tab" data-tab="settings" aria-controls="tabSettings">Settings</button>
+    </div>
+    <div class="scroll">
+      <section class="tab" id="tabPlay" data-tab="play" role="tabpanel" aria-label="Play">
+        <div class="seg big" id="modes"></div>
+        <div id="playback">
+          <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
+          <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
+        </div>
+        <h2>Riding</h2>
+        <div class="field" id="orcsField"><span class="label">Orcs &amp; weapons</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and weapons"></div></div>
+        <div class="field" id="aimField"><span class="label">Aiming</span><div class="seg" id="aimSeg" role="group" aria-label="How the arms are aimed"></div></div>
+        <div class="field" id="pisteField"><span class="label">Off piste</span><div class="seg" id="pisteSeg" role="group" aria-label="Off piste"></div></div>
+        <div class="field" id="tiltField" hidden><span class="label">Steering</span><div class="seg" id="tiltSeg" role="group" aria-label="Steering"></div></div>
+        <div class="field" id="waysField"><span class="label">Back to the top</span><div class="seg rows" id="waysSeg" role="group" aria-label="How to get back to the top as a run ends"></div></div>
+        <h2>Runs</h2>
+        <div class="cards" id="lands" role="group" aria-label="Slope"></div>
+      </section>
+      <section class="tab" id="tabPack" data-tab="pack" role="tabpanel" aria-label="Pack" hidden>
+        <p class="note pack-note">Found in the chests at the ends of the dungeons and on the great ones felled, kept in this browser. Tap one to wear it; weapons and wards act with <i>Orcs &amp; weapons</i> on.</p>
+        <div class="pack" id="pack" role="group" aria-label="What has been found"></div>
+        <button id="packEmpty" class="wide quiet" type="button" hidden>Empty the pack</button>
+      </section>
+      <section class="tab" id="tabView" data-tab="view" role="tabpanel" aria-label="Skier and view" hidden>
+        <h2>Skier</h2>
+        <div class="seg" id="skiers" role="group" aria-label="Skier"></div>
+        <div class="field" id="skisets" hidden><span class="label">Skis</span><div class="seg" role="group" aria-label="Skis"></div></div>
+        <h2>Camera</h2>
+        <div class="seg" id="views" role="group" aria-label="View"></div>
+        <label class="row slider"><span class="label">Distance</span><input id="distance" type="range" min="0.5" max="3" step="0.05" value="1" aria-label="How far the view is from the skier"><output id="distanceOut">1.0×</output></label>
+        <div class="field" id="slowmoField"><span class="label">Jumps in slow motion</span><div class="seg" id="slowmoSeg" role="group" aria-label="Jumps off the kickers in slow motion, in the cinematic view"></div></div>
+      </section>
+      <section class="tab" id="tabSettings" data-tab="settings" role="tabpanel" aria-label="Settings" hidden>
+        <h2>On the screen</h2>
+        <div class="field" id="miniField"><span class="label">Minimap</span><div class="seg" id="miniSeg" role="group" aria-label="Minimap"></div></div>
+        <div class="field" id="guideField"><span class="label">Mouse steering guide</span><div class="seg" id="guideSeg" role="group" aria-label="The guide drawn about the skier for steering by the mouse"></div></div>
+        <div class="field" id="infoField"><span class="label">Info at the top left</span><div class="seg" id="infoSeg" role="group" aria-label="What the skier is doing and how fast, at the top left"></div></div>
+        <h2>Picture</h2>
+        <div class="field" id="snows"><span class="label">Snow</span><div class="seg" role="group" aria-label="Snow"></div></div>
+        <div class="field"><span class="label">Resolution</span><div class="seg" id="resolutions" role="group" aria-label="Resolution"></div></div>
+        <p class="note" id="safeNote" hidden><span></span> <button type="button">Try full detail</button></p>
+        <p class="note" id="problemNote" hidden></p>
+        <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
+        <p class="keys"><kbd>H</kbd> or <kbd>Esc</kbd> menu · <kbd>M</kbd> map · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause (carrying arms, attack) · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
+        <p class="keys more"><b>Views</b> <kbd>C</kbd> cinema · <kbd>B</kbd> behind · <kbd>S</kbd> beside · <kbd>A</kbd> from above · <kbd>F</kbd> free</p>
+        <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
+        <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Z</kbd> (held) skate · <kbd>Enter</kbd> next run (twice, mid-run) · <kbd>1</kbd>–<kbd>0</kbd> the way back</p>
+        <p class="keys more"><b>On foot</b> <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or arrows walk · click to strike</p>
+        <p class="keys more"><b>Arms</b> <span id="armKeys">with Orcs &amp; weapons on</span> · <kbd>Space</kbd> or the mouse button attacks (held, fires on) · <kbd>Q</kbd> <kbd>E</kbd> or <kbd>Tab</kbd> lock on another foe, or click on one · <kbd>Shift</kbd> brakes · <i>Aiming: Free</i> fires at the mark</p>
+      </section>
     </div>
   </div>
+  <div id="making" hidden role="status" aria-live="polite"><i class="spin" aria-hidden="true"></i><div class="say"><b id="makingWhat">Off to the next run</b><span id="makingStep">Making the mountain ready</span><div class="bar"><i></i></div></div></div>
   <div id="status" class="waiting" role="progressbar" aria-label="Loading Grand Horse Mountain" aria-valuemin="0" aria-valuemax="100">
     <span class="horse">GRAND HORSE</span><span class="mountain">Mountain</span>
     <div class="bar"><div class="fill"></div></div>

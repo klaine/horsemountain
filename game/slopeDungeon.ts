@@ -747,9 +747,19 @@ const ROOM_CORNERS = [[-0.25, -0.25], [0.25, 0.25], [-0.25, 0.25], [0.25, -0.25]
 
 export class Cave {
   readonly group = new Group();
-  /** The light carried in by one on foot, and the campfire's: the only lights the cave's own stone takes. */
-  readonly lantern = new PointLight(0xffc690, 0, 20, 1.6);
-  readonly fireLight = new PointLight(0xff9440, 0, 24, 2);
+  /**
+   * The light carried in by one on foot, and the campfire's: the only lights the cave's own stone takes. Given by the page, the same
+   * two for every cave, kept in the scene for good and set where this cave wants them as it is stepped (`sharedLights`): a light's own
+   * number is part of what each lit thing's shaders are made for, and each cave's own pair, coming with each run and going as the land
+   * was turned inside out, had every shader in the scene made again each time (asked: "I feel that we might not be precaching all new
+   * things anymore"). Made here, only when none are given.
+   */
+  readonly lantern: PointLight;
+  readonly fireLight: PointLight;
+  private readonly sharedLights: boolean;
+  /** Where the fire's light and the lantern stand in the cave's own frame, set into the land as it is stepped when the lights are shared. */
+  private readonly fireLocal = new Vector3();
+  private readonly lanternLocal = new Vector3();
   /** The chest's place in the land, and how far open it is. */
   readonly chest = { at: new Vector3(), open: 0, opened: false };
   private readonly frame = new Group();
@@ -794,7 +804,10 @@ export class Cave {
   /** Where a horse is left, across and along (`horseSpot`). */
   private parking: [number, number] = [0, 0];
 
-  constructor(readonly site: CaveSite, private readonly base: BaseHeight, readonly seed: string, asked: string[] = []) {
+  constructor(readonly site: CaveSite, private readonly base: BaseHeight, readonly seed: string, asked: string[] = [], shared?: { lantern: PointLight; fire: PointLight }) {
+    this.sharedLights = !!shared;
+    this.lantern = shared?.lantern ?? new PointLight(0xffc690, 0, 20, 1.6);
+    this.fireLight = shared?.fire ?? new PointLight(0xff9440, 0, 24, 2);
     const P = paintsOf();
     this.rng = new Rng(`dungeon ${seed}`);
     this.layout = layDungeon(this.rng.fork('layout'), tagsFor(this.rng.fork('tags'), asked));
@@ -900,8 +913,8 @@ export class Cave {
     this.smoke = new InstancedMesh(smokeShape, smokePaint, 14);
     this.smoke.frustumCulled = false;
     this.frame.add(this.smoke);
-    this.fireLight.position.copy(this.fireAt).addScaledVector(UP, 0.9);
-    this.frame.add(this.fireLight, this.lantern);
+    this.fireLocal.copy(this.fireAt).addScaledVector(UP, 0.9);
+    if (!this.sharedLights) { this.fireLight.position.copy(this.fireLocal); this.frame.add(this.fireLight, this.lantern); }
     for (let i = 0; i < 14; i++) this.puffs.push({ age: this.rng.range(0, 4), life: this.rng.range(3, 4.5), x: 0, z: 0, drift: this.rng.range(-1, 1) });
     this.frame.updateMatrixWorld(true);
   }
@@ -1488,6 +1501,14 @@ export class Cave {
     const [t, lat] = siteLocal(this.site, x, z);
     return t > 0 && (t <= this.site.length ? Math.abs(lat) < CAVE.hw + CAVE.rough : this.openAt(lat, t));
   }
+  /**
+   * Whether a point inside is still near the mouth: in the tunnel where it runs under the hole cut in the land for it, which only the
+   * mound covers (`holeTo`), and not yet where the land lies over it. There, seen from above, the land about may still be drawn.
+   */
+  shallow(x: number, z: number): boolean {
+    const [t] = siteLocal(this.site, x, z);
+    return this.inside(x, z) && t <= this.site.holeTo;
+  }
   /** How far into the dark a point is: none outside, all of it some metres down the tunnel and in the dungeon. */
   darkness(p: Vector3): number {
     // (Only within the cave's own hollow, between its floor and its roof: not on the snow over it, nor anywhere else about it.)
@@ -1851,8 +1872,14 @@ export class Cave {
     }
     this.fireLight.intensity = 9 * flick(50) * (0.85 + 0.15 * Math.sin(seconds * 11.3));
     // (Held up a little ahead of whoever carries it, the way it looks: what comes at it out of the dark is lit as it comes.)
-    if (player) { const at = ahead ? player.clone().addScaledVector(ahead, 1.4) : player; this.lantern.position.set(...this.localOf(at)).setY(player.y + 2.5); }
+    if (player) { const at = ahead ? player.clone().addScaledVector(ahead, 1.4) : player; this.lanternLocal.set(...this.localOf(at)).setY(player.y + 2.5); }
     this.lantern.intensity = 5 * carried * flick(60);
+    // (Shared, in the scene itself: set where they stand in the land, as this cave lies in it now.)
+    if (this.sharedLights) {
+      this.frame.updateWorldMatrix(true, false);
+      this.fireLight.position.copy(this.fireLocal).applyMatrix4(this.frame.matrixWorld);
+      this.lantern.position.copy(this.lanternLocal).applyMatrix4(this.frame.matrixWorld);
+    } else this.lantern.position.copy(this.lanternLocal);
     // (The chest's lid thrown back over a second, once opened.)
     if (this.chest.opened && this.chest.open < 1) { this.chest.open = Math.min(1, this.chest.open + dt * 0.9); this.lid.rotation.x = -1.85 * smooth(this.chest.open); }
     this.glow.rotation.y = Math.atan2(local.x - this.glow.position.x, local.z - this.glow.position.z);
