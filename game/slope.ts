@@ -44,7 +44,7 @@ import {
   PCFShadowMap, PerspectiveCamera, PlaneGeometry, PointLight, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, Sphere, SRGBColorSpace, Vector2, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
-import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, fract, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
+import { abs, attribute, cameraPosition, clamp as clampNode, diffuseColor, dot, float, fog as fogOf, fract, Fn, If, int, length, Loop, max, min, mix, mrt, normalize, normalView, normalWorld, output, pass, PCFShadowFilter, positionViewDirection, positionWorld, positionWorldDirection, pow, rangeFogFactor, renderOutput, screenSize, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4, velocity, vertexStage } from 'three/tsl';
 import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -491,6 +491,15 @@ async function start() {
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 120 });
   sun.shadow.bias = -0.0004;
+  // What lies past the far end of the sun's shadows is lit. (Asked: "an unexplainable shadow some times following player or projected
+  // above players shadow": a dark square some twenty-five metres across, on the snow further down the light than the skier, wherever the
+  // land fell away below it far enough.) The depth is kept reversed (`reversedDepthBuffer`), so what lies past the far end comes out below
+  // nothing; three's own test lets go only of what comes out above one, the near end's side, as it would be kept the usual way. The
+  // shadows' depth, cleared, is nothing, so all of the snow out there was taken to be behind something, in a square as wide as the
+  // shadows are kept.
+  type ShadowN = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  (sun.shadow as unknown as { filterNode: (i: { shadowCoord: ShadowN }) => ShadowN }).filterNode = (i) =>
+    i.shadowCoord.z.lessThan(0).select(float(1), (PCFShadowFilter as unknown as (i: unknown) => ShadowN)(i));
   scene.add(sun, sun.target);
 
   // The sky (asked: "now find ways to improve visual impression without making the game much heavier"): it had been one flat blue.
