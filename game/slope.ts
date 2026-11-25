@@ -64,7 +64,7 @@ import { type Branch, type Frame, type GameLook, groomedLand, type Land, sliceLa
 import { paintNearer } from './slopeTrees';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type Den, type FoeKind, Horde } from './slopeOrcs';
-import { ARM_DICE, attack as rollAttack, blow as rollBlow, BURN_EVERY, CHARGED, GUARD, HP, LEAP, type Roll, rollAt, rollSaid } from './slopeDice';
+import { ARM_DICE, attack as rollAttack, blow as rollBlow, BURN_EVERY, CHARGED, falloff, GUARD, HP, LEAP, type Roll, rollAt, rollSaid, SETTLE } from './slopeDice';
 import { Boosters, PIPE, Pipe } from './slopeArena';
 import { Splatter } from './slopeSplatter';
 import { ARM, type ArmPose, Parachute, reachFor, RobotArm, Throw } from './slopeArm';
@@ -5757,6 +5757,45 @@ async function start() {
   const lock = { orc: -1, chosen: false, lost: 0, scan: 0, list: [] as Mark[], ahead: new Vector3(0, 0, 1) };
   const LOCK_SCAN = 0.15, LOCK_GRACE = 0.5;
   const diceRng = gunRng.fork('dice');
+  /**
+   * The aim of arms aiming themselves (asked: "Autotargeting is now like a aimbot robot that just snaps from a target to target in a
+   * millisecond while shooting rapid fire with a tommy gun and slaying everything in seconds. There should be some kind of aiming
+   * speed base stat (and accuracy)"): which way the gun points (`dir`), turned toward the foe locked on no quicker than the arm swings
+   * (`ArmDice.turn`, the quicker for `aim` worn); the foe it was turning to (`of`), and the way to it a moment ago (`want`, `had`); how
+   * far off it the gun still is (`off`, radians); how fast the foe goes across the view from the gun (`sweep`, radians a second, eased);
+   * how far the rounds just fired have thrown the aim off (`kick`, points off the die); and, as it takes up a foe, a moment before it
+   * begins to turn to it (`wait`, `REACT` seconds, the less for `aim`).
+   */
+  const gunAim = { dir: new Vector3(0, 0, 1), set: false, of: -1, want: new Vector3(), had: false, off: 0, sweep: 0, kick: 0, wait: 0 };
+  const REACT = 0.3;
+  /**
+   * A stat of what is worn that the arms go by: the gloves', the ring's and the necklace's whatever is carried; the weapon's only while
+   * it is the one carried (until the bazooka is taken up, the foes' gift is).
+   */
+  const armStat = (k: 'aim' | 'accuracy' | 'steady' | 'far' | 'might') => {
+    const m = kit();
+    if (m === NO_MODS) return 0;
+    return m[k] - (wornWeapon() ? 0 : pack?.wornIn('weapon')?.mods[k] ?? 0);
+  };
+  /** How far off a foe `far` metres away the gun may point and still be on it: about as far as it is wide, and a little. */
+  const onCone = (far: number) => Math.atan2(0.7, Math.max(far, 1)) + 0.03;
+  /** Whether the gun is on the foe locked on (watching, the demo's rider always is). */
+  const onFoe = (foe: number, from: Vector3) => mode === 'watch' || gunAim.off <= onCone(horde.middle(foe).distanceTo(from));
+  /**
+   * What the aim adds to the die at the foe locked on, `far` metres off (asked: "distant enemies should be harder to hit ... also angle
+   * speed should affect negatively"): the accuracy worn; a point less for each `SWEEP` degrees a second the foe goes across the view,
+   * five at most (the less for `steady` worn: an orc running past near goes across it a hundred degrees a second and more), up to two
+   * less for the gun not yet quite on it, and less for the rounds just fired (`kick`). The distance itself is the die's (`attack`).
+   * Watching, nothing.
+   */
+  const SWEEP = 25;
+  const aimBonus = (far: number) => {
+    if (mode === 'watch') return 0;
+    const sweep = (gunAim.sweep * 180) / Math.PI;
+    return Math.round(armStat('accuracy')) - Math.min(5, Math.floor((sweep * (1 - clamp(armStat('steady'), 0, 0.9))) / SWEEP)) - Math.min(2, Math.round((2 * gunAim.off) / onCone(far))) - Math.floor(gunAim.kick);
+  };
+  /** The rounds just fired throwing the aim off: so much more off the die, wearing off. */
+  const kicked = (arm: ArmKind) => { gunAim.kick = Math.min(6, gunAim.kick + ARM_DICE[arm].kick); };
   /** Whether the arms aim themselves at the foe locked on, and each attack at it is rolled: riding with *Auto*, and watching. */
   const rolling = () => mode === 'watch' || autoAim;
   /** The foe locked on, if it is still coming and within `reach` of `from`; else -1. */
@@ -5881,7 +5920,8 @@ async function start() {
    * struck and not brought down, the cross where it was struck all the same.
    */
   const roundStrikes = (orc: number, dir: Vector3, arm: ArmKind, r: Roll | null) => {
-    const at = horde.middle(orc), b = r ? { dmg: r.dmg, crit: r.crit } : rollBlow(diceRng, arm), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6), b.dmg / HP);
+    // (Aimed by hand, its blow the less for how far it went, as one rolled is.)
+    const at = horde.middle(orc), b = r ? { dmg: r.dmg, crit: r.crit } : rollBlow(diceRng, arm, falloff(arm, at.distanceTo(rider.position), armStat('far'))), struck = horde.strike(orc, dir.clone().multiplyScalar(3).addScaledVector(UP, 1.6), b.dmg / HP);
     if (struck) dmgSaid(at, b.dmg, b.crit);
     if (struck?.down) { gunSound.grunt(); orcDowned(at, 'shot', struck.kind); }
     else if (struck) { const on = overPictureAt(at); if (on) hitMark(on); }
@@ -5899,9 +5939,11 @@ async function start() {
   };
   const fireRound = (from: Vector3, way: Vector3, spread: number, arm: ArmKind, reach = 400) => {
     // (The arms aiming themselves: the round at the foe locked on, rolled to strike it or to go wide of it.)
-    const foe = rolling() ? lockedIn(from, reach) : -1;
+    // (Not yet on it, the gun still coming round to it: fired where it points, as if aimed by hand.)
+    let foe = rolling() ? lockedIn(from, reach) : -1;
+    if (foe >= 0 && !onFoe(foe, from)) foe = -1;
     if (foe >= 0) {
-      const mid = horde.middle(foe), r = rollAttack(diceRng, arm, guardOf(foe), mid.distanceTo(from), rollBonus());
+      const mid = horde.middle(foe), far = mid.distanceTo(from), r = rollAttack(diceRng, arm, guardOf(foe), far, rollBonus() + aimBonus(far), 1, armStat('far'));
       noteRoll(foe, arm, r);
       if (r.hit) { const dir = mid.clone().sub(from).normalize(); lastShot = { from: from.clone(), dir: dir.clone() }; gunfire.fire(from, dir, mid.distanceTo(from), () => roundStrikes(foe, dir, arm, r)); return; }
       missSaid(foe, mid);
@@ -5917,14 +5959,19 @@ async function start() {
     else roundAstray(from, dir, reach);
   };
   /** A round from the tommy gun as it points: the tommy gun's own sound, and its kick. */
-  const shoot = () => { const arm = armNow(), { from, dir } = muzzleOf(arm); fireRound(from, dir, 0.012, arm.kind); gunSound.shot(); kick = 1; };
+  const shoot = () => {
+    // (Its rounds the wider the longer it is held down, and the narrower for accuracy worn.)
+    const arm = armNow(), { from, dir } = muzzleOf(arm);
+    fireRound(from, dir, (0.012 * (1 + 0.5 * gunAim.kick)) / (1 + 0.1 * Math.max(0, armStat('accuracy'))), arm.kind);
+    kicked(arm.kind); gunSound.shot(); kick = 1;
+  };
   /**
    * The shotgun's nine pellets at the foe locked on, each rolled: those that strike flown to it and their damage done together, as the
    * first of them comes to it, one number said for them all; the rest wide of it.
    */
   const blastAt = (from: Vector3, foe: number) => {
-    const mid = horde.middle(foe), far = mid.distanceTo(from), each: Roll[] = [];
-    for (let i = 0; i < 9; i++) each.push(rollAttack(diceRng, 'shotgun', guardOf(foe), far, rollBonus()));
+    const mid = horde.middle(foe), far = mid.distanceTo(from), each: Roll[] = [], bonus = rollBonus() + aimBonus(far);
+    for (let i = 0; i < 9; i++) each.push(rollAttack(diceRng, 'shotgun', guardOf(foe), far, bonus, 1, armStat('far')));
     const hits = each.filter((r) => r.hit), crit = hits.some((r) => r.crit), dmg = hits.reduce((n, r) => n + r.dmg, 0);
     const all: Roll = { die: Math.max(...each.map((r) => r.die)), bonus: each[0].bonus, guard: each[0].guard, hit: hits.length > 0, crit, dmg };
     noteRoll(foe, 'shotgun', all, `9 pellets, ${hits.length} strike · ${dmg}`);
@@ -5942,22 +5989,25 @@ async function start() {
   const fireOnce = (arm: Arm) => {
     const { from, dir } = muzzleOf(arm);
     if (arm.kind === 'shotgun') {
-      const foe = rolling() ? lockedIn(from, 45) : -1;
+      let foe = rolling() ? lockedIn(from, 45) : -1;
+      if (foe >= 0 && !onFoe(foe, from)) foe = -1;
       if (foe >= 0) blastAt(from, foe); else for (let i = 0; i < 9; i++) fireRound(from, dir, 0.06, 'shotgun', 45);
       gunSound.hear('shotgun');
     } else if (arm.kind === 'bazooka') {
       // (At the foe locked on: rolled, a rocket that strikes flown at it; one that misses, at the snow a few metres wide of it, its blast
       // catching it or not.)
-      const foe = rolling() ? lockedIn(from, ARM_DICE.bazooka.lock) : -1;
+      let foe = rolling() ? lockedIn(from, ARM_DICE.bazooka.lock) : -1;
+      if (foe >= 0 && !onFoe(foe, from)) foe = -1;
       let way = dir;
       if (foe >= 0) {
-        const mid = horde.middle(foe), r = rollAttack(diceRng, 'bazooka', guardOf(foe), mid.distanceTo(from), rollBonus());
+        const mid = horde.middle(foe), far = mid.distanceTo(from), r = rollAttack(diceRng, 'bazooka', guardOf(foe), far, rollBonus() + aimBonus(far), 1, armStat('far'));
         noteRoll(foe, 'bazooka', { ...r, dmg: 0 }, rollSaid(r).replace(/ · .*$/, r.hit ? ' · straight at it' : ' · wide'));
         way = r.hit ? mid.clone().sub(from).normalize() : wideOf(from, mid, 2.6);
         if (!r.hit) missSaid(foe, mid);
       }
       rockets.launch(from, way); burst(from.clone().addScaledVector(way, -1.2), 4, 0); gunSound.hear('rocket');
-    } else { fireRound(from, dir, 0.004, arm.kind); gunSound.hear('pistol'); }
+    } else { fireRound(from, dir, 0.004 / (1 + 0.1 * Math.max(0, armStat('accuracy'))), arm.kind); gunSound.hear('pistol'); }
+    kicked(arm.kind);
     kick = 1;
   };
   /**
@@ -6044,11 +6094,13 @@ async function start() {
     const { from, dir } = muzzleOf(arm), snowAt = snowAlong(from, dir, 120), reach = Math.min(snowAt, 120);
     const through = [from.clone()], struck = new Set<number>();
     // (The arms aiming themselves: at the foe locked on, rolled; missing, the bolt goes into the snow beside it, and leaps no further.)
-    const foe = rolling() ? lockedIn(from, 120) : -1;
+    let foe = rolling() ? lockedIn(from, 120) : -1;
+    if (foe >= 0 && !onFoe(foe, from)) foe = -1;
+    kicked('lightning');
     let met = foe >= 0 ? -1 : horde.hit(from, dir, reach)?.orc ?? -1, first: Roll | null = null;
     if (foe >= 0) {
-      const mid = horde.middle(foe);
-      first = rollAttack(diceRng, 'lightning', guardOf(foe), mid.distanceTo(from), rollBonus());
+      const mid = horde.middle(foe), far = mid.distanceTo(from);
+      first = rollAttack(diceRng, 'lightning', guardOf(foe), far, rollBonus() + aimBonus(far), 1, armStat('far'));
       noteRoll(foe, 'lightning', first);
       if (first.hit) met = foe;
       else {
@@ -6155,7 +6207,7 @@ async function start() {
         const times = 1 + (CHARGED.dmg - 1) * power;
         let dmg: number, crit = false;
         if (rolling()) {
-          const r = rollAttack(diceRng, 'sword', guardOf(o.orc), 0, CHARGED.skill * power + rollBonus(), times);
+          const r = rollAttack(diceRng, 'sword', guardOf(o.orc), 0, CHARGED.skill * power + rollBonus() + (mode === 'watch' ? 0 : Math.round(armStat('accuracy'))), times);
           noteRoll(o.orc, 'sword', r);
           if (!r.hit) { missSaid(o.orc, o.at); continue; }
           dmg = r.dmg; crit = r.crit;
@@ -6748,7 +6800,7 @@ async function start() {
   // (The arm's own words for how it is used, in the menu: they had named the tommy gun, long after the sword had come to be the first.)
   armHint = () => (orcsOn && who !== 'horse' ? `${carried().name}: ${carried().hint}` : 'with Orcs & weapons on, riding with a rider');
   /** What is had with nothing found worn in a slot, as the pack in the menu names it. */
-  const plainIn = (slot: Slot) => slot === 'skis' ? 'The skis you came with' : slot === 'boots' ? 'Your own boots' : slot === 'ward' ? 'No ward' : `${armAfter(slain).arm.name}, given by the foes brought down`;
+  const plainIn = (slot: Slot) => slot === 'skis' ? 'The skis you came with' : slot === 'boots' ? 'Your own boots' : slot === 'ward' ? 'No ward' : slot === 'gloves' ? 'Bare hands' : slot === 'ring' ? 'No ring' : slot === 'necklace' ? 'No necklace' : `${armAfter(slain).arm.name}, given by the foes brought down`;
   /** What everything worn comes to, worked out again; the pack in the menu shown again. */
   const regear = () => {
     if (!pack) return;
@@ -6763,6 +6815,8 @@ async function start() {
 
   /** Where the arm was last aimed, for a script to see that it holds still (`__slope.aimed`). */
   const aimedAt = new Vector3();
+  /** Which side of the body the gun was last turned to (`1`, left of it as it faces; `-1`, right), kept while what is aimed at is behind. */
+  let gunSide = 1;
   /** How an arm is used, said as it is taken up, the arms aiming themselves. */
   const autoHint = (arm: Arm, touch: boolean) => {
     const press = touch ? 'Attack' : 'Attack (Space, or a click)', hold = touch ? 'hold Attack' : 'hold Attack (Space, or the button)';
@@ -6776,6 +6830,7 @@ async function start() {
   const lockEl = $('lockOn'), fightEl = $('fight'), attackEl = $('attack'), fightWho = fightEl.querySelector<HTMLElement>('.who')!;
   const fightHp = fightEl.querySelector<HTMLElement>('.hpN')!, fightBar = fightEl.querySelector<HTMLElement>('.bar')!, fightRoll = fightEl.querySelector<HTMLElement>('.roll')!;
   let lockAt = '', lockHp = '-', fightRolls = 0;
+  let lockOpen = '';
   const showFight = (arm: Arm | null) => {
     const on = !!arm && mode === 'ride' && rolling() && !cat;
     if (fightEl.hidden === on) fightEl.hidden = !on;
@@ -6792,6 +6847,10 @@ async function start() {
       const reachOf = arm!.firing === 'swing' ? slashReach() + 1.5 : ARM_DICE[arm!.kind].lock;
       lockEl.classList.toggle('far', mid!.distanceTo(rider.position) > reachOf);
       lockEl.classList.toggle('chosen', lock.chosen);
+      // (The gun coming onto it: the corners out as far as it is off it, closing in.)
+      const cone = onCone(mid!.distanceTo(rider.position)), open = (1 + Math.min(2, gunAim.off / cone)).toFixed(2), aimed = gunAim.off <= cone;
+      if (open !== lockOpen) { lockOpen = open; lockEl.style.setProperty('--open', open); }
+      lockEl.classList.toggle('aimed', aimed);
     }
     // (Its name and strength, and the last roll made at it, by the buttons.)
     const hp = health ? `${Math.ceil(health.hp * HP)}|${Math.round(health.most * HP)}|${health.kneeling}` : '';
@@ -6812,7 +6871,7 @@ async function start() {
   };
   const armUp = (dt: number, now: Now) => {
     // (A weapon found strikes harder.)
-    horde.might = 1 + (wornWeapon() ? kit().might : 0);
+    horde.might = 1 + armStat('might');
     const on = armed(), human = who === 'person' ? live : who === 'mounted' ? jockey : null, watching = mode === 'watch';
     document.body.classList.toggle('gun', on);
     const arm = armNow(), model = arms.get(arm.kind)!, touch = !document.body.classList.contains('mouse');
@@ -6872,6 +6931,7 @@ async function start() {
       }
       target = best ?? rider.position.clone().addScaledVector(go, 30).setY(ground(rider.position.x + go.x * 30, rider.position.z + go.z * 30));
       firing = !!best;
+      gunAim.set = false;
       if (best && (arm.firing === 'single' || arm.firing === 'swing')) pulls = 1;
       // (The showcase's flamethrower poured all the while it is carried (asked: "the flame thrower section is too lame as of now"): with
       // no orc in reach, swept to and fro across the snow some way ahead, and leaving it burning.)
@@ -6884,10 +6944,34 @@ async function start() {
       // The arms aiming themselves: at the foe locked on (`relock`), its middle; none, on foot the way the body faces, riding the snow
       // some way ahead, low.
       relock(arm, going);
-      if (lock.orc >= 0) target = horde.middle(lock.orc);
-      else if (foot) target = rider.position.clone().addScaledVector(new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)), 8).setY(foot.y + 1.1);
-      else { const p = rider.position.clone().addScaledVector(go, 24); target = p.setY(ground(p.x, p.z) + 0.6); }
+      let want: Vector3;
+      if (lock.orc >= 0) want = horde.middle(lock.orc);
+      else if (foot) want = rider.position.clone().addScaledVector(new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)), 8).setY(foot.y + 1.1);
+      // (No foe: held the way the body faces, low over the snow; riding switch, back up the run, not down it behind the body, where
+      // the arms cannot turn the gun to.)
+      else { const p = rider.position.clone().addScaledVector(ahead, 24); want = p.setY(ground(p.x, p.z) + 0.6); }
+      // (Turned to it no quicker than the arm swings: a foe taken up, after a moment, `REACT`, unless it was chosen; a foe fallen, the
+      // next swung round to, not snapped to.)
+      const quick = Math.max(0.4, 1 + armStat('aim'));
+      if (lock.orc !== gunAim.of) { if (lock.orc >= 0 && !lock.chosen) gunAim.wait = REACT / quick; gunAim.of = lock.orc; gunAim.had = false; gunAim.sweep = 0; }
+      gunAim.wait = Math.max(0, gunAim.wait - going);
+      const to = want.clone().sub(muzzle), far = Math.max(0.5, to.length());
+      to.divideScalar(far);
+      if (!gunAim.set) { gunAim.dir.copy(to); gunAim.set = true; }
+      // (How fast the foe goes across the view from the gun, eased over a quarter of a second.)
+      if (gunAim.had && going > 0) gunAim.sweep += (gunAim.want.angleTo(to) / going - gunAim.sweep) * Math.min(1, going / 0.25);
+      gunAim.want.copy(to); gunAim.had = lock.orc >= 0;
+      if (gunAim.wait <= 0 && going > 0) {
+        const off = gunAim.dir.angleTo(to), most = deg(ARM_DICE[arm.kind].turn) * quick * going;
+        if (off <= most) gunAim.dir.copy(to);
+        else { const axis = new Vector3().crossVectors(gunAim.dir, to); if (axis.lengthSq() < 1e-10) axis.copy(UP); gunAim.dir.applyAxisAngle(axis.normalize(), most).normalize(); }
+      }
+      gunAim.off = gunAim.dir.angleTo(to);
+      gunAim.kick *= Math.exp(-SETTLE * going);
+      target = muzzle.clone().addScaledVector(gunAim.dir, far);
     } else {
+      gunAim.set = false;
+      gunAim.kick *= Math.exp(-SETTLE * going);
       // What the guide's mark is over (or, by touch, the finger held on the picture, `finger`): the first orc or the snow along the
       // line from the eye through it.
       const reach = aimReach(), x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
@@ -6965,7 +7049,15 @@ async function start() {
     aimedAt.copy(target);
     showFight(watching ? null : arm);
     const d = target.sub(muzzle).normalize().applyQuaternion(hq.clone().invert());
-    let yaw = clamp(Math.atan2(d.x, d.z), -1.3, 1.3), pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
+    // (Aimed at what is behind the body, past where the arms turn the gun, it is held round as far as they turn it on the side it was
+    // already on (asked: "The players hands and gun keep flickering like crazy when riding switch and pushing forward with the stick"):
+    // turned to one side, the body twisted with it and put what was aimed at on the other side the next frame, and the gun went from
+    // side to side every frame.)
+    let yaw = Math.atan2(d.x, d.z);
+    if (Math.abs(yaw) > Math.PI / 2 && Math.sign(yaw) !== gunSide) yaw = gunSide * 1.3;
+    else if (Math.abs(yaw) < Math.PI - 0.6) gunSide = yaw < 0 ? -1 : 1;
+    yaw = clamp(yaw, -1.3, 1.3);
+    let pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.85, 0.55);
     // (Aimed at no number, held straight ahead: posed so, the arms and the body over the hips went to no number for good, and were not
     // drawn.)
     if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) {
@@ -9000,6 +9092,13 @@ async function start() {
     // (Health on foot: what is left of it, or, given `by`, that much lost, as a blow takes it.)
     hurt: (by?: number) => { if (by) hurt(by, 'A script'); return { health: +health.toFixed(1), beaten: +beaten.toFixed(2), onFoot: !!foot }; },
     aimed: () => aimedAt.toArray().map((v) => +v.toFixed(2)),
+    // (The arms aiming themselves: how far off the foe locked on the gun is and how far it may be to be on it (degrees), how fast the foe
+    // goes across the view (degrees a second), the rounds' throw of the aim, the moment before it turns, how quick it turns (degrees a
+    // second), and what the aim adds to the die now; and the stats worn that it goes by.)
+    aimNow: () => {
+      const arm = armNow(), far = lock.orc >= 0 ? horde.middle(lock.orc).distanceTo(rider.position) : 0, r = (v: number) => +v.toFixed(2);
+      return { foe: lock.orc, far: r(far), off: r((gunAim.off * 180) / Math.PI), cone: r((onCone(far) * 180) / Math.PI), sweep: r((gunAim.sweep * 180) / Math.PI), kick: r(gunAim.kick), wait: r(gunAim.wait), turn: Math.round(ARM_DICE[arm.kind].turn * Math.max(0.4, 1 + armStat('aim'))), bonus: lock.orc >= 0 ? aimBonus(far) : null, worn: { aim: armStat('aim'), accuracy: armStat('accuracy'), steady: armStat('steady'), far: armStat('far') } };
+    },
     // (The shaders made from now on, each by what it was made for, its name (or its parent's) and its material: for a script to see
     // what was not made ready ahead (`warmSoon`). `shaders(true)` begins counting afresh; `shaders()` says what has been made since.)
     shaders: (fresh = false) => {

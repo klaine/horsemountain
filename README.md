@@ -115,15 +115,22 @@ ride on), and then one of the ways that carry you through the air (the one you k
   lost, given up for one come much nearer), brackets about it and a thin bar of its strength under them; *Attack* strikes at it (Space,
   or the mouse button; held, firing on, or the sword held drawn up), and ◀ ▶ beside it lock on the next foe to the left or the right
   across the picture (Q and E, or Tab), as does a click or a touch on one; by them, its name, its hit points, and the last roll made at
-  it. On a computer they lie at the lower left, where the stick is not; by touch, *Attack* large in the lower right corner, ◀ ▶ beside
+  it. The arms do not snap to it (asked: "Autotargeting is now like a aimbot robot that just snaps from a target to target in a
+  millisecond"): a moment after a foe is taken up they swing round to it, no quicker than the arm turns (the sword 400 degrees a second,
+  the pistol 240, the lightning gun 200, the shotgun 190, the flamethrower 160, the tommy gun 120, the bazooka 80, quicker for what is
+  worn), the brackets about the foe wide and dim until the gun is on it, closing in as it comes; what is fired before then goes where
+  the gun points. On a computer they lie at the lower left, where the stick is not; by touch, *Attack* large in the lower right corner, ◀ ▶ beside
   it, the 180 and *Skate* over it. Each attack at the foe locked on is rolled (`game/slopeDice.ts`), as a tabletop game rolls it: a
-  twenty-sided die and the arm's skill (less in the air, and for each ten metres past where it strikes true) against how hard the foe
+  twenty-sided die and the arm's skill (and the accuracy worn; less in the air, for each seven metres past where it strikes true, for
+  the foe going fast across the view, a point for each 25 degrees a second, for the gun not yet quite on it, and for the rounds just
+  fired, the tommy gun held down some two points) against how hard the foe
   is to strike, its guard (a goblin's and a wolf's higher than an orc's, the draugr's lower); a natural twenty always strikes and strikes
   hard, a critical, its damage dice thrown twice (the sword's on 18 and over, the pistol's, the lightning gun's and the bazooka's on 19),
   a natural one always misses; and what is not rolled to strike (aimed by hand, a blast, fire, a leap of lightning, a ward) strikes hard
   as often. A critical's number is thrown up large and gilt, *critical* under it, with a burst of golden sparks, a ring and a jolt. What strikes rolls its damage (the sword 4d6+14, the
   pistol 2d6+7, each of the shotgun's nine pellets 1d6+2, the tommy gun 1d8+3, the flamethrower 2d6+4 for each fifth of a second a foe
-  is kept in its fire, lightning 2d8+13 and seven tenths as much at each leap, a rocket 8d8+50 at the heart of its blast), thrown up over
+  is kept in its fire, lightning 2d8+13 and seven tenths as much at each leap, a rocket 8d8+50 at the heart of its blast; a round's,
+  the pistol's, a pellet's or the tommy gun's, less past where it strikes true, down to two fifths at three times as far), thrown up over
   the foe as it is done (gold, a critical; *miss* where it missed); a round that misses goes wide of it, a rocket into the snow a few
   metres off, whose blast may catch it all the same. *Free*: each is aimed at the guide's mark, the button firing it (and Shift
   braking); on a phone or a tablet, a finger on the picture fires it there, an orc near the finger aimed at itself, while tilting or
@@ -249,8 +256,13 @@ landing. *Wards*, about you while you carry arms, a ring on the snow as far as e
 every foe within it, a storm ward calls lightning down out of the sky on the nearest every couple of seconds, a barrow ward turns
 aside the blows of the orcs in the dungeon, a magpie's charm adds to the points won for tricks and foes. *Weapons*: an arm of the foes' ladder made
 better, striking harder and (what fires) firing quicker, carried in place of the arm the foes have given while it is worn, but only
-once the foes have given the last of theirs, the bazooka: until then it waits in the pack, said so there and as it is found. Without *Orcs & weapons*, or riding the horse alone, neither wards nor weapons are
-found. And
+once the foes have given the last of theirs, the bazooka: until then it waits in the pack, said so there and as it is found; better
+balanced too, the heavy ones quicker to swing round, the pistol and the lightning gun truer, the shotgun true further. *Gloves*, a
+*ring* and a *necklace* make the arms aim themselves better: shooting gloves swing them round quicker, gauntlets hold them steadier on
+a foe going fast across the view (and strike a little harder, but swing slower), kidskin gloves both quicker and truer; a hawk's ring
+truer, a ring of far sight true further, a quicksilver ring much quicker and a little less true; an owl's-eye pendant truer and true
+further, a hunter's torc steadier and quicker, a necklace of wolf teeth quicker and a little harder. Without *Orcs & weapons*, or
+riding the horse alone, none of these is found. And
 *guidebooks*, read as they are found and learned for good: *The Rodeo Scrolls* (a rodeo 540 and 900), *The Barrelwright's Almanac*
 (the double barrel roll), the *Codex of the Three Turnings* (the triple backflip) and the *Treatise on the Triple Cork* (triple corks
 of 1440 and 1800), the trick chosen off a kicker then sometimes theirs, when the air it gives is long enough and the slider wild

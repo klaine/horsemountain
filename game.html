@@ -792,10 +792,12 @@
        lower right corner, ◀ ▶ beside it, the 180 and *Skate* over it. */
     #lockOn { position: fixed; left: 0; top: 0; z-index: 3; pointer-events: none; --tall: 60px; width: 0; height: 0; }
     #lockOn .c { position: absolute; width: 11px; height: 11px; border: 0 solid #fff; filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(0, 0, 0, .7)); }
-    #lockOn .tl { left: calc(var(--tall) * -.32 - 4px); top: calc(var(--tall) * -.5); border-width: 2.5px 0 0 2.5px; }
-    #lockOn .tr { left: calc(var(--tall) * .32 - 7px); top: calc(var(--tall) * -.5); border-width: 2.5px 2.5px 0 0; }
-    #lockOn .bl { left: calc(var(--tall) * -.32 - 4px); top: calc(var(--tall) * .5 - 11px); border-width: 0 0 2.5px 2.5px; }
-    #lockOn .br { left: calc(var(--tall) * .32 - 7px); top: calc(var(--tall) * .5 - 11px); border-width: 0 2.5px 2.5px 0; }
+    /* (Its corners as far out as the gun is off the foe, `--open`, closing in as it comes onto it; dimmer until it is on it.) */
+    #lockOn .tl { left: calc(var(--tall) * -.32 * var(--open, 1) - 4px); top: calc(var(--tall) * -.5 * var(--open, 1)); border-width: 2.5px 0 0 2.5px; }
+    #lockOn .tr { left: calc(var(--tall) * .32 * var(--open, 1) - 7px); top: calc(var(--tall) * -.5 * var(--open, 1)); border-width: 2.5px 2.5px 0 0; }
+    #lockOn .bl { left: calc(var(--tall) * -.32 * var(--open, 1) - 4px); top: calc(var(--tall) * .5 * var(--open, 1) - 11px); border-width: 0 0 2.5px 2.5px; }
+    #lockOn .br { left: calc(var(--tall) * .32 * var(--open, 1) - 7px); top: calc(var(--tall) * .5 * var(--open, 1) - 11px); border-width: 0 2.5px 2.5px 0; }
+    #lockOn:not(.aimed) .c { opacity: .55; }
     #lockOn.chosen .c { border-color: #ffe07a; }
     #lockOn.far { opacity: .5; }
     #lockOn .hp { position: absolute; left: -22px; top: calc(var(--tall) * .5 + 5px); width: 44px; height: 4px; background: rgba(12, 10, 10, .75);

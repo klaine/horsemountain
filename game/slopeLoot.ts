@@ -8,9 +8,11 @@
  * (`Drops`), a ward's ring on the snow (`WardRing`), the card that says what was found (`LootCard`) and the pack in the menu
  * (`packView`).
  *
- * Five places to wear something: skis, boots, a ward (a charm that acts about the player), a weapon (carried in place of the arm the
- * foes brought down have given, while *Orcs & weapons* is on), and guidebooks, which are not worn but read, once, and teach tricks
- * for good (the trick chosen off a kicker may then be one of theirs).
+ * Eight places to wear something: skis, boots, a ward (a charm that acts about the player), a weapon (carried in place of the arm the
+ * foes brought down have given, while *Orcs & weapons* is on), gloves, a ring and a necklace (which make the arms aim quicker and
+ * truer: asked, "There should be some kind of aiming speed base stat (and accuracy) which can be boosted by looted weapons or other
+ * gear as well (gloves, rings, necklaces!)"), and guidebooks, which are not worn but read, once, and teach tricks for good (the trick
+ * chosen off a kicker may then be one of theirs).
  */
 import {
   AdditiveBlending, CanvasTexture, Color, CylinderGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial, OctahedronGeometry, PlaneGeometry,
@@ -19,7 +21,10 @@ import {
 import type { Rng } from '../src/core/rng';
 import type { ArmKind } from './slopeArms';
 
-export type Slot = 'skis' | 'boots' | 'ward' | 'weapon' | 'book';
+export type Slot = 'skis' | 'boots' | 'ward' | 'weapon' | 'gloves' | 'ring' | 'necklace' | 'book';
+/** The slots something is worn in, in the order the pack shows them; and those that are of use only with arms carried. */
+export const WORN: Exclude<Slot, 'book'>[] = ['skis', 'boots', 'ward', 'weapon', 'gloves', 'ring', 'necklace'];
+const ARMED = new Set<Slot>(['ward', 'weapon', 'gloves', 'ring', 'necklace']);
 export type Rarity = 'common' | 'fine' | 'rare' | 'ancient';
 export type WardKind = 'ember' | 'storm' | 'shield' | 'magpie';
 
@@ -31,16 +36,20 @@ export type WardKind = 'ember' | 'storm' | 'shield' | 'magpie';
  * spin or a flip still landed; `might`, a share harder blows; `haste`, a share quicker rounds; `points`, a share more points.
  * The ward's: `ember`, blows a second to every foe within `emberR` metres; `storm`, seconds between bolts at a foe within `stormR`;
  * `shield`, the chance a blow on foot is turned aside.
+ * The aim's (the arms aiming themselves, *Aiming: Auto*): `aim`, a share quicker turning to a foe and onto the next; `accuracy`, points
+ * added to the die; `steady`, a share taken off what a foe moving fast across the view takes from it; `far`, a share further before
+ * distance takes from it and from a round's blow.
  */
 export interface Mods {
   turn: number; top: number; accel: number; powder: number; stones: number;
   landing: number; pop: number; forgive: number;
   might: number; haste: number; points: number;
   ember: number; emberR: number; storm: number; stormR: number; shield: number;
+  aim: number; accuracy: number; steady: number; far: number;
 }
 export const NO_MODS: Readonly<Mods> = Object.freeze({
   turn: 0, top: 0, accel: 0, powder: 0, stones: 0, landing: 0, pop: 0, forgive: 0, might: 0, haste: 0, points: 0,
-  ember: 0, emberR: 0, storm: 0, stormR: 0, shield: 0,
+  ember: 0, emberR: 0, storm: 0, stormR: 0, shield: 0, aim: 0, accuracy: 0, steady: 0, far: 0,
 });
 
 /** A trick a guidebook teaches, as the ride's trick pool has them: what it is, how wild, and how long in the air it wants. */
@@ -96,10 +105,28 @@ const BASES: Base[] = [
   { id: 'storm', slot: 'ward', ward: 'storm', noun: 'storm ward', stats: { storm: [3.2, 2.0], stormR: [16, 24] } },
   { id: 'shield', slot: 'ward', ward: 'shield', noun: 'barrow ward', stats: { shield: [0.3, 0.55] } },
   { id: 'magpie', slot: 'ward', ward: 'magpie', noun: "magpie's charm", stats: { points: [0.12, 0.3] } },
-  // Weapons: each arm the foes give, made better (`might`, and for what fires, `haste`).
+  // Weapons: each arm the foes give, made better (`might`, and for what fires, `haste`; and it is better balanced, `aim`, and truer,
+  // `accuracy`, the guns more so for what they are: the pistol and the lightning gun truer, the tommy gun and the bazooka, heavy, quicker
+  // to swing round).
   ...(['sword', 'pistol', 'shotgun', 'flamer', 'smg', 'lightning', 'bazooka'] as const).map((arm): Base => ({
-    id: arm, slot: 'weapon', arm, noun: ARM_NOUN[arm], stats: arm === 'sword' || arm === 'flamer' ? { might: [0.3, 0.8] } : { might: [0.2, 0.6], haste: [0.08, 0.25] },
+    id: arm, slot: 'weapon', arm, noun: ARM_NOUN[arm],
+    stats: arm === 'sword' || arm === 'flamer' ? { might: [0.3, 0.8], aim: [0.05, 0.15] }
+      : arm === 'pistol' || arm === 'lightning' ? { might: [0.2, 0.6], haste: [0.08, 0.25], accuracy: [1, 2.4] }
+      : arm === 'smg' || arm === 'bazooka' ? { might: [0.2, 0.6], haste: [0.08, 0.25], aim: [0.1, 0.25] }
+      : { might: [0.2, 0.6], haste: [0.08, 0.25], far: [0.15, 0.35] },
   })),
+  // Gloves: the hands, quicker on the arms (`aim`), or surer (`accuracy`), or both a little.
+  { id: 'shooting', slot: 'gloves', noun: "shooting gloves", stats: { aim: [0.2, 0.45] } },
+  { id: 'gauntlets', slot: 'gloves', noun: 'gauntlets', stats: { steady: [0.2, 0.4], might: [0.05, 0.12], aim: [-0.1, -0.05] } },
+  { id: 'kidskin', slot: 'gloves', noun: 'kidskin gloves', stats: { aim: [0.1, 0.22], accuracy: [1, 1.8] } },
+  // Rings.
+  { id: 'hawk', slot: 'ring', noun: "hawk's ring", stats: { accuracy: [1.4, 3] } },
+  { id: 'farsight', slot: 'ring', noun: 'ring of far sight', stats: { far: [0.25, 0.6] } },
+  { id: 'quick', slot: 'ring', noun: 'quicksilver ring', stats: { aim: [0.15, 0.35], accuracy: [-1, -1] } },
+  // Necklaces.
+  { id: 'owl', slot: 'necklace', noun: "owl's-eye pendant", stats: { far: [0.15, 0.35], accuracy: [1, 1.8] } },
+  { id: 'hunter', slot: 'necklace', noun: "hunter's torc", stats: { steady: [0.25, 0.5], aim: [0.08, 0.18] } },
+  { id: 'wolfteeth', slot: 'necklace', noun: 'necklace of wolf teeth', stats: { aim: [0.15, 0.3], might: [0.04, 0.1] } },
 ];
 
 /** How far along a stat's range each rarity comes (a rare one's range as it is; an ancient's past it); and how each is shown. */
@@ -112,6 +139,9 @@ const PREFIX: Record<Exclude<Slot, 'book'>, Record<Rarity, string[]>> = {
   boots: { common: ['Old', 'Cracked', 'Hide'], fine: ['Sealskin', 'Stitched', 'Lined'], rare: ['Runed', 'Dwarf-made', 'Silvered'], ancient: [] },
   ward: { common: ['Bone', 'Clay', 'Knotted'], fine: ['Amber', 'Jet', 'Carved'], rare: ['Runed', 'Moonstone', 'Gilt'], ancient: [] },
   weapon: { common: ['Rusted', 'Notched', 'Old'], fine: ['Oiled', 'Balanced', 'Engraved'], rare: ['Runed', 'Frostforged', 'Gilt'], ancient: [] },
+  gloves: { common: ['Worn', 'Patched', 'Wool'], fine: ['Deerskin', 'Stitched', 'Lined'], rare: ['Runed', 'Silver-studded', 'Wyrmhide'], ancient: [] },
+  ring: { common: ['Copper', 'Iron', 'Bone'], fine: ['Silver', 'Amber', 'Garnet'], rare: ['Runed', 'Moonstone', 'Star-sapphire'], ancient: [] },
+  necklace: { common: ['Knotted', 'Bone', 'Leather'], fine: ['Silver', 'Amber', 'Carved'], rare: ['Runed', 'Gilt', 'Jet'], ancient: [] },
 };
 /** An ancient thing's own name, by what it is: a phrase, the noun after it. */
 const ANCIENT: Record<string, string[]> = {
@@ -121,6 +151,9 @@ const ANCIENT: Record<string, string[]> = {
   ember: ['The Last Hearth', 'Coal of the Barrow-king'], storm: ['The Thunder-eye', 'Stormglass'], shield: ['The Unbroken Ring', 'Ward of the Seven Dead'], magpie: ['The Magpie Queen', 'Hoardheart'],
   sword: ['Gram', 'Yeti\'s Bane'], pistol: ['The Widow\'s Answer', 'Quickfinger'], shotgun: ['Old Thunder', 'The Doorknocker'], flamer: ['Dragon\'s Breath', 'The Hearthfather'],
   smg: ['The Chatterbox', 'Hailstorm'], lightning: ['Stormcaller', 'The Sky\'s Anger'], bazooka: ['The Avalanche', 'Mountainbreaker'],
+  shooting: ["The Quick Hands", 'Gunslinger\'s Grip'], gauntlets: ['The Iron Fists', 'Stonegrip'], kidskin: ['Deadeye\'s Touch', 'The Gentle Trigger'],
+  hawk: ['The Hawk\'s Eye', 'Truesight'], farsight: ['The Long Look', 'Horizon'], quick: ['Mercury\'s Coil', 'The Blink'],
+  owl: ['The Night Owl', 'Eye of the Watcher'], hunter: ['The Still Heart', 'Torc of the First Hunter'], wolfteeth: ['The Pack\'s Fang', 'Fenrir\'s Due'],
 };
 
 export interface Item {
@@ -133,8 +166,8 @@ export interface Item {
 /** Where loot comes from: a chest at the end of a dungeon (more often a book), or a great one felled (more often a weapon or a ward). */
 export type Source = 'chest' | 'boss';
 const SLOT_ODDS: Record<Source, Record<Slot, number>> = {
-  chest: { book: 3, skis: 2.5, boots: 2.5, ward: 1.5, weapon: 1.5 },
-  boss: { book: 1, skis: 1.5, boots: 1.5, ward: 2.5, weapon: 3 },
+  chest: { book: 3, skis: 2.5, boots: 2.5, ward: 1.5, weapon: 1.5, gloves: 1.2, ring: 1.2, necklace: 1 },
+  boss: { book: 1, skis: 1.5, boots: 1.5, ward: 2.5, weapon: 3, gloves: 1.5, ring: 1.5, necklace: 1.5 },
 };
 const RARITY_ODDS: Record<Source, Record<Rarity, number>> = {
   chest: { common: 2, fine: 4, rare: 3, ancient: 1 },
@@ -152,15 +185,15 @@ const round = (v: number, by: number) => Math.round(v / by) * by;
  * Something found, drawn by `rng` from what `source` gives: a book not yet read, if one is drawn and any is left (else something else);
  * otherwise a thing of a kind drawn by the slot's odds, of a rarity drawn by the source's, its stats along its ranges as far as its
  * rarity says (and an ancient one a share better again in its second stat, if it has a drawback, that drawback halved). Without `arms`
- * (no orcs and weapons, or the horse ridden alone), no weapon nor ward: neither does anything there, and a find of one was a find of
- * nothing.
+ * (no orcs and weapons, or the horse ridden alone), no weapon, ward, gloves, ring nor necklace: none does anything there, and a find of
+ * one was a find of nothing.
  */
 export function rollLoot(rng: Rng, source: Source, read: ReadonlySet<string>, found: string, arms = true): Item {
   const id = `${Date.now().toString(36)}${rng.int(0, 1e9).toString(36)}`;
-  const can = (odds: Partial<Record<Slot, number>>) => Object.fromEntries(Object.entries(odds).filter(([k]) => arms || (k !== 'ward' && k !== 'weapon'))) as Record<Slot, number>;
+  const can = (odds: Partial<Record<Slot, number>>) => Object.fromEntries(Object.entries(odds).filter(([k]) => arms || !ARMED.has(k as Slot))) as Record<Slot, number>;
   let slot = weighted(rng, can(SLOT_ODDS[source]));
   const unread = BOOKS.filter((b) => !read.has(b.id));
-  if (slot === 'book' && !unread.length) slot = weighted(rng.fork('again'), can({ skis: 1, boots: 1, ward: 1, weapon: 1 }));
+  if (slot === 'book' && !unread.length) slot = weighted(rng.fork('again'), can({ skis: 1, boots: 1, ward: 1, weapon: 1, gloves: 1, ring: 1, necklace: 1 }));
   if (slot === 'book') {
     // (The rarer books the less often: a fine one twice as often as an ancient.)
     const book = weighted(rng.fork('book'), Object.fromEntries(unread.map((b) => [b.id, b.rarity === 'ancient' ? 1 : b.rarity === 'rare' ? 1.5 : 2])) as Record<string, number>);
@@ -174,7 +207,7 @@ export function rollLoot(rng: Rng, source: Source, read: ReadonlySet<string>, fo
     // says, an ancient one's past its end; but a drawback, a stat below nothing, drawn anywhere in its range whatever the rarity, an
     // ancient one's halved.)
     const v = hi < 0 ? (lo + (hi - lo) * rng.next()) * (rarity === 'ancient' ? 0.5 : 1) : lo + (hi - lo) * rng.range(q0, q1);
-    mods[k] = k === 'storm' ? Math.max(1.4, round(v, 0.1)) : round(v, k === 'stones' || k === 'forgive' ? 1 : 0.01);
+    mods[k] = k === 'storm' ? Math.max(1.4, round(v, 0.1)) : round(v, k === 'stones' || k === 'forgive' || k === 'accuracy' ? 1 : 0.01);
   }
   const named = rarity === 'ancient' ? rng.pick(ANCIENT[base.id]) : `${rng.pick(PREFIX[base.slot][rarity])} ${base.noun}`;
   const name = rarity === 'ancient' ? `${named}, ${/s$/.test(base.noun) ? '' : base.noun.match(/^[aeiou]/) ? 'an ' : 'a '}${base.noun}` : named;
@@ -200,9 +233,13 @@ export function linesOf(item: Item): string[] {
   if (m.storm) out.push(`Calls lightning on a foe within ${Math.round(m.stormR!)} m every ${m.storm.toFixed(1)} s`);
   if (m.shield) out.push(`Turns aside ${Math.round(m.shield * 100)}% of blows on foot`);
   if (m.points) out.push(`Points ${pct(m.points)}`);
+  if (m.aim) out.push(`Aims ${pct(m.aim)} ${m.aim > 0 ? 'quicker' : '(slower)'}`);
+  if (m.accuracy) out.push(`Accuracy ${m.accuracy > 0 ? '+' : '−'}${Math.abs(Math.round(m.accuracy))} to hit`);
+  if (m.steady) out.push(`Steadier on fast-moving foes (${pct(m.steady)})`);
+  if (m.far) out.push(`True to ${pct(m.far)} further`);
   return out;
 }
-export const SLOT_NAME: Record<Slot, string> = { skis: 'Skis', boots: 'Boots', ward: 'Ward', weapon: 'Weapon', book: 'Guidebook' };
+export const SLOT_NAME: Record<Slot, string> = { skis: 'Skis', boots: 'Boots', ward: 'Ward', weapon: 'Weapon', gloves: 'Gloves', ring: 'Ring', necklace: 'Necklace', book: 'Guidebook' };
 /** What kind of thing it is, as its card heads it: its rarity and slot. */
 export const kindOf = (item: Item) => `${RARITY[item.rarity].name} ${item.slot === 'weapon' ? ARM_NOUN[item.arm!] : item.slot === 'book' ? 'guidebook' : item.slot === 'ward' ? 'ward' : item.slot}`;
 
@@ -246,7 +283,7 @@ export class Pack {
   /** What everything worn comes to. */
   mods(): Mods {
     const m: Mods = { ...NO_MODS };
-    for (const slot of ['skis', 'boots', 'ward', 'weapon'] as const) {
+    for (const slot of WORN) {
       const it = this.wornIn(slot);
       if (it) for (const [k, v] of Object.entries(it.mods) as [keyof Mods, number][]) m[k] += v;
     }
@@ -445,7 +482,7 @@ export function packView(el: HTMLElement, pack: Pack, plain: (slot: Slot) => str
     b.append(t, ...lines.map((l) => Object.assign(document.createElement('span'), { textContent: l })));
     return b;
   };
-  for (const slot of ['skis', 'boots', 'ward', 'weapon'] as const) {
+  for (const slot of WORN) {
     const of = pack.items.filter((i) => i.slot === slot), worn = pack.wornIn(slot);
     const h = document.createElement('div'); h.className = 'slot'; h.textContent = SLOT_NAME[slot];
     parts.push(h);
