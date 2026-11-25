@@ -742,6 +742,9 @@ type N = any; // eslint-disable-line @typescript-eslint/no-explicit-any
  * game asks of it, in the land's frame: where one on foot may go and how high its floor is there, where a view may stand, how deep
  * in a point is, and what is solid to one on skis. Inside, its own frame (`frame`): across the way in to its left (x), up, and in (z).
  */
+/** The corners about a point, a quarter metre out, that must all be open floor for it to be clear of the walls (`Cave.clear`). */
+const ROOM_CORNERS = [[-0.25, -0.25], [0.25, 0.25], [-0.25, 0.25], [0.25, -0.25]] as const;
+
 export class Cave {
   readonly group = new Group();
   /**
@@ -1566,7 +1569,7 @@ export class Cave {
       const k = this.cellAt(lat, t), cover = this.site.deep + CAVE.room + CAVE.cover;
       if (k && this.open(k[0], k[1])) {
         const floor = this.site.deep + this.floorIn(lat, t), roof = this.site.deep + this.layout.top[k[1] * this.layout.cols + k[0]];
-        const room = [[-0.25, -0.25], [0.25, 0.25], [-0.25, 0.25], [0.25, -0.25]].every(([a, b]) => this.passAt(lat + a, t + b));
+        const room = ROOM_CORNERS.every(([a, b]) => this.passAt(lat + a, t + b));
         if (y > floor + 0.15 && y < roof - 0.25 && room) return y > floor + 1.9 || !this.posts.some((q) => Math.hypot(lat - q.lat, t - q.t) < q.r - 0.1);
         if (y < cover) return false;
       } else if (k && y < cover) return false;

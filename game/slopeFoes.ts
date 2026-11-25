@@ -31,7 +31,8 @@ export interface Gait {
   /** Brought to its knees, beaten, waiting for the last blow (`FoeKind.kneels`). */
   kneel?(): void;
   stop(): void;
-  update(dt: number): void;
+  /** A moment on; `far`, out of sight or far off, where its moves may be worked out less often. */
+  update(dt: number, far?: boolean): void;
 }
 /** How a body of a kind is made, its size given, and which of its coats (where it has more than one, by a number from 0 to 1). */
 export type Maker = (size: number, coat: number) => Gait;
@@ -134,9 +135,23 @@ async function rigged(library: FigureLibrary, make: (bare: Object3D) => Object3D
   return (size) => {
     const copy = cloneRigged(body), meshes: Mesh[] = [];
     copy.scale.set(size * broad, size, size * broad);
-    copy.traverse((o) => { if ((o as Mesh).isMesh) { meshes.push(o as Mesh); o.castShadow = true; o.receiveShadow = true; if ((o as SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; } });
+    copy.traverse((o) => { if ((o as Mesh).isMesh) { meshes.push(o as Mesh); o.castShadow = true; o.receiveShadow = true; if ((o as SkinnedMesh).isSkinnedMesh) roomFor(o as SkinnedMesh); } });
     return new Figure(copy, meshes, moves, clips, size);
   };
+}
+
+/**
+ * A skinned body given bounds as wide as any of its moves carry it, and passed over when they are out of sight. Without bounds of its
+ * own (a clip carries a limb far outside those of the pose it was made in) it had been drawn always, every orc behind the eye and
+ * every one far down the run, into the picture and the sun's shadows both. Its pose's bounds, two and a half times as wide about
+ * their middle: room for an arm flung out, a fall flat on the snow, a kneel.
+ */
+function roomFor(m: SkinnedMesh) {
+  if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+  const s = m.geometry.boundingSphere!.clone();
+  s.radius *= 2.5;
+  m.boundingSphere = s;
+  m.frustumCulled = true;
 }
 
 /** One of the figures' bodies going up the run: its clip of coming played as fast as it goes, a clip of reeling as it is struck, and of falling. */
@@ -148,6 +163,9 @@ class Figure implements Gait {
   private readonly down: AnimationAction | null;
   private scale = 1;
   private reeling = 0;
+  /** Time not yet played, far off (`update`); and the frames counted there. */
+  private owed = 0;
+  private frames = 0;
   constructor(readonly model: Object3D, readonly meshes: Mesh[], moves: Map<string, { clip: AnimationClip }>, private readonly clips: Clips, private readonly size: number) {
     this.mixer = new AnimationMixer(model);
     this.walk = this.mixer.clipAction(moves.get(clips.walk)!.clip);
@@ -167,7 +185,7 @@ class Figure implements Gait {
   go(pace: number, phase: number) {
     // (Its stride played as fast as it goes, where how far one carries it is known, that its feet do not slide over the snow.)
     this.scale = this.clips.speed ? pace / (this.clips.speed * this.size) : pace;
-    this.reeling = 0;
+    this.reeling = 0; this.owed = 0;
     this.hit?.stop(); this.die.stop(); this.down?.stop();
     this.walk.reset().setEffectiveTimeScale(this.scale).setEffectiveWeight(1).play();
     this.walk.time = phase * this.walk.getClip().duration;
@@ -185,15 +203,20 @@ class Figure implements Gait {
     this.die.reset().setEffectiveTimeScale(1.2).setEffectiveWeight(1).play();
     from.crossFadeTo(this.die, 0.12, false);
   }
-  stop() { this.walk.stop(); this.die.stop(); this.hit?.stop(); this.down?.stop(); this.reeling = 0; }
-  update(dt: number) {
+  stop() { this.walk.stop(); this.die.stop(); this.hit?.stop(); this.down?.stop(); this.reeling = 0; this.owed = 0; }
+  update(dt: number, far = false) {
     if (this.reeling > 0 && (this.reeling -= dt) <= 0 && this.hit) {
       // (Faded out as it reeled, its coming clip is taken up again where it was left.)
       this.walk.enabled = true;
       this.walk.setEffectiveTimeScale(this.scale).play();
       this.hit.crossFadeTo(this.walk, 0.25, false);
     }
-    this.mixer.update(dt);
+    // (Far off or out of sight, its moves worked out every third frame, by the time gone since: a stride a little less smooth where it
+    // is a few pixels high, or not seen at all.)
+    this.owed += dt;
+    if (far && ++this.frames % 3) return;
+    this.mixer.update(this.owed);
+    this.owed = 0;
   }
 }
 

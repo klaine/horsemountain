@@ -308,8 +308,12 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
   }
   for (const m of samples) { m.visible = false; group.add(m); }
   const bi0 = Math.floor(x0 / LOW), bi1 = Math.floor(x1 / LOW), bj0 = Math.floor(z0 / LOW), bj1 = Math.floor(z1 / LOW);
-  const nears = new Map<string, Object3D[]>(), mids = new Map<string, Object3D[]>();
+  // (Each block by a number of its own, its place kept with it: named by a string, each was named again, and read back apart, for every
+  // block about the eye every frame.)
+  const blockKey = (i: number, j: number) => i * 65536 + j;
+  const nears = new Map<number, { bi: number; bj: number; meshes: Object3D[] }>(), mids = new Map<number, { bi: number; bj: number; meshes: Object3D[] }>();
   const rising = new Map<string, { bi: number; bj: number; level: 'whole' | 'simple'; t0: number }>();
+  let flushedAt = 0;
   /**
    * The block being grown: its trees grown one at a time, then its wood made into meshes one bark at a time, then its cards, a little of
    * it each frame (`BUDGET`), so that no frame waits on a whole block. (Grown at once, a block of whole trees in a thick wood took forty
@@ -338,7 +342,7 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
     b.out.push(...cardsOf(k, b.made.sets, level));
     // (Those grown simply are well beyond the sun's shadows about the skier, and cast none.)
     for (const m of b.out) { if (b.simply) m.castShadow = false; group.add(m); }
-    (b.simply ? mids : nears).set(`${b.bi},${b.bj}`, b.out);
+    (b.simply ? mids : nears).set(blockKey(b.bi, b.bj), { bi: b.bi, bj: b.bj, meshes: b.out });
     rising.set(`${level}:${b.bi},${b.bj}`, { bi: b.bi, bj: b.bj, level, t0: performance.now() });
     growing = null;
   };
@@ -354,8 +358,8 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
   };
   const letGo = (bi: number, bj: number, level: 'whole' | 'simple') => { rising.delete(`${level}:${bi},${bj}`); k.grown.set(bi, bj, level, 0); };
   const dropAll = () => {
-    for (const [key, meshes] of nears) { const [i, j] = key.split(',').map(Number); drop(meshes); letGo(i, j, 'whole'); }
-    for (const [key, meshes] of mids) { const [i, j] = key.split(',').map(Number); drop(meshes); letGo(i, j, 'simple'); }
+    for (const { bi, bj, meshes } of nears.values()) { drop(meshes); letGo(bi, bj, 'whole'); }
+    for (const { bi, bj, meshes } of mids.values()) { drop(meshes); letGo(bi, bj, 'simple'); }
     nears.clear(); mids.clear(); rising.clear();
     if (growing) { drop(growing.out); growing = null; }
   };
@@ -376,7 +380,7 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
           const r = Math.ceil(MID / LOW) + 1, ci = Math.floor(eye.x / LOW), cj = Math.floor(eye.z / LOW);
           let whole: [number, number, number] | null = null, simple: [number, number, number] | null = null;
           for (let j = Math.max(bj0, cj - r); j <= Math.min(bj1, cj + r); j++) for (let i = Math.max(bi0, ci - r); i <= Math.min(bi1, ci + r); i++) {
-            const d = blockNear(i, j), key = `${i},${j}`;
+            const d = blockNear(i, j), key = blockKey(i, j);
             if (d < WHOLE && !nears.has(key) && (!whole || d < whole[2])) whole = [i, j, d];
             if (d < MID && blockFar(i, j) > SIMPLE_FROM && !mids.has(key) && (!simple || d < simple[2])) simple = [i, j, d];
           }
@@ -390,13 +394,13 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
       const show = (meshes: Object3D[], on: boolean) => { for (const m of meshes) { m.visible = on; if (on && (m as InstancedMesh).isInstancedMesh) cards.push(m as InstancedMesh); } };
       // Each level let go of well past where it is drawn, and, while kept, not drawn at all where every tree in the block is drawn the
       // other way (the shader would draw it into nothing, at the cost of its points).
-      for (const [key, meshes] of nears) {
-        const [i, j] = key.split(',').map(Number), d = blockNear(i, j);
+      for (const [key, { bi: i, bj: j, meshes }] of nears) {
+        const d = blockNear(i, j);
         if (d > WHOLE + 40) { drop(meshes); nears.delete(key); letGo(i, j, 'whole'); continue; }
         show(meshes, d < WHOLE - BEYOND);
       }
-      for (const [key, meshes] of mids) {
-        const [i, j] = key.split(',').map(Number), d = blockNear(i, j), far = blockFar(i, j);
+      for (const [key, { bi: i, bj: j, meshes }] of mids) {
+        const d = blockNear(i, j), far = blockFar(i, j);
         if (d > MID + 50 || far < SIMPLE_FROM - 20) { drop(meshes); mids.delete(key); letGo(i, j, 'simple'); continue; }
         show(meshes, far > SIMPLE_FROM + BEYOND && d < MID - BEYOND);
       }
@@ -407,7 +411,9 @@ export function sliceWoods(g: WoodsGround, texSize: number): Woods {
       // Blocks just grown come in, and the shader is told.
       const now = performance.now();
       for (const [key, b] of rising) { const t = (now - b.t0) / RISE; k.grown.set(b.bi, b.bj, b.level, t); if (t >= 1) rising.delete(key); }
-      k.grown.flush();
+      // (The map sent again some twenty times a second while blocks come in, which is as smooth as half a second's fade needs: sent every
+      // frame, the whole of it went to the graphics card nearly every frame of a ride. With none coming in, what changed is sent at once.)
+      if (!rising.size || now - flushedAt > 50) { k.grown.flush(); flushedAt = now; }
       vegetationUniforms.uTime.value = seconds;
     },
     dispose() {

@@ -243,7 +243,7 @@ export class Horde {
       const casts = b.p.distanceToSquared(q.at) < 50 * 50;
       if (casts !== b.casts) { b.casts = casts; for (const m of b.gait.meshes) m.castShadow = casts; }
       model.rotation.set(0, b.yaw, 0);
-      b.gait.update(dt);
+      b.gait.update(dt, b.p.distanceToSquared(q.at) > 70 * 70);
     }
     return ran;
   }
@@ -328,7 +328,7 @@ export class Horde {
       const casts = b.p.distanceToSquared(q.at) < 30 * 30;
       if (casts !== b.casts) { b.casts = casts; for (const m of b.gait.meshes) m.castShadow = casts; }
       b.gait.model.rotation.set(0, b.yaw, 0);
-      b.gait.update(dt);
+      b.gait.update(dt, !b.gait.model.visible || b.p.distanceToSquared(q.at) > 30 * 30);
     }
   }
 
@@ -431,8 +431,11 @@ export class Horde {
   /** The pen taken away: those in it go on as the rest do. */
   unpen(): void { this.pen = null; for (const b of this.foes) b.penned = false; }
 
-  /** Every one let go of, and the count begun again (a new run, or no gun). */
-  clear(): void { for (const b of this.foes) if (b.state !== 'gone') this.letGo(b); this.downed = 0; this.pen = null; }
+  /**
+   * Every one let go of, and the count begun again (a new run, or no gun); or, `keepCount`, the count kept: going into the cave on foot
+   * and out of it again lets the run's foes go, but the run goes on, and its count had dropped to nothing mid-run.
+   */
+  clear(keepCount = false): void { for (const b of this.foes) if (b.state !== 'gone') this.letGo(b); if (!keepCount) this.downed = 0; this.pen = null; }
   /** How many are about. */
   get about(): number { return this.foes.filter((b) => b.state !== 'gone').length; }
   /** Where each still coming stands, for a script that drives the page; and what it is. */

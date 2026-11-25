@@ -486,6 +486,34 @@
        to the marked slopes"; and "start showing the countdown right away though"): under the line of what is being done, from the
        moment it leaves the piste; small and quiet while there is time, large and in the warning's colour over its last five seconds
        (`late`). */
+    /* Paused by the player: said in the middle of the picture (it had been said only in the box of numbers, which is off unless asked
+       for, and a Space pressed by chance stilled everything with nothing to say why); clicked or tapped, it goes on. */
+    #paused { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 4; display: grid; justify-items: center; gap: 4px;
+      padding: 10px 22px 8px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; color: var(--ink); cursor: pointer; }
+    #paused[hidden], body.menu-open #paused, body.choosing #paused { display: none; }
+    #paused b { font: 900 22px/1.05 "Cinzel", var(--serif); letter-spacing: .12em; text-transform: uppercase; }
+    #paused span { font-size: 12px; color: var(--ink-dim); }
+    body.mouse #paused .touch-only, body:not(.mouse) #paused .mouse-only { display: none; }
+    /* Health, on foot in the cave: a thin bar at the foot of the picture, what a blow takes shown pale a moment before it drains, as the
+       great ones' bars are; the bars of the great ones raised over it while it is shown. */
+    #health { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); translate: -50% 0; z-index: 2; pointer-events: none;
+      width: clamp(160px, 30vw, 300px); display: none; gap: 3px; }
+    body.on-foot #health { display: grid; }
+    body.choosing #health, body.menu-open #health { display: none; }
+    #health .cap { font: 700 10.5px/1 "Cinzel", var(--serif); letter-spacing: .2em; text-transform: uppercase; color: var(--ink); text-shadow: 0 1px 3px rgba(0, 0, 0, .85), 0 0 8px rgba(0, 0, 0, .5); }
+    #health .bar { position: relative; height: 7px; background: rgba(12, 10, 10, .72); border: 1px solid var(--rule); border-radius: 2px; overflow: hidden; }
+    #health .bar i { position: absolute; left: 0; top: 0; bottom: 0; }
+    #health .bar .lag { width: calc(var(--was, 1) * 100%); background: #e8d9a8; transition: width .7s ease-in .4s; }
+    #health .bar .fill { width: calc(var(--hp, 1) * 100%); background: linear-gradient(#5fae4a, #2f6e22); transition: width .1s linear; }
+    #health.low .bar .fill { background: linear-gradient(#d0452f, #7a1b10); }
+    body.on-foot #bosses { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
+    /* An upright phone: the great ones' bars, and health, over the stick and the trick buttons, not between them, where there is no room. */
+    @media (max-width: 600px) and (orientation: portrait) {
+      #bosses { width: calc(100vw - var(--gutter-l) - var(--gutter-r)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+      #health { width: calc(100vw - var(--gutter-l) - var(--gutter-r)); bottom: calc(132px + env(safe-area-inset-bottom, 0px)); }
+      body.on-foot #bosses { bottom: calc(176px + env(safe-area-inset-bottom, 0px)); }
+    }
+    @media (prefers-reduced-motion: reduce) { #health .bar .lag, #health .bar .fill { transition: none; } }
     #offPiste { position: fixed; left: 50%; top: calc(28% + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 3; display: grid; justify-items: center;
       gap: 2px; padding: 5px 14px 4px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; pointer-events: none; transition: padding .2s, border-color .2s; }
     #offPiste .say { font: 700 10px/1 "Cinzel", var(--serif); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); }
@@ -838,6 +866,7 @@
   <canvas id="mini" hidden aria-hidden="true"></canvas>
   <button id="rail" type="button" hidden aria-label="How far down the run: tap for the minimap"><i class="track"></i><i class="done"></i><span class="ticks"></span><i class="me"></i></button>
   <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
+  <button id="paused" type="button" hidden><b>Paused</b><span class="mouse-only">Click to go on</span><span class="touch-only">Tap to go on</span></button>
   <div id="offPiste" hidden role="alert"><span class="say">Back to the marked slopes</span><b class="n">5</b></div>
   <div id="stick" hidden role="group" aria-label="Steer: to either side to turn, up to tuck, down to stand straight"><div class="base"></div><div class="knob"></div><span class="say up">Tuck</span><span class="say down">Straight</span></div>
   <div id="aim" aria-hidden="true"><i class="skid l"></i><i class="skid r"></i><i class="rail l"></i><i class="rail r"></i><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="say up">Tuck</span><span class="say down">Straight</span><span class="say skids l">Skid</span><span class="say skids r">Skid</span><span class="say here">Point in here to steer</span><i class="dot"></i></div>
@@ -856,12 +885,13 @@
   </div>
   <div id="flash" aria-hidden="true"></div>
   <div id="pops" aria-hidden="true"></div>
+  <div id="health" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="60" aria-valuenow="60"><span class="cap">Health</span><div class="bar"><i class="lag"></i><i class="fill"></i></div></div>
   <div id="bosses" aria-live="polite"></div>
   <div id="felled" aria-hidden="true"><b>Felled</b><small></small></div>
   <div id="loot" aria-live="polite"><div class="kind"></div><div class="name"></div><ul class="lines"></ul><div class="where"></div></div>
   <div id="runEnd" hidden role="dialog" aria-labelledby="runEndWhat">
     <div class="head"><span class="run" id="runEndRun"></span><span class="what" id="runEndWhat">The foot of the run</span><span class="why" id="runEndWhy"></span></div>
-    <div class="stats"><div><b id="runEndPoints">0</b><span id="runEndBest">points</span></div><div><b id="runEndDrop">0 m</b><span>vertical</span></div><div><b id="runEndTime">0 s</b><span>riding</span></div></div>
+    <div class="stats"><div><b id="runEndPoints">0</b><span id="runEndBest">points</span></div><div><b id="runEndDrop">0 m</b><span>vertical</span></div><div><b id="runEndTime">0 s</b><span id="runEndTimeSaid">riding</span></div></div>
     <p class="line" id="runEndLine"></p>
     <div class="acts"><button id="runEndMap" type="button">Map of the runs</button><button id="runEndNext" type="button" class="go">Next run</button></div>
   </div>
@@ -943,10 +973,12 @@
         <p class="note" id="safeNote" hidden><span></span> <button type="button">Try full detail</button></p>
         <p class="note" id="problemNote" hidden></p>
         <label class="row slider"><span class="label">Blur</span><input id="blur" type="range" min="0" max="2" step="0.05" value="1" aria-label="How much the far background and what moves are blurred"><output id="blurOut">1.0×</output></label>
-        <p class="keys"><kbd>H</kbd> menu · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause (carrying arms, attack) · <kbd>C</kbd> <kbd>B</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>F</kbd> views · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
+        <p class="keys"><kbd>H</kbd> or <kbd>Esc</kbd> menu · <kbd>M</kbd> map · <kbd>R</kbd> watch or ride · <kbd>Space</kbd> pause (carrying arms, attack) · <kbd>O</kbd> orc hunt · <kbd>N</kbd> minimap · <kbd>I</kbd> info</p>
+        <p class="keys more"><b>Views</b> <kbd>C</kbd> cinema · <kbd>B</kbd> behind · <kbd>S</kbd> beside · <kbd>A</kbd> from above · <kbd>F</kbd> free</p>
         <p class="keys more"><b>Mouse</b> point to steer · hold to brake · right-click for a 180 · scroll to zoom · click to skip to the next run</p>
-        <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Z</kbd> (held) skate · <kbd>Enter</kbd> next run</p>
-        <p class="keys more"><b>Arms</b> <kbd>Space</kbd> or the mouse button attacks (held, fires on) · <kbd>Q</kbd> <kbd>E</kbd> or <kbd>Tab</kbd> lock on another foe, or click on one · <kbd>Shift</kbd> brakes · <i>Aiming: Free</i> fires at the mark</p>
+        <p class="keys more"><b>Keys</b> arrows steer · <kbd>Shift</kbd> brake · <kbd>X</kbd> 180 · <kbd>Z</kbd> (held) skate · <kbd>Enter</kbd> next run (twice, mid-run) · <kbd>1</kbd>–<kbd>0</kbd> the way back</p>
+        <p class="keys more"><b>On foot</b> <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or arrows walk · click to strike</p>
+        <p class="keys more"><b>Arms</b> <span id="armKeys">with Orcs &amp; weapons on</span> · <kbd>Space</kbd> or the mouse button attacks (held, fires on) · <kbd>Q</kbd> <kbd>E</kbd> or <kbd>Tab</kbd> lock on another foe, or click on one · <kbd>Shift</kbd> brakes · <i>Aiming: Free</i> fires at the mark</p>
       </section>
     </div>
   </div>

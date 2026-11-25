@@ -94,7 +94,9 @@ ride on), and then one of the ways that carry you through the air (the one you k
   one by chance) takes you to its top where it lies in the world, kilometres off, over the country between; the old run is let go of
   once you are down. The tornado gathers at the foot of the run as you come down to it only when the way back is known as the run begins
   (remembered, or dealt by chance); asked at the end, it forms beside you then. All of it is filmed as a film is, whatever the view;
-  Enter, a click, or on a phone *Next run* on the sheet at the foot (a tap on the picture is a thumb steering), begins the next run at once. Riding wins points, thrown up over the picture where
+  The sheet at the foot of the picture says what the run came to: the points, the time to the foot (the best time on each run kept in
+  the browser too), how far down it got, the top speed, the tricks landed and the best of them, the foes brought down by kind, what was
+  found, the chest, the blows taken. Enter (once the run is over; mid-run, twice within two seconds), a click, or on a phone *Next run* on the sheet at the foot (a tap on the picture is a thumb steering), begins the next run at once. Riding wins points, thrown up over the picture where
   they are won: a jump landed is worth what was made of it (each half turn of spin, each flip, a cork, a grab, switch), the more the
   longer in the air, and its length; the most won in one run on each slope is kept in the browser, and shown beside them. With *Orcs & weapons* on in the menu (off at first), the skier alone or the
   horse's rider carries a weapon in place of its poles, and takes up a better one as it brings orcs down, counted over every run
@@ -188,7 +190,9 @@ doorways and up and down the stairs, striking at you as they come up to you, eac
 +4, an orc's +3, the dead's +2, the barrow-king's +5), *dodged* when it misses; struck home, its damage rolled (an orc 1d8+2, a goblin
 1d6, one of the dead 1d10+4, the barrow-king 2d8+7; a natural twenty a crushing blow, its dice thrown twice, the picture reddening at
 its edges), said in red over you, thirty points lost for each hit point of it, the meter's blocks as hard as it was against an orc's,
-and you are thrown back as far; and now and then, alone and no sooner than a minute and a half after the
+and you are thrown back as far; and as many hit points of your health lost, in a bar at the foot of the picture (sixty of them, coming
+back slowly once no blow has come for four seconds, and all of them as you leave the cave; all gone, you are beaten, and a new run
+begins from the top); and now and then, alone and no sooner than a minute and a half after the
 last, a barrow-king, a crowned draugr half as tall again as a man, named, its strength in the bar across the foot of the picture,
 of 160 hit points, striking two and a half times as hard as an orc; shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there (come in on the cart, too: down, the run carried on as before the cart came).
@@ -206,7 +210,8 @@ landing. *Wards*, about you while you carry arms, a ring on the snow as far as e
 every foe within it, a storm ward calls lightning down out of the sky on the nearest every couple of seconds, a barrow ward turns
 aside the blows of the orcs in the dungeon, a magpie's charm adds to the points won for tricks and foes. *Weapons*: an arm of the foes' ladder made
 better, striking harder and (what fires) firing quicker, carried in place of the arm the foes have given while it is worn, but only
-once the foes have given the last of theirs, the bazooka: until then it waits in the pack, said so there and as it is found. And
+once the foes have given the last of theirs, the bazooka: until then it waits in the pack, said so there and as it is found. Without *Orcs & weapons*, or riding the horse alone, neither wards nor weapons are
+found. And
 *guidebooks*, read as they are found and learned for good: *The Rodeo Scrolls* (a rodeo 540 and 900), *The Barrelwright's Almanac*
 (the double barrel roll), the *Codex of the Three Turnings* (the triple backflip) and the *Treatise on the Triple Cork* (triple corks
 of 1440 and 1800), the trick chosen off a kicker then sometimes theirs, when the air it gives is long enough and the slider wild
@@ -240,9 +245,10 @@ rider, the horse alone, or a person on skis, an adventurer with a sword on its b
 cave), or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`, as they are pressed and not as they repeat held; watching begins in *Cinema* and
 riding from behind, and each keeps the one it was last left in, on foot in the cave too (where the view is always isometric); and its distance; from behind on a phone held upright, twice as far
 off to begin with) and *Picture* (the snow detailed or plain, the minimap shown or
-hidden, how finely the picture is drawn, the blur). Escape or `H` closes it. `M` opens the map of the runs (riding, the ride held while it is open; the dungeon under the run ridden marked at its mouth, an arch,
+hidden, how finely the picture is drawn, *Auto* going on, past half as finely, to drawing without the blur and then with softer shadows
+while frames still come slowly, and kept for next time; the blur). Escape or `H` opens and closes it. `M` opens the map of the runs (riding, the ride held while it is open; the dungeon under the run ridden marked at its mouth, an arch,
 and its plan as far as it has been seen drawn in ink in a box of its own in a corner, walls inked, rooms paper, halls hatched, stairs
-ruled, a red dot where you stand in it). `R` switches between watching and riding; `Space` pauses, the demo or the ride (which says so; riding with arms, it attacks).
+ruled, a red dot where you stand in it). `R` switches between watching and riding; `Space` pauses, the demo or the ride (*Paused* in the middle of the picture, clicked or tapped to go on; riding with arms, it attacks).
 
 The info at the top left (what the skier is doing, how fast, how far down, the points and the orcs brought down) is hidden at
 first, the picture clear: *Info at the top left* in the menu under *Picture* shows it (`I`; `?info=1`), kept in the browser.
@@ -326,8 +332,10 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   random numbers (`rng.ts`); and, for finding runs (the game takes of it only the little the ink map reads), the generated world (`world.ts` and what it is made with: its land
   `terrain.ts`, `worldLand.ts`, `stream.ts`, its places `site.ts`, `valley.ts`, `highlands.ts`, `castle.ts`, `archipelago.ts`,
   `coastland.ts`, `fit.ts`, its ways `way.ts`, its names `names.ts`) and the runs found down it and sliced (`skiRun.ts`).
-- `tools/skiRun.ts`: finds runs down the world and writes their slices and their map (`npm run skirun`); `tools/build.mjs`, the game built.
-- `figures/`: the figures, by Quaternius, CC0 (see `figures/LICENSE.txt`): `clips.glb` (the mannequin and the clips), and
+- `tools/skiRun.ts`: finds runs down the world and writes their slices and their map (`npm run skirun`); `tools/build.mjs`, the game built;
+  `tools/trimClips.mjs`, `figures/clips.glb` cut down to the clips the game names (to play another, take the whole file from
+  klaine/dungeons again, name the clip in the program, and run it).
+- `figures/`: the figures, by Quaternius, CC0 (see `figures/LICENSE.txt`): `clips.glb` (the mannequin and the clips it plays), and
   `superhero-male.glb` (the body the adventurer is dressed on).
 - `slopes/w2.json`, `slopes/w2-3.json` and six more (`w2-8`, `w2-10`, `w2-2`, `w2-14`, `w2-17`, `w2-25`): the slices of the mountain:
   eight runs found in a generated world, by their place among those its search kept (`npm run skirun`; *Lake Wall* carried further up its
