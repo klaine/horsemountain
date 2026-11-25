@@ -4618,6 +4618,19 @@ async function start() {
   // remove the text box in top left altogether (as default, can be enabled in menu)"): kept in this browser; `?info=1`; `I`.
   let infoOn = false;
   const infoButtons = (['Hidden', 'Shown'] as const).map((label, k) => button('infoSeg', label, () => setInfo(k === 1), k ? 'What the skier is doing, how fast, how far down and the points, at the top left (I)' : 'The picture clear at the top left'));
+  /**
+   * The guide drawn about the skier for steering by the mouse, hidden unless asked for (asked: "make the guide not visible by default,
+   * can be enabled by toggle"): the pointer steering as ever, shown as a cross over the picture rather than as the guide's mark. Kept in
+   * this browser.
+   */
+  let guideOn = false;
+  const guideButtons = (['Hidden', 'Shown'] as const).map((label, k) => button('guideSeg', label, () => setGuide(k === 1), k ? 'The guide about the skier: how far the pointer asks a turn, a skid, a tuck' : 'Only the pointer, as a cross'));
+  const setGuide = (on: boolean) => {
+    guideOn = on;
+    keep('guide', on ? '1' : '0');
+    guideButtons.forEach((b, k) => b.classList.toggle('on', (k === 1) === on));
+    document.body.classList.toggle('guide', on);
+  };
   const setInfo = (on: boolean) => {
     infoOn = on;
     keep('info', on ? '1' : '0');
@@ -5131,6 +5144,13 @@ async function start() {
   const aimEl = $('aim'), aimDot = aimEl.querySelector('.dot') as HTMLElement;
   /** How far from the middle of the picture the pointer asks the most, in pixels: some three tenths of the picture's shorter side. */
   const aimReach = () => clamp(0.3 * Math.min(innerWidth, innerHeight), 120, 340);
+  /**
+   * How far to either side it asks the most: wider than up and down (asked: "the control overlay should be also wider and less
+   * obstructive"), some four tenths of the picture's breadth, so that the turns are asked more finely and the guide's sides stand out
+   * beyond the skier and what is about it in the middle of the picture.
+   */
+  const aimReachX = () => Math.max(aimReach(), clamp(0.42 * innerWidth, 160, 640));
+  let shownReachX = 0;
   let overPicture = false, shownReach = 0, aimDotAt = '';
   function letAimGo() { aim.on = aim.brake = false; aim.x = aim.y = 0; canvas.style.cursor = ''; }
   const byMouse = (on: boolean) => { if (document.body.classList.contains('mouse') !== on) document.body.classList.toggle('mouse', on); if (!on) letAimGo(); };
@@ -5138,7 +5158,7 @@ async function start() {
   addEventListener('pointerdown', (e) => byMouse(e.pointerType === 'mouse'), true);
   addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') byMouse(true); }, true);
   const aimAt = (e: PointerEvent) => {
-    const reach = aimReach(), nx = (e.clientX - innerWidth / 2) / reach, ny = (innerHeight / 2 - e.clientY) / reach;
+    const reach = aimReach(), nx = (e.clientX - innerWidth / 2) / aimReachX(), ny = (innerHeight / 2 - e.clientY) / reach;
     const inside = Math.abs(nx) <= 1 && Math.abs(ny) <= 1;
     if (inside) aim.on = true;
     // (A little give about the middle, so that the skier runs straight without the pointer being held on a point.)
@@ -5146,7 +5166,7 @@ async function start() {
     if (aim.on) { aim.x = give(nx); aim.y = give(ny); }
     aim.px = e.clientX; aim.py = e.clientY;
     // (Within the guide its mark is the pointer; outside it the mark stays at its edge, and the pointer is shown where it is.)
-    canvas.style.cursor = aim.on && inside ? 'none' : '';
+    canvas.style.cursor = aim.on && inside ? (guideOn ? 'none' : 'crosshair') : '';
   };
   const aiming = (e: PointerEvent) => e.pointerType === 'mouse' && mode === 'ride' && !menuOpen;
   /**
@@ -5235,10 +5255,11 @@ async function start() {
   }, { passive: false });
   /** The guide, a frame on: its reach, the mark where the pointer (or, not aiming, the keys or a trick) asks the skier to go. */
   const showAim = () => {
-    const reach = aimReach();
+    const reach = aimReach(), reachX = aimReachX();
     if (reach !== shownReach) { shownReach = reach; aimEl.style.setProperty('--reach', `${reach}px`); }
+    if (reachX !== shownReachX) { shownReachX = reachX; aimEl.style.setProperty('--reachX', `${reachX}px`); }
     const x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
-    const to = `translate(${(x * reach).toFixed(1)}px, ${(-y * reach).toFixed(1)}px)`;
+    const to = `translate(${(x * reachX).toFixed(1)}px, ${(-y * reach).toFixed(1)}px)`;
     if (to !== aimDotAt) { aimDotAt = to; aimDot.style.transform = to; }
     // (Asking to be brought in, while the pointer is over the picture and has not taken the skier; put away while it lies fallen, and
     // while the arm has it.)
@@ -6458,7 +6479,7 @@ async function start() {
       // What the guide's mark is over (or, by touch, the finger held on the picture, `finger`): the first orc or the snow along the
       // line from the eye through it.
       const reach = aimReach(), x = aim.on ? aim.x : ask.x, y = aim.on ? aim.y : ask.y;
-      ndc.set((x * reach) / (innerWidth / 2), (y * reach) / (innerHeight / 2));
+      ndc.set((x * aimReachX()) / (innerWidth / 2), (y * reach) / (innerHeight / 2));
       // (On foot, seen from above: the pointer, or the finger, where it is over the picture.)
       if (foot) ndc.copy(fingerAims() ? new Vector2(finger.x, finger.y) : footPad.ndc);
       else if (fingerAims()) {
@@ -7571,6 +7592,7 @@ async function start() {
   setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
   setAiming(query.has('aim') ? query.get('aim') !== 'free' : kept('aiming') !== 'free');
   setInfo(query.has('info') ? query.get('info') !== '0' : kept('info') === '1');
+  setGuide(query.has('guide') ? query.get('guide') !== '0' : kept('guide') === '1');
   setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
   setSlowmo(query.has('slowmo') ? query.get('slowmo') !== '0' : kept('slowmo') === '1');
   resetScore();

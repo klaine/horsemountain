@@ -36,7 +36,7 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   takes that as level again by itself. The stick at the lower left steers too, and
   takes over while a thumb is on it: to either side to turn (carved, or skidded out at its rim), up to tuck, down to stand straight
   (an iPhone asks, as *Tilt* is chosen, whether the game may read how it is held). With a mouse or a touchpad, the pointer steers from wherever it is over
-  the picture, no button held: to either side of the middle to turn (skidded out at the sides of the faint guide drawn about the skier),
+  the picture, no button held: to either side of the middle to turn (skidded out at the sides of the guide that can be drawn about the skier, wide and faint, hidden at first: *Mouse steering guide* in the menu under *Settings*, kept in the browser, `?guide=1`; hidden, the pointer is a cross),
   above it to tuck, below to stand straight; it takes the skier once it is brought within the guide, and lets it go, running straight,
   when it leaves the picture. Held down, its button brakes; a right click (a tap with two fingers) turns you round; scrolled or
   pinched, the view comes nearer or goes further off. The arrow keys too, and Shift to brake. You may ride out past the poles, off the marked piste, as far as you like over the land about the run (all of it

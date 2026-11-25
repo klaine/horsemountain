@@ -243,27 +243,28 @@
        is over the picture; and about the skier, faint over the snow, a guide to it: its reach (the corners), where a turn skids (out at
        either side), what the pointer's height asks, and its mark. While the pointer has not yet taken the skier, it asks to be brought in. */
     body.mouse #stick { display: none; }
-    #aim { display: none; position: fixed; left: 50%; top: 50%; z-index: 1; width: calc(2 * var(--reach, 230px)); height: calc(2 * var(--reach, 230px));
-      transform: translate(-50%, -50%); pointer-events: none; --line: rgba(18, 22, 30, .3); }
-    body.riding.mouse:not(.menu-open) #aim { display: block; }
+    /* (Wider than it is high, and faint (asked: "the control overlay should be also wider and less obstructive"): its corners small,
+       the skids at its sides a line each, its words small; no line across its middle, its mark saying where the pointer is.) */
+    #aim { display: none; position: fixed; left: 50%; top: 50%; z-index: 1; width: calc(2 * var(--reachX, 300px)); height: calc(2 * var(--reach, 230px));
+      transform: translate(-50%, -50%); pointer-events: none; --line: rgba(18, 22, 30, .2); }
+    body.riding.mouse.guide:not(.menu-open) #aim { display: block; }
     #aim.fallen { display: none !important; }
     /* (Seen from above, the pointer is the way to go from the skier, not a turn and a tuck against the middle: only its mark.) */
     #aim.iso > :not(.dot) { display: none; }
-    #aim .skid { position: absolute; top: 12%; bottom: 12%; width: 10%; border-style: solid; border-color: var(--line); border-width: 0;
-      background: linear-gradient(to bottom, transparent, var(--skid) 30% 70%, transparent); }
+    #aim .skid { position: absolute; top: 22%; bottom: 22%; width: 10%; border-style: dashed; border-color: var(--line); border-width: 0; }
     #aim .skid.l { left: 0; border-right-width: 1px; }
     #aim .skid.r { right: 0; border-left-width: 1px; }
-    #aim .rail { position: absolute; top: 50%; width: 30%; height: 2px; margin-top: -1px; background: var(--line); }
+    #aim .rail { display: none; }
     #aim .rail.l { left: 0; }
     #aim .rail.r { right: 0; }
-    #aim .corner { position: absolute; width: 18px; height: 18px; border: 0 solid var(--line); }
-    #aim .corner.tl { left: 0; top: 0; border-width: 2px 0 0 2px; }
-    #aim .corner.tr { right: 0; top: 0; border-width: 2px 2px 0 0; }
-    #aim .corner.bl { left: 0; bottom: 0; border-width: 0 0 2px 2px; }
-    #aim .corner.br { right: 0; bottom: 0; border-width: 0 2px 2px 0; }
+    #aim .corner { position: absolute; width: 12px; height: 12px; border: 0 solid var(--line); }
+    #aim .corner.tl { left: 0; top: 0; border-width: 1.5px 0 0 1.5px; }
+    #aim .corner.tr { right: 0; top: 0; border-width: 1.5px 1.5px 0 0; }
+    #aim .corner.bl { left: 0; bottom: 0; border-width: 0 0 1.5px 1.5px; }
+    #aim .corner.br { right: 0; bottom: 0; border-width: 0 1.5px 1.5px 0; }
     /* (Dark, as the lines are, to be read against the snow and the sky.) */
-    #aim .say { position: absolute; left: 50%; transform: translateX(-50%); font: 700 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase;
-      color: rgba(18, 22, 30, .62); text-shadow: 0 0 4px rgba(255, 255, 255, .7); white-space: nowrap; }
+    #aim .say { position: absolute; left: 50%; transform: translateX(-50%); font: 700 9px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase;
+      color: rgba(18, 22, 30, .38); text-shadow: 0 0 3px rgba(255, 255, 255, .5); white-space: nowrap; }
     #aim .up { top: 4px; }
     #aim .down { bottom: 4px; }
     #aim .say.skids { top: auto; bottom: 14%; transform: none; opacity: .8; }
@@ -273,7 +274,7 @@
     body.onfoot #aim, body.onfoot #skate, body.onfoot #stance { display: none !important; }
     #aim .here { display: none; bottom: 18%; padding: 6px 12px 7px; border-radius: 6px; background: var(--sheet); border: 1px solid var(--brass);
       font: 600 12px/1.2 var(--sans); letter-spacing: .02em; text-transform: none; color: var(--ink); text-shadow: none; }
-    #aim.lost { --line: rgba(18, 22, 30, .55); }
+    #aim.lost { --line: rgba(18, 22, 30, .45); }
     #aim.lost .here { display: block; }
     #aim .dot { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; box-sizing: border-box;
       background: var(--brass); border: 2px solid var(--on-brass); box-shadow: 0 1px 5px rgba(0, 0, 0, .35); }
@@ -934,6 +935,7 @@
       <section class="tab" id="tabSettings" data-tab="settings" role="tabpanel" aria-label="Settings" hidden>
         <h2>On the screen</h2>
         <div class="field" id="miniField"><span class="label">Minimap</span><div class="seg" id="miniSeg" role="group" aria-label="Minimap"></div></div>
+        <div class="field" id="guideField"><span class="label">Mouse steering guide</span><div class="seg" id="guideSeg" role="group" aria-label="The guide drawn about the skier for steering by the mouse"></div></div>
         <div class="field" id="infoField"><span class="label">Info at the top left</span><div class="seg" id="infoSeg" role="group" aria-label="What the skier is doing and how fast, at the top left"></div></div>
         <h2>Picture</h2>
         <div class="field" id="snows"><span class="label">Snow</span><div class="seg" role="group" aria-label="Snow"></div></div>
