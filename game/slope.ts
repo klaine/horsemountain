@@ -82,6 +82,8 @@ import { doneGenerating, generateTextureSet } from '../src/render/textures';
 import { farUniforms, makeFarMaterial, makeSnowMaterial, siteUniforms, snowLiesAt, snowUniforms } from '../src/render/siteMaterial';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+// (Begun: the page's own watch for a program that never begins, `game.html`, has nothing to say.)
+(window as unknown as { __slopeRan?: boolean }).__slopeRan = true;
 const query = new URLSearchParams(location.search);
 /** Words put on the page only when they change: the same words said again each frame were laid out again each frame. */
 const saidOn = new WeakMap<HTMLElement, string>();
@@ -93,6 +95,8 @@ const runDir = (f: { dx: number; dz: number }) => new Vector3(f.dx, 0, f.dz), ru
 /** Which way, level, a skier goes whose way is `way` (radians to the left of the run's own way at `f`). */
 const along = (way: number, f: { dx: number; dz: number }) => runDir(f).multiplyScalar(Math.cos(way)).addScaledVector(runLeft(f), Math.sin(way));
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** Less motion asked for, by the device's own setting: the view not shaken, by blows or blasts (the picture's own animations, `game.html`). */
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
 const ease = (dt: number, rate: number) => 1 - Math.exp(-dt * rate);
 const smooth = (t: number) => { const u = clamp(t, 0, 1); return u * u * (3 - 2 * u); };
 const TURN = 2 * Math.PI, deg = (d: number) => (d * Math.PI) / 180;
@@ -1626,7 +1630,7 @@ async function start() {
   /** The skier's bodies' joints as the last two steps left them, and how long the last step was: what a body gone limp goes on from. */
   let joints: Record<string, Vector3>[] | null = null, jointsBefore: Record<string, Vector3>[] | null = null, jointsDt = 1 / 120;
   /** What the rider asks: across (-1 to 1, to the right positive) and up (1 the deepest tuck, -1 standing tallest); and braking. */
-  const ask = { x: 0, y: 0 }, want = { x: 0, y: 0, keys: { up: false, down: false, left: false, right: false }, brake: false, brakeKey: false, auto: false };
+  const ask = { x: 0, y: 0 }, want = { x: 0, y: 0, keys: { up: false, down: false, left: false, right: false }, brake: false, brakeKey: false, brakeTouch: false, auto: false };
   /** Where the rider's thumb holds the stick: across (-1 to 1, to the right positive) and up (1 tucked, -1 standing straight). */
   const stick = { x: 0, y: 0 };
   /**
@@ -3778,7 +3782,7 @@ async function start() {
     if (air) return stepAir(dt);
     const g = kit();
     // (At the foot of the run it brakes to a stop by itself.)
-    const braking = want.brake || want.brakeKey || ride.ended;
+    const braking = want.brake || want.brakeKey || want.brakeTouch || ride.ended;
     if (braking && ride.brake < 0.05) ride.brakeSide = Math.sign(ride.way || ride.lean) || 1;
     ride.brake += ((braking ? 1 : 0) - ride.brake) * ease(dt, 6);
     // Turning: quicker the faster (a carving ski holds its own curve, some twenty metres across at speed), if never too slowly to come
@@ -4100,7 +4104,7 @@ async function start() {
     // (Every kicker under it as it goes, without drawing any.)
     kicks = standing(kicked.length + 2);
     resetRide();
-    Object.assign(want, { x: 0, y: 0, brake: false, brakeKey: false });
+    Object.assign(want, { x: 0, y: 0, brake: false, brakeKey: false, brakeTouch: false });
     for (const key of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[key] = false;
     const frames: DemoFrame[] = [], labels: string[] = [], landed: string[] = [], tries: number[] = [], flown: string[] = [];
     let k = 0, phase = 0, settle = 0, label = 'Off from the top', fell: string | null = null, stopAt = Infinity, last = '', lastT = 0, step = 0, airFrom = 0;
@@ -4588,8 +4592,20 @@ async function start() {
   const views: [string, View, string][] = [['Cinema', 'cinema', 'C'], ['Behind', 'behind', 'B'], ['Beside', 'beside', 'S'], ['Iso', 'iso', 'A'], ['Free', 'free', 'F']];
   const modes: [string, Mode, string][] = [['Watch demo', 'watch', 'Watch the demo run, a trick off every kicker (R)'], ['Ride', 'ride', 'Ride it yourself: you steer, and each kicker gives you a trick (R)']];
   /** A button in the menu, in the bar or the cards of `parent`; a card says what it is under its name (`detail`). */
+  /**
+   * Which of the menu's choices are on, said to a screen reader as well as shown (asked: they had been told apart by their colour only):
+   * once one of a group of choices is turned on or off, each of the group's `aria-pressed` kept with its `on` (a button only ever
+   * pressed, in a group none of which is ever on, is not said to be a toggle).
+   */
+  const pressed = new MutationObserver((changes) => {
+    for (const c of changes) for (const b of (c.target as HTMLElement).parentElement?.querySelectorAll(':scope > button') ?? []) {
+      const on = String(b.classList.contains('on'));
+      if (b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on);
+    }
+  });
   const button = (parent: string, label: string, onclick: () => void, title?: string, detail?: string) => {
     const b = document.createElement('button'), host = $(parent);
+    pressed.observe(b, { attributes: true, attributeFilter: ['class'] });
     b.type = 'button'; b.onclick = onclick;
     if (title) b.title = title;
     if (detail) { const name = document.createElement('b'), about = document.createElement('span'); name.textContent = label; about.textContent = detail; b.append(name, about); } else b.textContent = label;
@@ -4832,7 +4848,14 @@ async function start() {
     abortTrip();
     leaveFoot();
     await loading.busy(kind !== 'groomed' ? `Laying the snow ${whereOf(kind)}` : 'Laying the groomed slope');
-    const next = await landOf(kind);
+    // (Its land not made, the slope ridden kept, and said so: thrown, the loading screen had stood over everything for good.)
+    let next: Land;
+    try { next = await landOf(kind); } catch (e) {
+      console.error(e);
+      loading.idle();
+      tell(`Couldn't lay ${runs.find((r) => r.id === kind)?.label ?? 'the groomed slope'}`, `${String((e as Error)?.message ?? e).slice(0, 120)} · still on the run you were on`, true, 8);
+      return;
+    }
     loading.idle();
     // (Its slice not fetched, the groomed slope laid in its place: called so, and said so.)
     const missed = kind !== 'groomed' && next === lands.get('groomed') ? kind : null;
@@ -4878,6 +4901,12 @@ async function start() {
   skateButton.addEventListener('pointerdown', (e) => { e.preventDefault(); skateButton.setPointerCapture(e.pointerId); holdSkate(true); });
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) skateButton.addEventListener(ev, () => holdSkate(false));
   skateButton.addEventListener('contextmenu', (e) => e.preventDefault());
+  // (Braking, held, by touch (asked: on a phone there was no way to brake): as skating is held, by the finger kept on it.)
+  const brakeButton = $('brake');
+  const holdBrake = (on: boolean) => { want.brakeTouch = on; brakeButton.classList.toggle('on', on); };
+  brakeButton.addEventListener('pointerdown', (e) => { e.preventDefault(); try { brakeButton.setPointerCapture(e.pointerId); } catch { /* (held without) */ } holdBrake(true); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) brakeButton.addEventListener(ev, () => holdBrake(false));
+  brakeButton.addEventListener('contextmenu', (e) => e.preventDefault());
   let stanceTouched = -Infinity;
   stanceButton.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse') return; e.preventDefault(); stanceTouched = performance.now(); start180(); });
   stanceButton.onclick = () => { if (performance.now() - stanceTouched > 800) start180(); };
@@ -4972,7 +5001,7 @@ async function start() {
       const s = demo.frames[i].now, sw = demo.frames[i].sw;
       Object.assign(ride, { way: s.way, speed: s.speed, facing: chestTo(s.way) + (sw ? Math.PI : 0), tuck: s.tuck, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, ended: false, switch: sw, back: sw ? 1 : 0, stones: 0, overStones: 0, bare: 0, deep: 0 });
       Object.assign(ask, { x: 0, y: s.tuck });
-      Object.assign(want, { x: 0, y: s.tuck, brake: false, brakeKey: false });
+      Object.assign(want, { x: 0, y: s.tuck, brake: false, brakeKey: false, brakeTouch: false });
       showWatchTracks(null);
       newRideRun();
       levelTilt();
@@ -5249,7 +5278,14 @@ async function start() {
     else if (k === 'o' && orcsOn) { gunSound.wake(); setDemoKind('orcs'); setMode('watch'); }
   });
   window.addEventListener('keyup', (e) => { if (e.key === ' ') attackUp(); if (ARROWS[e.key]) want.keys[ARROWS[e.key]] = false; if (WASD[e.code]) want.keys[WASD[e.code]] = false; if (e.key === 'Shift') want.brakeKey = false; if (e.key.toLowerCase() === 'z') holdSkate(false); });
-  window.addEventListener('blur', () => { holdSkate(false); for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false; want.brakeKey = false; letGo(); letAimGo(); });
+  // (The window left, as another is clicked or the page put aside: every key and button let go of, and the ride paused, said so, for
+  // it went on alone, straight on down the run, with no one at it.)
+  window.addEventListener('blur', () => {
+    holdSkate(false); holdBrake(false);
+    for (const k of Object.keys(want.keys) as (keyof typeof want.keys)[]) want.keys[k] = false;
+    want.brakeKey = false; letGo(); letAimGo();
+    if (mode === 'ride' && playing && !menuOpen && $('choose').hidden && !cat && !trip) togglePause();
+  });
 
   // Riding by mouse or touchpad (asked: "make better controls for desktop/laptop users, current is for touch screens. Mouse / touchpad
   // control should be enough?"): the pointer steers from wherever it is over the picture, with no button held, so that a finger
@@ -6864,7 +6900,6 @@ async function start() {
     const cave = caveNow()!, go = along(ride.way, here);
     stopping = false;
     healAll();
-    document.body.classList.add('on-foot');
     foot = { x: ride.x, y: ride.y, z: ride.z, heading: Math.atan2(go.x, go.z), speed: 0, dx: go.x, dz: go.z, turn: 0, phase: 0, room: -1, told: false };
     footPad.walk = false; footPad.to = null;
     Object.assign(ride, { speed: 0, brake: 0, tuck: 0, tall: 0, skating: false, skate: 0, turn180: null, switch: false, back: 0 });
@@ -6901,7 +6936,6 @@ async function start() {
     if (c) underground(c, false, false, 0);
     foot = null; stopping = false;
     healAll();
-    document.body.classList.remove('on-foot');
     if (who === 'person') for (const s of personSkis) s.visible = true;
     horde.clear(true);
     if (who === 'mounted') { caveNow()?.parkHorse(false); horse.model.position.set(0, 0, 0); horse.model.quaternion.identity(); rider.add(horse.model); seat(); }
@@ -7046,7 +7080,7 @@ async function start() {
     if (k < 1) { camera.position.lerpVectors(iso.from, eye, k); camera.quaternion.slerpQuaternions(iso.turn, camera.quaternion.clone(), k); }
     // (A blow struck home, or a great one's struck on it, felt: the view jolted a moment.)
     bladeJolt *= Math.exp(-dt * 14);
-    if (bladeJolt > 0.003) { const w = performance.now() / 1000, j = 0.12 * bladeJolt; camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j)); }
+    if (bladeJolt > 0.003 && !calm.matches) { const w = performance.now() / 1000, j = 0.12 * bladeJolt; camera.position.add(new Vector3(Math.sin(w * 71) * j, Math.sin(w * 89 + 1) * j * 0.7, Math.sin(w * 67 + 2) * j)); }
     const fov = FOV + (ISO.fov - FOV) * k;
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fovNow = fov; camera.updateProjectionMatrix(); }
     lastRider.copy(target);
@@ -7551,7 +7585,7 @@ async function start() {
     e.started = true;
     // (Shaken, as by the blast: the eye thrown about a little this way and that, and where it looks half as far, the shake dying away.)
     const look = e.look.clone();
-    if (c.shake > 0.001) {
+    if (c.shake > 0.001 && !calm.matches) {
       const t = c.t, jolt = new Vector3(Math.sin(t * 61) * Math.sin(t * 17), Math.sin(t * 53 + 1) * Math.sin(t * 13), Math.sin(t * 67 + 2) * Math.sin(t * 19)).multiplyScalar(0.6 * c.shake);
       camera.position.add(jolt); look.addScaledVector(jolt, 0.5);
     }
@@ -7755,7 +7789,14 @@ async function start() {
   // (How much, by *Blur*: from none, the plain picture drawn, to twice as much; `?blur=` too.)
   let blurLevel = query.has('blur') ? clamp(Number(query.get('blur')) || 0, 0, 2) : 1;
   // Hiding the menus and the text, `H` too; the distance of the views from the skier. (Kept in this browser for next time, where it may.)
-  const keep = (k: string, v: string) => { try { localStorage.setItem(`slope.${k}`, v); } catch { /* (not kept) */ } };
+  /**
+   * Nothing kept while `unsaved` runs: the settings set as the page opens, from what was kept or from the address (`?orcs=1`, `?info=1`
+   * and the rest, which had been kept for good, as though chosen in the menu, by a link followed once); and the arms taken up for the
+   * orc hunt, watched, which had turned *Orcs & weapons* on for good. Only what is chosen in the menu, or by its keys, is kept.
+   */
+  let keepingNothing = false;
+  const unsaved = (f: () => void) => { keepingNothing = true; try { f(); } finally { keepingNothing = false; } };
+  const keep = (k: string, v: string) => { if (keepingNothing) return; try { localStorage.setItem(`slope.${k}`, v); } catch { /* (not kept) */ } };
   const kept = (k: string) => { try { return localStorage.getItem(`slope.${k}`); } catch { return null; } };
   // (What was found, had again as the page opens; `?pack=0` begins with nothing, not forgetting what is kept.)
   pack = new Pack((json) => { if (query.get('pack') !== '0') keep('pack', json); }, query.get('pack') === '0' ? null : kept('pack'));
@@ -7769,15 +7810,17 @@ async function start() {
   const setBlur = (b: number) => { if (!b !== !blurLevel) warmSoon(); blurLevel = clamp(b, 0, 2); blurInput.value = String(blurLevel); $('blurOut').textContent = blurLevel ? `${blurLevel.toFixed(1)}×` : 'off'; keep('blur', String(blurLevel)); };
   blurInput.addEventListener('input', () => setBlur(Number(blurInput.value)));
   const keptBlur = kept('blur');
-  setBlur(query.has('blur') || keptBlur === null ? blurLevel : Number(keptBlur));
-  setDistance(Number(kept('distance') ?? 1) || 1);
-  setOffPiste(query.has('offpiste') ? query.get('offpiste') !== '0' : kept('offpiste') !== '0');
-  setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
-  setAiming(query.has('aim') ? query.get('aim') !== 'free' : kept('aiming') !== 'free');
-  setInfo(query.has('info') ? query.get('info') !== '0' : kept('info') === '1');
-  setGuide(query.has('guide') ? query.get('guide') !== '0' : kept('guide') === '1');
-  setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
-  setSlowmo(query.has('slowmo') ? query.get('slowmo') !== '0' : kept('slowmo') === '1');
+  unsaved(() => {
+    setBlur(query.has('blur') || keptBlur === null ? blurLevel : Number(keptBlur));
+    setDistance(Number(kept('distance') ?? 1) || 1);
+    setOffPiste(query.has('offpiste') ? query.get('offpiste') !== '0' : kept('offpiste') !== '0');
+    setOrcs(query.has('orcs') ? query.get('orcs') !== '0' : kept('orcs') === '1');
+    setAiming(query.has('aim') ? query.get('aim') !== 'free' : kept('aiming') !== 'free');
+    setInfo(query.has('info') ? query.get('info') !== '0' : kept('info') === '1');
+    setGuide(query.has('guide') ? query.get('guide') !== '0' : kept('guide') === '1');
+    setMini(query.has('minimap') ? query.get('minimap') !== '0' : kept('minimap') !== '0');
+    setSlowmo(query.has('slowmo') ? query.get('slowmo') !== '0' : kept('slowmo') === '1');
+  });
   resetScore();
   setTilt(kept('steering') === 'tilt');
   {
@@ -7945,7 +7988,7 @@ async function start() {
   $('watchDemo').onclick = () => { heldRide = false; playing = true; chosen(); setDemoKind('tricks'); setMode('watch'); };
   $('watchShow').onclick = () => { heldRide = false; playing = true; chosen(); setDemoKind('show'); setMode('watch'); };
   // (The orc hunt has the orcs and the tommy gun, which it turns on, as *Orcs & tommy gun* in the menu does.)
-  $('watchHunt').onclick = () => { heldRide = false; playing = true; chosen(); gunSound.wake(); if (!orcsOn) setOrcs(true); setMode('watch'); setDemoKind('orcs'); };
+  $('watchHunt').onclick = () => { heldRide = false; playing = true; chosen(); gunSound.wake(); if (!orcsOn) unsaved(() => setOrcs(true)); setMode('watch'); setDemoKind('orcs'); };
   $('rideGroomed').onclick = () => rideOn('groomed');
   $('chooseClose').onclick = () => chosen();
   $('openMap').onclick = () => showMap();
