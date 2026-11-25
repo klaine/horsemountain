@@ -223,7 +223,8 @@ the menu as a square button of its own. What has just happened is said under the
 that); the run is a slim rail at the right, its top, its kickers in brass, the cave and its foot along it and an arrow for how far down
 you are, tapped for the minimap (tapped again, the rail). The bottom is left to the thumbs: the stick, its *Tuck* and *Straight*
 inside its ring (or wherever the left thumb comes down on the left of the picture, under the strip: the stick comes to it there, and
-goes back to its corner as it is let go; a finger on the rest of the picture fires what is carried), and *Skate* and *180* as two round buttons at the lower right. The run's end is a sheet at the foot (a card held
+goes back to its corner as it is let go; a finger on the rest of the picture fires what is carried), and *Skate* and *180* as two round buttons at the lower right, *Brake* (held) over the stick. Leaving the window while riding pauses
+the ride. The run's end is a sheet at the foot (a card held
 sideways): what became of it, its points, how far down and how long, the tricks landed, what was brought down and found, and *Map of
 the runs* or *Next run*. On a computer the same, held as a phone held sideways is (larger on a screen of a good height), the minimap kept
 whole at the right rather than the rail, and no stick.
@@ -259,7 +260,7 @@ and its foot a dark bar; and the skier on it, an arrow the way it goes, gold whi
 further out than it shows. Light to draw: the run is drawn once for each run, and each frame only the arrow set over it. (None on
 the groomed slope, which has no foot.)
 
-In the address: `?nointro` (no title, no map), `?pack=0` (nothing found worn), `?offpiste=0` (kept between the poles), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run; `#w2-8`, `#w2-10`, `#w2-2`, `#w2-14`, `#w2-17`, `#w2-25`, the third to the eighth), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
+In the address (for this visit only: none of these is kept as a choice made in the menu is): `?nointro` (no title, no map), `?pack=0` (nothing found worn), `?offpiste=0` (kept between the poles), `?skier=person` or `?skier=horse`, `?skis=four`, `#w2-3` (the second run; `#w2-8`, `#w2-10`, `#w2-2`, `#w2-14`, `#w2-17`, `#w2-25`, the third to the eighth), `?land=groomed`, `?snow=plain`, `?orcs=1` (*Orcs & tommy gun* on), `?coat=plain` (the horse's coat as it is drawn on a phone; `?coat=hair`, as on a computer), `?trees=plain` (the snowy firs, as on a phone; `?trees=game`, the game's own trees, as on a computer),
 `?dungeon=` (the cave's dungeon from a given seed, rather than a new one), `?tags=` (its tags: `?tags=prison,large,winding`), `?view=behind` (or `beside`, `above`; watching), `?rideView=cinema` (or another; riding), `?menus=1` (the menu open), `?blur=0` to `2`, `?res=1` (or `0.75`, `0.5`; otherwise drawn finer or coarser as
 frames come), `?webgl` (WebGL 2 rather than WebGPU). Where the graphics report that they could not draw something as the page opens, it opens
 again drawn more simply (the plain snow; then by WebGL 2) and keeps to it in that browser, said in the menu under *Picture* with a way

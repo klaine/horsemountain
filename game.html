@@ -498,7 +498,7 @@
        great ones' bars are; the bars of the great ones raised over it while it is shown. */
     #health { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); translate: -50% 0; z-index: 2; pointer-events: none;
       width: clamp(160px, 30vw, 300px); display: none; gap: 3px; }
-    body.on-foot #health { display: grid; }
+    body.onfoot #health { display: grid; }
     body.choosing #health, body.menu-open #health { display: none; }
     #health .cap { font: 700 10.5px/1 "Cinzel", var(--serif); letter-spacing: .2em; text-transform: uppercase; color: var(--ink); text-shadow: 0 1px 3px rgba(0, 0, 0, .85), 0 0 8px rgba(0, 0, 0, .5); }
     #health .bar { position: relative; height: 7px; background: rgba(12, 10, 10, .72); border: 1px solid var(--rule); border-radius: 2px; overflow: hidden; }
@@ -506,13 +506,8 @@
     #health .bar .lag { width: calc(var(--was, 1) * 100%); background: #e8d9a8; transition: width .7s ease-in .4s; }
     #health .bar .fill { width: calc(var(--hp, 1) * 100%); background: linear-gradient(#5fae4a, #2f6e22); transition: width .1s linear; }
     #health.low .bar .fill { background: linear-gradient(#d0452f, #7a1b10); }
-    body.on-foot #bosses { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
-    /* An upright phone: the great ones' bars, and health, over the stick and the trick buttons, not between them, where there is no room. */
-    @media (max-width: 600px) and (orientation: portrait) {
-      #bosses { width: calc(100vw - var(--gutter-l) - var(--gutter-r)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
-      #health { width: calc(100vw - var(--gutter-l) - var(--gutter-r)); bottom: calc(132px + env(safe-area-inset-bottom, 0px)); }
-      body.on-foot #bosses { bottom: calc(176px + env(safe-area-inset-bottom, 0px)); }
-    }
+    /* (On a narrow screen, over the stick and the buttons at the foot, where the thumbs are.) */
+    @media (max-width: 600px) { #health { width: calc(100vw - 2 * var(--gutter-l) - 160px); bottom: calc(176px + env(safe-area-inset-bottom, 0px)); } }
     @media (prefers-reduced-motion: reduce) { #health .bar .lag, #health .bar .fill { transition: none; } }
     #offPiste { position: fixed; left: 50%; top: calc(28% + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 3; display: grid; justify-items: center;
       gap: 2px; padding: 5px 14px 4px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; pointer-events: none; transition: padding .2s, border-color .2s; }
@@ -620,6 +615,8 @@
     #status .bytes { margin-top: 4px; color: var(--ink-dim); font-size: 12px; font-variant-numeric: tabular-nums; min-height: 1.45em; }
     #status.failed .say { margin-top: 26px; color: var(--warn); text-transform: none; letter-spacing: .02em; font: 600 14px/1.4 var(--sans); }
     #status.failed .bar { display: none; }
+    #status .again { display: none; }
+    #status.failed .again { display: inline-block; margin-top: 18px; min-height: 44px; padding: 0 20px; border-radius: 22px; font-weight: 650; }
 
     /* On a phone or a tablet (asked: "the vertical view is cluttered with the bars.. propose me a better gui"; then "implement! also
        similar style for horizontal but fit for horizontal use"): what is read in one slim strip across the top (the arms toward the next,
@@ -674,6 +671,14 @@
       -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); z-index: 2; }
     body.hud #stance { right: var(--gutter-r); bottom: calc(28px + env(safe-area-inset-bottom, 0px)); font-size: 17px; }
     body.hud #skate { right: calc(var(--gutter-r) + 72px); bottom: calc(100px + env(safe-area-inset-bottom, 0px)); font-size: 13.5px; }
+    /* Braking by touch (asked: touch players could not brake: only Shift or a mouse button held did it): held, over the stick, where the
+       thumb that steers reaches it; on a phone or a tablet only, the mouse brakes by its button. */
+    #brake { display: none; }
+    body:not(.mouse) #brake { display: block; touch-action: none; -webkit-touch-callout: none; user-select: none; font-weight: 700; background: var(--sheet); }
+    body.hud:not(.mouse) #brake { position: fixed; left: var(--gutter-l); bottom: calc(176px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; min-height: 0; padding: 0;
+      border-radius: 50%; border-color: var(--rule); font-size: 13.5px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); z-index: 2; }
+    #brake.on { background: var(--brass); color: var(--on-brass); border-color: var(--brass); }
+    body.onfoot #brake, body.menu-open #brake, body.asking #brake, body.ended #brake { display: none !important; }
     body.hud #stick { bottom: calc(28px + env(safe-area-inset-bottom, 0px)); width: 136px; height: 136px; }
     body.hud #stick .up { top: 9px; }
     body.hud #stick .down { bottom: 9px; }
@@ -775,6 +780,11 @@
     }
     @media (prefers-reduced-motion: reduce) { #status .bar::after { animation: none; } }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    /* (Less motion: the menu, the title, the map, the way back and the run's sheet come in at once, nothing pulses or bounces.) */
+    @media (prefers-reduced-motion: reduce) {
+      #menu, #intro .title, #intro .horse, #intro .mountain, #intro .rule, #choose, #choose .card, #backTo, body.hud #runEnd:not([hidden]),
+      #wildMeter.up, #wildMeter.down, #score.bump, #bosses .boss.kneeling .name { animation: none; }
+    }
     /* The fight, the arms aiming themselves (asked: "Can we find a nice way to leave out human aiming? Like auto targeting and just attack
        button and maybe cycle target buttons next to attack"): brackets about the foe locked on, a thin bar of its strength under them
        (dimmed while it is out of the arm's reach; brass, chosen); and *Attack* between ◀ and ▶, over them the foe's name, its hit
@@ -857,7 +867,7 @@
 </head>
 <body>
   <canvas id="view" tabindex="0" aria-label="A skier going down a groomed slope"></canvas>
-  <div id="where" aria-live="polite">
+  <div id="where">
     <div class="name" id="name">Downhill run</div>
     <div class="part" id="part">Long, wide turns</div>
     <div class="numbers"><span><b id="speed">0</b> km/h</span><span><b id="down">0</b><span id="of"></span> m vertical</span><span id="clock">0.0 s</span><span id="tally" hidden><b id="orcs">0</b> orcs down<span id="armSay"></span></span><span id="points"><b id="score">0</b> points<span id="best"></span></span></div>
@@ -867,11 +877,12 @@
   <button id="rail" type="button" hidden aria-label="How far down the run: tap for the minimap"><i class="track"></i><i class="done"></i><span class="ticks"></span><i class="me"></i></button>
   <div id="told" aria-live="polite"><span class="text"></span><span class="small"></span></div>
   <button id="paused" type="button" hidden><b>Paused</b><span class="mouse-only">Click to go on</span><span class="touch-only">Tap to go on</span></button>
-  <div id="offPiste" hidden role="alert"><span class="say">Back to the marked slopes</span><b class="n">5</b></div>
+  <div id="offPiste" hidden role="status"><span class="say">Back to the marked slopes</span><b class="n" aria-hidden="true">5</b></div>
   <div id="stick" hidden role="group" aria-label="Steer: to either side to turn, up to tuck, down to stand straight"><div class="base"></div><div class="knob"></div><span class="say up">Tuck</span><span class="say down">Straight</span></div>
   <div id="aim" aria-hidden="true"><i class="skid l"></i><i class="skid r"></i><i class="rail l"></i><i class="rail r"></i><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="say up">Tuck</span><span class="say down">Straight</span><span class="say skids l">Skid</span><span class="say skids r">Skid</span><span class="say here">Point in here to steer</span><i class="dot"></i></div>
   <div id="tricky" hidden>
     <button id="skate" type="button" aria-label="Skate: hold for skating strides, a little more speed" title="Hold to skate, a stride with each leg in turn, for a little more speed (hold Z)">Skate</button>
+    <button id="brake" type="button" aria-label="Brake: hold to slow down" title="Hold to brake (Shift, or the mouse button held)">Brake</button>
     <button id="stance" type="button" aria-label="180 to switch" title="Turn round on the snow, to riding backwards (switch) or back: a pop, a nose butter, a smooth 180 or a tail butter, in turn (X, or a right click on the picture)">180</button>
     <div class="wild"><span class="cap">Tricks</span><span>Wild</span><input id="wild" type="range" min="0" max="1" step="0.01" value="0.5" aria-orientation="vertical" aria-label="How wild the tricks off the kickers are, from mild to wild"><div id="wildMeter" role="meter" aria-valuemin="0" aria-valuemax="8" aria-valuenow="0" aria-label="How wild the tricks off the kickers are, earned by tricks landed and foes brought down" title="Filled by tricks landed and foes brought down, emptied by falls and blows taken; full, the guidebooks' tricks come up"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Mild</span><b id="wildLvl">0/8</b></div>
     <div id="armBar" hidden role="progressbar" aria-valuemin="0"><span class="cap">Arms</span><span class="now"></span><span class="next"></span><span class="to"></span><div class="blocks"></div><span class="left"></span></div>
@@ -987,7 +998,19 @@
     <span class="horse">GRAND HORSE</span><span class="mountain">Mountain</span>
     <div class="bar"><div class="fill"></div></div>
     <div class="say">Fetching the game</div><div class="bytes"></div>
+    <button class="again" type="button" onclick="location.reload()">Open again</button>
   </div>
+  <script>
+    // (The game's program never begun, as a browser without modules, or one that failed to fetch it, leaves it: said after twenty seconds,
+    // with a way to open it again, where the loading screen had swept on for ever.)
+    setTimeout(function () {
+      if (window.__slopeRan) return;
+      var box = document.getElementById('status');
+      if (!box || box.hidden) return;
+      box.classList.remove('waiting'); box.classList.add('failed');
+      box.querySelector('.say').textContent = 'The game did not start: this browser may be too old, or the connection broke.';
+    }, 20000);
+  </script>
   <script type="module" src="./game/slope.ts"></script>
 </body>
 </html>
