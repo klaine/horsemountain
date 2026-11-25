@@ -132,8 +132,8 @@ function sliceFrame(slice: SkiSlice) {
  * is under the land), the mouth in its flank facing the piste, and the piste's edge drawn in to the camp's middle about it. None if
  * neither will do.
  */
-export function findSite(slice: SkiSlice, kickers: KickerZone[] = []): CaveSite | null {
-  return searchSites(slice, false, kickers) ?? searchSites(slice, true, kickers);
+export function findSite(slice: SkiSlice, kickers: KickerZone[] = [], awayFrom?: { x: number; z: number }): CaveSite | null {
+  return searchSites(slice, false, kickers, awayFrom) ?? searchSites(slice, true, kickers, awayFrom);
 }
 /** Where a kicker stands on a run (along it and across), and how far along from there it and the snow it lands on reach. */
 export interface KickerZone { s: number; left: number; reach: number }
@@ -164,10 +164,15 @@ export function sliceGround(slice: SkiSlice) {
     },
   };
 }
-function searchSites(slice: SkiSlice, raise: boolean, kickers: KickerZone[]): CaveSite | null {
-  const F = sliceFrame(slice), L = F.length;
+/**
+ * The best site along a run, about halfway down it. Given `awayFrom` (the mouth of the cave on the way it parts from), anywhere from a
+ * quarter to three quarters of the way down, as far from that one as a good site may be (asked: "spread them apart": the cave on Ashbridge
+ * Bend had stood halfway down it, where it still runs beside Ashbridge, some eighty metres from Ashbridge's own).
+ */
+function searchSites(slice: SkiSlice, raise: boolean, kickers: KickerZone[], awayFrom?: { x: number; z: number }): CaveSite | null {
+  const F = sliceFrame(slice), L = F.length, [from, to] = awayFrom ? [0.25, 0.75] : [0.4, 0.6];
   let best: { site: CaveSite; score: number } | null = null;
-  for (let s = 0.4 * L; s <= 0.6 * L; s += raise ? 8 : 5) {
+  for (let s = from * L; s <= to * L; s += raise ? 8 : 5) {
     const [lo, hi] = F.edges(s);
     for (const side of [1, -1]) {
       const edge = side > 0 ? hi : lo, other = side > 0 ? lo : hi, f = F.at(s, 0), lx = f.dz * side, lz = -f.dx * side;
@@ -193,7 +198,8 @@ function searchSites(slice: SkiSlice, raise: boolean, kickers: KickerZone[]): Ca
           if (!tried) continue;
           // (Clear of every kicker and the snow it lands on.)
           if (kickers.some((k) => !keptClear(site, k, F))) continue;
-          const score = tried - 25 * Math.abs(s / L - 0.5) - 0.02 * Math.abs(turn);
+          const apart = awayFrom ? 0.08 * Math.min(400, Math.hypot(site.mouth.x - awayFrom.x, site.mouth.z - awayFrom.z)) : 0;
+          const score = tried - 25 * Math.abs(s / L - 0.5) - 0.02 * Math.abs(turn) + apart;
           if (!best || score > best.score) best = { site: { ...site, mouth: { ...site.mouth }, camp: { ...site.camp } }, score };
         }
       }
@@ -328,6 +334,8 @@ interface Layout {
   cells: Uint8Array; rooms: Room[]; roomAt: Int16Array; far: Int16Array;
   floor: Float32Array; low: Float32Array; down: Int8Array; top: Float32Array;
   doors: Door[]; name: string; about: string;
+  /** The way out to the deeps (`slopeDeeps.ts`), where it has one: the square at the lattice's edge it goes out of, and which way. */
+  exit?: { c: number; r: number; dc: number; dr: number };
 }
 /** How far each level below lies under the one above; and the ways out of a square, by number (as `Layout.down`). */
 const DROP = 2.6, WAYS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -428,6 +436,37 @@ export function layDungeon(rng: Rng, tags: Tags): Layout {
   return laid;
 }
 const stairsOf = (l: Layout) => -Math.min(0, ...l.rooms.map((r) => r.level));
+/**
+ * A way out of a dungeon to the deeps (`slopeDeeps.ts`), cut after it is grown: a straight corridor from a side of a room on its lowest
+ * level (or, none fitting there, the next up) out to the lattice's edge, through solid rock with rock either side of it, never out of
+ * its front, where the gate is; of those, the one pointing most nearly `toward` (across, along: the way to the other dungeon), and of
+ * those the shortest. None if none fits.
+ */
+function cutDeepDoor(l: Layout, toward: [number, number]) {
+  const { cols, rows, cells } = l, at = (c: number, r: number) => r * cols + c, solid = (c: number, r: number) => c < 0 || r < 0 || c >= cols || r >= rows || !cells[at(c, r)];
+  const tl = Math.hypot(toward[0], toward[1]) || 1, levels = [...new Set(l.rooms.map((q) => q.level))].sort((a, b) => a - b);
+  for (const level of levels) {
+    let best: { hall: [number, number][]; room: Room; dc: number; dr: number; score: number } | null = null;
+    for (const room of l.rooms) {
+      if (room.level !== level || room.kind === 'gate') continue;
+      for (const [dc, dr] of WAYS) {
+        if (dr === -1) continue;
+        const c = dc ? (dc > 0 ? room.c0 + room.w : room.c0 - 1) : room.c0 + (room.w >> 1), r = dr ? room.r0 + room.h : room.r0 + (room.h >> 1), hall: [number, number][] = [];
+        for (let i = c, j = r; i >= 0 && j >= 0 && i < cols && j < rows; i += dc, j += dr) hall.push([i, j]);
+        if (!hall.length || !hall.every(([i, j]) => solid(i, j) && solid(i + dr, j + dc) && solid(i - dr, j - dc))) continue;
+        const score = ((dc * toward[0] + dr * toward[1]) / tl) * 10 - hall.length;
+        if (!best || score > best.score) best = { hall, room, dc, dr, score };
+      }
+    }
+    if (!best) continue;
+    const y = best.room.level * DROP;
+    for (const [i, j] of best.hall) { const k = at(i, j); cells[k] = 1; l.floor[k] = l.low[k] = y; l.top[k] = y + CAVE.corridor; }
+    const [c0, r0] = best.hall[0], [c1, r1] = best.hall[best.hall.length - 1];
+    l.doors.push({ c: c0, r: r0, dc: -best.dc, dr: -best.dr, kind: 'arch' });
+    l.exit = { c: c1, r: r1, dc: best.dc, dr: best.dr };
+    return;
+  }
+}
 function growDungeon(rng: Rng, tags: Tags): Layout {
   const size = SIZES[tags.size], plan = LAYOUTS[tags.layout], theme = THEMES[tags.theme], COLS = size.cols, ROWS = size.rows, ENTRY = COLS >> 1;
   const n = COLS * ROWS, cells = new Uint8Array(n), roomAt = new Int16Array(n).fill(-1), floor = new Float32Array(n), low = new Float32Array(n), down = new Int8Array(n).fill(-1);
@@ -639,7 +678,7 @@ function puffPicture(): Texture {
 
 let paints: { wall: Paint; floor: Paint; rock: Paint; earth: Paint; wood: Paint; bark: Paint; flame: Texture; puff: Texture } | null = null;
 /** The pictures everything here is painted with, made once (when the first cave is made) and kept for every cave after. */
-const paintsOf = () => {
+export const paintsOf = () => {
   if (paints) return paints;
   const rng = new Rng('dungeon paints');
   paints = {
@@ -653,24 +692,28 @@ const paintsOf = () => {
 };
 
 /** What each stuff a prop is made of is painted with, and how it takes the light. */
-const STUFF_PAINT: Partial<Record<Stuff, 'wood' | 'wall' | 'rock' | 'earth'>> = { wood: 'wood', stone: 'wall', straw: 'earth', clay: 'rock' };
-const STUFF_LOOK: Record<Stuff, { color?: number; roughness: number; metalness?: number; side?: typeof DoubleSide }> = {
+export const STUFF_PAINT: Partial<Record<Stuff, 'wood' | 'wall' | 'rock' | 'earth'>> = { wood: 'wood', stone: 'wall', straw: 'earth', clay: 'rock' };
+export const STUFF_LOOK: Record<Stuff, { color?: number; roughness: number; metalness?: number; side?: typeof DoubleSide }> = {
   wood: { roughness: 0.85 }, iron: { color: 0x55555c, roughness: 0.45, metalness: 0.7 }, stone: { color: 0xd0c8bc, roughness: 0.9 },
   bone: { color: 0xd8cfb8, roughness: 0.7 }, gold: { color: 0xffc040, roughness: 0.3, metalness: 1 }, cloth: { color: 0xf0f0f0, roughness: 0.95, side: DoubleSide },
   wax: { color: 0xeee2c4, roughness: 0.6 }, straw: { color: 0xffe0a0, roughness: 1 }, clay: { color: 0xd09070, roughness: 0.8 }, coal: { color: 0x201812, roughness: 1 },
+  fungus: { color: 0xc8f0e0, roughness: 0.55 },
 };
 
 // ------------------------------------------------------------------------------------------------------------------------ shapes
 
 /** A shape put together a triangle at a time: where each point is, which way it faces, where it is on its picture, its light. */
-class Shape {
+export class Shape {
   readonly pos: number[] = []; readonly nor: number[] = []; readonly uv: number[] = []; readonly light: number[] = []; readonly snow: number[] = []; readonly index: number[] = [];
   /** The floor each point stands over (`floor`, as it is laid): what the view from above cuts away a height over (`CUT`). */
   readonly ground: number[] = [];
   floor = 0;
+  /** How far each point is of a second stone rather than the first (`mixed`, as it is laid): the deeps' natural rock and dressed stone. */
+  readonly mix: number[] = [];
+  mixed = 0;
   get count() { return this.pos.length / 3; }
   point(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, snow = 0): number {
-    this.pos.push(x, y, z); this.nor.push(nx, ny, nz); this.uv.push(u, v); this.light.push(0, 0, 0); this.snow.push(snow); this.ground.push(this.floor);
+    this.pos.push(x, y, z); this.nor.push(nx, ny, nz); this.uv.push(u, v); this.light.push(0, 0, 0); this.snow.push(snow); this.ground.push(this.floor); this.mix.push(this.mixed);
     return this.count - 1;
   }
   tri(a: number, b: number, c: number) { this.index.push(a, b, c); }
@@ -697,6 +740,7 @@ class Shape {
     g.setAttribute('uv', new BufferAttribute(new Float32Array(this.uv), 2));
     if (withLight) { g.setAttribute('aLight', new BufferAttribute(new Float32Array(this.light), 3)); g.setAttribute('aFloor', new BufferAttribute(new Float32Array(this.ground), 1)); }
     if (withSnow) g.setAttribute('aSnow', new BufferAttribute(new Float32Array(this.snow), 1));
+    if (withLight) g.setAttribute('aMix', new BufferAttribute(new Float32Array(this.mix), 1));
     g.setIndex(this.index);
     g.computeBoundingSphere();
     return g;
@@ -729,13 +773,13 @@ const archSteps = (k: number): number[] => {
 };
 
 /** The light the torches give, the day's at the mouth, and what is about everywhere in the dark. */
-const TORCH_LIGHT = new Color(1.0, 0.66, 0.38), DAYLIGHT = new Color(0.78, 0.84, 0.95), DARK = new Color(0.022, 0.024, 0.03);
-const TORCH_REACH = 15;
+export const TORCH_LIGHT = new Color(1.0, 0.66, 0.38), DAYLIGHT = new Color(0.78, 0.84, 0.95), DARK = new Color(0.022, 0.024, 0.03);
+export const TORCH_REACH = 15;
 /**
  * Seen from above on foot (`Cave.overhead`), how high over its own floor the stone is cut away (its roofs and its walls' tops), as a
  * dungeon is drawn seen from above; and how far the dark caps laid over the cut walls reach into the rock.
  */
-const CUT = 3, CAP = 0.7;
+export const CUT = 3, CAP = 0.7;
 const addScaled = (into: Color, c: Color, k: number) => { into.r += c.r * k; into.g += c.g * k; into.b += c.b * k; };
 type N = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -806,13 +850,15 @@ export class Cave {
   /** Where a horse is left, across and along (`horseSpot`). */
   private parking: [number, number] = [0, 0];
 
-  constructor(readonly site: CaveSite, private readonly base: BaseHeight, readonly seed: string, asked: string[] = [], shared?: { lantern: PointLight; fire: PointLight }) {
+  constructor(readonly site: CaveSite, private readonly base: BaseHeight, readonly seed: string, asked: string[] = [], shared?: { lantern: PointLight; fire: PointLight }, toward?: { x: number; z: number }) {
     this.sharedLights = !!shared;
     this.lantern = shared?.lantern ?? new PointLight(0xffc690, 0, 20, 1.6);
     this.fireLight = shared?.fire ?? new PointLight(0xff9440, 0, 24, 2);
     const P = paintsOf();
     this.rng = new Rng(`dungeon ${seed}`);
     this.layout = layDungeon(this.rng.fork('layout'), tagsFor(this.rng.fork('tags'), asked));
+    // (A way out to the deeps, where there is another dungeon to go to: toward it, from the lattice's middle.)
+    if (toward) { const [t, lat] = siteLocal(site, toward.x, toward.z); cutDeepDoor(this.layout, [lat, t - (site.length + (this.layout.rows * CAVE.cell) / 2)]); }
     this.seen = new Uint8Array(this.layout.cols * this.layout.rows);
     this.fogMap = new DataTexture(new Uint8Array(this.layout.cols * this.layout.rows * 4), this.layout.cols, this.layout.rows, RGBAFormat);
     this.fogMap.magFilter = this.fogMap.minFilter = NearestFilter;
@@ -921,6 +967,18 @@ export class Cave {
     this.frame.updateMatrixWorld(true);
   }
 
+  /**
+   * Where the way under the mountain from this dungeon begins (`slopeDeeps.ts`): the doorway its way out to the deeps goes through, its
+   * floor, and the way out of it, in the land's frame; none where it was not given one (`toward`), or none fitted.
+   */
+  deepDoor(): { x: number; y: number; z: number; dx: number; dz: number } | null {
+    const ex = this.layout.exit;
+    if (!ex) return null;
+    // (The doorway in the lattice's outer wall, its floor; and out from it, the way across and the way in turned into the land's.)
+    const half = CAVE.cell / 2, p = sitePoint(this.site, this.tOf(ex.r) + ex.dr * half, this.latOf(ex.c) + ex.dc * half);
+    return { x: p.x, y: this.site.deep + this.layout.floor[ex.r * this.layout.cols + ex.c], z: p.z, dx: this.site.ax * ex.dr + this.site.az * ex.dc, dz: this.site.az * ex.dr - this.site.ax * ex.dc };
+  }
+
   // ------------------------------------------------------------------------------------------------------------- building it
 
   /** A point of the cave's own frame in the land. */
@@ -940,7 +998,28 @@ export class Cave {
   private seenAt(lat: number, t: number): boolean { const k = this.cellAt(lat, t); return t < this.site.length || (!!k && this.seen[k[1] * this.layout.cols + k[0]] > 0); }
   private openAt(lat: number, t: number) { const k = this.cellAt(lat, t); return !!k && this.open(k[0], k[1]); }
   /** Open, in the dungeon, or through the gate's doorway into the tunnel's end. */
-  private passAt(lat: number, t: number) { return t > this.site.length ? this.openAt(lat, t) : t > this.site.length - 2 && Math.abs(lat) < CAVE.cell / 2; }
+  private passAt(lat: number, t: number) { return t > this.site.length ? this.openAt(lat, t) || this.outExit(lat, t) : t > this.site.length - 2 && Math.abs(lat) < CAVE.cell / 2; }
+  /** Whether a point of the land is out through the way to the deeps, past its doorway by more than half a metre: the deeps' now. */
+  throughExit(x: number, z: number): boolean {
+    const ex = this.layout.exit;
+    if (!ex) return false;
+    const [t, lat] = siteLocal(this.site, x, z), along = (lat - this.latOf(ex.c)) * ex.dc + (t - this.tOf(ex.r)) * ex.dr;
+    return this.outExit(lat, t) && along > CAVE.cell / 2 + 0.5;
+  }
+  /** Where one comes back in from the deeps: a metre inside the way out's doorway, in the land, and its floor. */
+  insideExit(): { x: number; y: number; z: number } | null {
+    const ex = this.layout.exit;
+    if (!ex) return null;
+    const p = sitePoint(this.site, this.tOf(ex.r) + ex.dr * (CAVE.cell / 2 - 1), this.latOf(ex.c) + ex.dc * (CAVE.cell / 2 - 1));
+    return { x: p.x, y: this.site.deep + this.layout.floor[ex.r * this.layout.cols + ex.c], z: p.z };
+  }
+  /** Whether a point is out through the way to the deeps, within two and a half metres of its doorway: where the deeps take one over. */
+  private outExit(lat: number, t: number): boolean {
+    const ex = this.layout.exit;
+    if (!ex) return false;
+    const ox = this.latOf(ex.c), ot = this.tOf(ex.r), along = (lat - ox) * ex.dc + (t - ot) * ex.dr, across = Math.abs((lat - ox) * ex.dr - (t - ot) * ex.dc);
+    return along > 0 && along < CAVE.cell / 2 + 2.5 && across < CAVE.cell / 2;
+  }
 
   /** How much the tunnel's rock stands out from its line `t` in, at `j` of the way round. */
   private rough(t: number, j: number): number {
@@ -1012,6 +1091,9 @@ export class Cave {
       walls.panel(new Vector3(x - half, deep + top[k], t - half), new Vector3(CAVE.cell, 0, 0), new Vector3(0, 0, CAVE.cell), new Vector3(0, -1, 0), 3, 3, 2, x - half, t - half);
       for (const [dc, dr] of WAYS) {
         if (c === this.layout.entry && r === 0 && dr === -1) continue;
+        // (The way out to the deeps: open.)
+        const ex = this.layout.exit;
+        if (ex && c === ex.c && r === ex.r && dc === ex.dc && dr === ex.dr) continue;
         const mine = this.edgeFloor(c, r, dc, dr);
         if (!this.open(c + dc, r + dr)) { wall(c, r, dc, dr, Math.min(floor[k], low[k]), top[k]); this.capWall(c, r, dc, dr); continue; }
         const n = (r + dr) * this.layout.cols + c + dc, theirs = this.edgeFloor(c + dc, r + dr, -dc, -dr);
@@ -1094,7 +1176,8 @@ export class Cave {
   }
   /** How high the floor is at a point of the dungeon (in its own frame), over the gate's: down a stair, as far down it as the point is. */
   private floorIn(lat: number, t: number): number {
-    const at = this.cellAt(lat, t);
+    const at = this.cellAt(lat, t), ex = this.layout.exit;
+    if (!at && ex && this.outExit(lat, t)) return this.layout.floor[ex.r * this.layout.cols + ex.c];
     if (!at) return 0;
     const k = at[1] * this.layout.cols + at[0], d = this.layout.down[k];
     if (d < 0) return this.layout.floor[k];
@@ -1140,6 +1223,8 @@ export class Cave {
     if (paint) { m.map = P[paint].map; m.normalMap = P[paint].normal; }
     // (The coals in a brazier glow of themselves.)
     if (stuff === 'coal') m.userData.glow = vec3(1.6, 0.5, 0.12).mul(sin(time.mul(3.1)).mul(0.15).add(0.85));
+    // (The fungi glow of themselves too, cold, slowly brighter and back.)
+    if (stuff === 'fungus') m.userData.glow = attribute('color', 'vec3').mul(sin(time.mul(0.9)).mul(0.2).add(0.75));
     return m;
   }
   /** A material for things in the dungeon, lit as its stone is: each at its own place (`at`, one to each of the shape's copies). */
@@ -1655,6 +1740,11 @@ export class Cave {
     const [lat, t] = this.parking, p = sitePoint(this.site, t, lat);
     return { ...p, heading: Math.atan2(this.site.ax, this.site.az) };
   }
+  /** Where the ski rack stands (in the land), and which way its skis lean from it, level: for what is brought to it from elsewhere. */
+  get rackSpot(): { x: number; z: number; heading: number } {
+    const p = sitePoint(this.site, this.rack.position.z, this.rack.position.x);
+    return { ...p, heading: Math.atan2(this.site.ax, this.site.az) };
+  }
   /** The horse left there (in the way of one walking), or taken away again. */
   parkHorse(on: boolean): void {
     for (let i = this.posts.length - 1; i >= 0; i--) if (this.posts[i].horse) this.posts.splice(i, 1);
@@ -1801,6 +1891,8 @@ export class Cave {
     this.seenFromAbove = cut;
   }
   private seenFromAbove = false;
+  /** Drawn whole however far off the eye is, for a picture of all of it (`__slope.cutaway`): the dungeon, no plug in the mouth, nothing cut away. */
+  drawWhole(): void { this.overhead(false, false, 0); this.inner.visible = true; this.plug.visible = false; }
   /** Let go of with its land: what is its own and not in the land's group, the map of what has been seen (a picture the land's letting go never reaches, as it is in no mesh's paint but only read by one). */
   dispose(): void { this.fogMap.dispose(); }
   /** The skis (and poles) left on the rack while their owner is on foot: of a person, a horse's long pair or its four short; or none. */

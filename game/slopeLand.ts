@@ -72,7 +72,20 @@ export interface Land {
   trees?(eye: Vector3, seconds: number): void;
   /** How far the air's haze begins and is whole; where the sun is (towards it); and how strong the sky's light is. */
   fog: [number, number]; sun: [number, number, number]; sky: number;
+  /**
+   * The ways down a run that parts in two (its slice's `branches`, `FORKS` in `tools/skiRun.ts`): the first its own, each other the run
+   * it is (by its slice's name), from where it parts from the first, and how long each is. Which is ridden now (`way`, `setWay`): `frame`,
+   * `at`, `edges`, `length` and `kickable` are all of it. And the way whose path a point is on, or nearest (`wayAt`). None for a run of
+   * one way.
+   */
+  ways?: { id?: string; from: number; length: number }[];
+  way?(): number;
+  setWay?(w: number): void;
+  wayAt?(x: number, z: number): number;
 }
+
+/** A way down a run that parts from its own, as its slice carries it (`branches`, written by `tools/skiRun.ts`). */
+export interface Branch { id: string; from: number; run: SkiSlice['run'] }
 
 const smooth01 = (t: number) => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
 
@@ -183,12 +196,6 @@ export interface GameLook {
  */
 export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture, game?: GameLook, woods?: number): Land {
   const [ox, oz] = slice.run.points[0], step = slice.run.step;
-  const line = slice.run.points.map(([x, z]) => [x - ox, z - oz] as [number, number]), n = line.length, length = (n - 1) * step;
-  // Each stretch of the line: where it starts and which way it goes.
-  const dirs = line.map((_, k) => {
-    const [ax, az] = line[Math.max(0, Math.min(n - 2, k))], [bx, bz] = line[Math.max(1, Math.min(n - 1, k + 1))], l = Math.hypot(bx - ax, bz - az) || 1;
-    return [(bx - ax) / l, (bz - az) / l] as [number, number];
-  });
   const shift = (g: Grid): Grid => ({ ...g, x0: g.x0 - ox, z0: g.z0 - oz });
   const snow = shift(slice.snow), near = shift(slice.near), far = shift(slice.far);
 
@@ -215,31 +222,61 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     return Number.isNaN(h) ? 0 : h;
   };
 
-  /** Where a point lies against the line: the nearest point on it, from the stretches about `hint` if given. */
-  const frame = (x: number, z: number, hint?: number): Frame => {
-    const k0 = hint === undefined ? 0 : Math.max(0, Math.floor(hint / step) - 16), k1 = hint === undefined ? n - 2 : Math.min(n - 2, Math.floor(hint / step) + 16);
-    let best = Infinity, out: Frame = { s: 0, left: 0, dx: dirs[0][0], dz: dirs[0][1] };
-    for (let k = k0; k <= k1; k++) {
-      const [ax, az] = line[k], [dx, dz] = dirs[k], rx = x - ax, rz = z - az;
-      // (Before the first stretch and past the last, the line goes on straight.)
-      let t = (rx * dx + rz * dz) / step;
-      if (k > 0) t = Math.max(0, t);
-      if (k < n - 2) t = Math.min(1, t);
-      const px = ax + dx * t * step, pz = az + dz * t * step, d = Math.hypot(x - px, z - pz);
-      if (d < best) { best = d; out = { s: (k + t) * step, left: (x - px) * dz - (z - pz) * dx, dx, dz }; }
+  /**
+   * A way down the run, from its line: where a point lies against it, its path's edges, a point along and across it. The run's own, and
+   * on a run that parts in two (`branches`), each other way, from where it parts.
+   */
+  const wayOf = (run: SkiSlice['run'], id: string | undefined, from: number) => {
+    const line = run.points.map(([x, z]) => [x - ox, z - oz] as [number, number]), n = line.length, length = (n - 1) * step;
+    // Each stretch of the line: where it starts and which way it goes.
+    const dirs = line.map((_, k) => {
+      const [ax, az] = line[Math.max(0, Math.min(n - 2, k))], [bx, bz] = line[Math.max(1, Math.min(n - 1, k + 1))], l = Math.hypot(bx - ax, bz - az) || 1;
+      return [(bx - ax) / l, (bz - az) / l] as [number, number];
+    });
+    /** Where a point lies against the line: the nearest point on it, from the stretches about `hint` if given. */
+    const frame = (x: number, z: number, hint?: number): Frame => {
+      const k0 = hint === undefined ? 0 : Math.max(0, Math.floor(hint / step) - 16), k1 = hint === undefined ? n - 2 : Math.min(n - 2, Math.floor(hint / step) + 16);
+      let best = Infinity, out: Frame = { s: 0, left: 0, dx: dirs[0][0], dz: dirs[0][1] };
+      for (let k = k0; k <= k1; k++) {
+        const [ax, az] = line[k], [dx, dz] = dirs[k], rx = x - ax, rz = z - az;
+        // (Before the first stretch and past the last, the line goes on straight.)
+        let t = (rx * dx + rz * dz) / step;
+        if (k > 0) t = Math.max(0, t);
+        if (k < n - 2) t = Math.min(1, t);
+        const px = ax + dx * t * step, pz = az + dz * t * step, d = Math.hypot(x - px, z - pz);
+        if (d < best) { best = d; out = { s: (k + t) * step, left: (x - px) * dz - (z - pz) * dx, dx, dz }; }
+      }
+      return out;
+    };
+    /** The skiable path's edges at `s` (from slices made before the path had its own edges, the snow's edge less four metres). */
+    const piste = run.piste ?? line.map(() => [-(slice.half - 4), slice.half - 4] as [number, number]);
+    const edges = (s: number): [number, number] => {
+      const f = Math.max(0, Math.min(n - 1, s / step)), k = Math.min(n - 2, Math.floor(f)), t = f - k, [a, b] = piste[k], [c, d] = piste[k + 1];
+      return [a + (c - a) * t, b + (d - b) * t];
+    };
+    const at = (s: number, left: number) => {
+      const k = Math.max(0, Math.min(n - 2, Math.floor(s / step))), t = s / step - k, [ax, az] = line[k], [dx, dz] = dirs[k];
+      const x = ax + dx * t * step, z = az + dz * t * step;
+      return { x: x + dz * left, z: z - dx * left, dx, dz };
+    };
+    /** How far a place against the line lies outside its path, metres (less than nothing, inside), past its top and foot too. */
+    const outside = (f: Frame) => { const [lo, hi] = edges(f.s); return Math.max(lo - f.left, f.left - hi, -4 - f.s, f.s - length - 4); };
+    return { id, from, length, frame, edges, at, outside };
+  };
+  const ways = [wayOf(slice.run, undefined, 0), ...((slice as SkiSlice & { branches?: Branch[] }).branches ?? []).map((b) => wayOf(b.run, b.id, b.from))];
+  let way = ways[0];
+  const frame = (x: number, z: number, hint?: number) => way.frame(x, z, hint), edges = (s: number) => way.edges(s), at = (s: number, left: number) => way.at(s, left);
+  /**
+   * Of the ways down a run that parts, the one whose path a point is on or nearest, and where it lies against it: for what is drawn and
+   * where the snow lies, alike whichever way is ridden. (`hints`, where the last point asked lay along each, to look about.)
+   */
+  const nearestWay = (x: number, z: number, hints?: number[]) => {
+    let best = ways[0], f = best.frame(x, z, hints?.[0]), out = best.outside(f);
+    for (let w = 1; w < ways.length; w++) {
+      const g = ways[w].frame(x, z, hints?.[w]), o = ways[w].outside(g);
+      if (o < out) { best = ways[w]; f = g; out = o; }
     }
-    return out;
-  };
-  /** The skiable path's edges at `s` (from slices made before the path had its own edges, the snow's edge less four metres). */
-  const piste = slice.run.piste ?? line.map(() => [-(slice.half - 4), slice.half - 4] as [number, number]);
-  const edges = (s: number): [number, number] => {
-    const f = Math.max(0, Math.min(n - 1, s / step)), k = Math.min(n - 2, Math.floor(f)), t = f - k, [a, b] = piste[k], [c, d] = piste[k + 1];
-    return [a + (c - a) * t, b + (d - b) * t];
-  };
-  const at = (s: number, left: number) => {
-    const k = Math.max(0, Math.min(n - 2, Math.floor(s / step))), t = s / step - k, [ax, az] = line[k], [dx, dz] = dirs[k];
-    const x = ax + dx * t * step, z = az + dz * t * step;
-    return { x: x + dz * left, z: z - dx * left, dx, dz };
+    return { w: best, f, out };
   };
 
   /** How steep the snow is about a point, in degrees, over `e` metres either way: alike whichever grid asks. */
@@ -256,9 +293,10 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   // metres either way; off the skiable path, as steeply as the world's own land); drawn plainly, as `coloured` lays its rock.
   let snowHint = 0;
   const snowAt = (x: number, z: number) => {
-    const f = frame(x, z, snowHint), [lo, hi] = edges(f.s), y = height(x, z);
-    snowHint = f.s;
-    const away = smooth01((Math.max(lo - f.left, f.left - hi, -4 - f.s, f.s - length - 4) + 1) / 6);
+    const y = height(x, z);
+    let out: number;
+    if (ways.length === 1) { const f = frame(x, z, snowHint); snowHint = f.s; out = ways[0].outside(f); } else out = nearestWay(x, z).out;
+    const away = smooth01((out + 1) / 6);
     if (!game?.snowAt) return 1 - smooth01((worldSteep(steepAt(x, z, 4), y) - 38) / 14) * away;
     // (Over three metres either way on the run's own snow, eight on the land about it, as each is shaded, `nrm`.)
     const e = inSlice(x, z) ? 3 : 8, k = away >= 0.5 ? worldSlope(y) : 1;
@@ -349,15 +387,22 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
 
   // The run's snow at a metre: the skiable path groomed, its corduroy laid along the run; beyond its edges loose snow, and bare rock
   // where it is too steep for snow to lie (each point's place against the line found from the last's).
-  let hint = 0, last: Frame = { s: 0, left: 0, dx: 0, dz: 1 };
+  let hint = 0, last: Frame = { s: 0, left: 0, dx: 0, dz: 1 }, lastWay = ways[0];
+  const hints = ways.map(() => 0);
   const pisteUv = (x: number, z: number): [number, number] => {
+    if (ways.length > 1) {
+      // (On a run that parts, against the way whose path it is on or nearest, each looked along from where its last point lay.)
+      const { w, f } = nearestWay(x, z, hints);
+      hints[ways.indexOf(w)] = f.s; last = f; lastWay = w;
+      return [f.left / 9, f.s / 9];
+    }
     // (Looked for along all of the line if the last point's place seems to have lost the way.)
     let f = frame(x, z, hint);
     if (Math.abs(f.left) > slice.half + 2) f = frame(x, z);
     hint = f.s; last = f;
     return [f.left / 9, f.s / 9];
   };
-  const offPiste = () => { const [lo, hi] = edges(last.s), out = Math.max(lo - last.left, last.left - hi, -4 - last.s, last.s - length - 4); return smooth01((out + 1) / 6); };
+  const offPiste = () => smooth01((lastWay.outside(last) + 1) / 6);
   // The land about it at four metres, sunk a little out of sight under the run's snow; and the country at sixteen, sunk out of sight
   // under the land about the run. (Both drawn behind what lies over them where they meet, a little, so as not to flicker through it.)
   const plainUv = (x: number, z: number): [number, number] => [x / 23, z / 23];
@@ -521,9 +566,11 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   }
 
   // The path's edges marked with poles every twenty metres.
+  // (On a run that parts, along each way from where it parts, and none standing on another's path.)
   const marks: Matrix4[] = [];
-  for (let s = 0; s <= length; s += 20) for (const side of [0, 1]) {
-    const e = edges(s), p = at(s, e[side] + (side ? 1 : -1));
+  for (const w of ways) for (let s = w.from && Math.ceil(w.from / 20) * 20; s <= w.length; s += 20) for (const side of [0, 1]) {
+    const e = w.edges(s), p = w.at(s, e[side] + (side ? 1 : -1));
+    if (ways.some((o) => o !== w && o.outside(o.frame(p.x, p.z)) < 0)) continue;
     marks.push(new Matrix4().makeTranslation(p.x, height(p.x, p.z) + 0.75, p.z));
   }
   const poles = new InstancedMesh(POLE, POLE_PAINT, marks.length);
@@ -542,8 +589,7 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   for (let j = 0; j < near.nz; j++) for (let i = 0; i < near.nx; i++) {
     const x = near.x0 + i * near.cell + rng.range(-1.6, 1.6), z = near.z0 + j * near.cell + rng.range(-1.6, 1.6);
     if (coverAt(x, z) !== COVER.forest || !rng.chance(0.32)) continue;
-    const f = frame(x, z);
-    if (Math.abs(f.left) < slice.half + 2 && f.s > -20 && f.s < length + 20) continue;
+    if (ways.some((w) => { const f = w.frame(x, z); return Math.abs(f.left) < slice.half + 2 && f.s > -20 && f.s < w.length + 20; })) continue;
     fir(x, z, nearFirs, rng.range(6, 13));
   }
   // (Drawn with the game's materials, the country has its woods painted on it, as the game's far land does, and no firs stand there.)
@@ -600,7 +646,7 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   // Where a kicker may stand: where the land falls away after its lip at least as steeply as a landing wants, and is not too steep
   // or too tilted across where it is built; and where it can be come up to (`kickerReachable`).
   const kickable = (s: number, left: number, kick: number) => {
-    if (s + kick + 40 > length - 30) return false;
+    if (s + kick + 40 > way.length - 30) return false;
     if (!kickerReachable(at, height, s, kick)) return false;
     const h = (u: number, l = left) => { const p = at(u, l); return height(p.x, p.z); };
     const fallAfter = (h(s + kick + 4) - h(s + kick + 30)) / 26, fallOn = (h(s) - h(s + kick)) / kick, tilt = Math.abs(h(s + kick / 2, left - 3) - h(s + kick / 2, left + 3)) / 6;
@@ -610,10 +656,23 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   return {
     name: `${slice.worldName}, below ${slice.peak}`, short: `below ${slice.peak}`,
     // (Its heights as the world has them: the slice's land above some height was brought lower.)
-    about: `${(length / 1000).toFixed(2)} km from ${worldHeight(slice.run.heights[0]).toFixed(0)} m to ${worldHeight(slice.run.heights[slice.run.heights.length - 1]).toFixed(0)} m`,
+    about: `${(ways[0].length / 1000).toFixed(2)} km from ${worldHeight(slice.run.heights[0]).toFixed(0)} m to ${worldHeight(slice.run.heights[slice.run.heights.length - 1]).toFixed(0)} m`,
     drop: (y: number) => worldHeight(slice.run.heights[0]) - worldHeight(y),
     fall: worldHeight(slice.run.heights[0]) - worldHeight(slice.run.heights[slice.run.heights.length - 1]),
-    length, half: slice.half, edges, height, snowAt, treeNear, frame, at, kickable, group,
+    get length() { return way.length; },
+    half: slice.half, edges, height, snowAt, treeNear, frame, at, kickable, group,
+    // (Which way down is ridden, on a run that parts: kept to the one ridden on until another's path is two metres nearer, so that
+    // where the two paths lie side by side, as they part, it does not go to and fro.)
+    ...(ways.length > 1 ? {
+      ways: ways.map((w) => ({ id: w.id, from: w.from, length: w.length })),
+      way: () => ways.indexOf(way),
+      setWay: (w: number) => { way = ways[Math.max(0, Math.min(ways.length - 1, w))]; },
+      wayAt: (x: number, z: number) => {
+        let best = way, out = way.outside(way.frame(x, z)) - 2;
+        for (const w of ways) { if (w === way) continue; const o = w.outside(w.frame(x, z)); if (o < out) { best = w; out = o; } }
+        return ways.indexOf(best);
+      },
+    } : {}),
     // (Off the piste, as far out over the land about the run as it is drawn, short of its edge by thirty metres.)
     roam: (x, z) => intoNear(x, z) > 30, keepAbout: () => {}, lod, fog: [380, 5200], sun: [-0.6, 0.42, -0.5], sky: 0.8,
     trees: woodsGrown ? (eye, seconds) => woodsGrown!.update(eye, seconds) : undefined,

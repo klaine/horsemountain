@@ -25,7 +25,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { world } from '../src/core/world';
 import { findSkiRun, RUN, skiableLand, sliceOfRun, smoothed, squash, type SkiRun } from '../src/core/skiRun';
-import { writeSlice, type SkiSlice } from '../src/core/skiSlice';
+import { gridAt, type Grid, writeSlice, type SkiSlice } from '../src/core/skiSlice';
 import { landOfWorld } from '../src/core/worldLand';
 import { HeightField, leastPath } from '../src/core/terrain';
 import { type MapRun, writeRunMap } from '../src/core/runMap';
@@ -238,11 +238,55 @@ const sliceAlone = (run: SkiRun) => {
 /** A run's name in the game, as its slice is named. */
 const idOf = (pick: number) => (pick === 1 ? seed : `${seed}-${pick}`);
 
+/**
+ * Runs that set off down the same line and part (asked: "proceed with making the combined diverging runs"): Ashbridge and Ashbridge
+ * Bend, Lake Wall and Lake Wall East. Each is written with the land of both, its own line its way down and the other's a branch off
+ * it, from where the two part (`branches`, beside what a slice holds, which the game reads as it is), so that either can be ridden
+ * down from the top whichever was chosen.
+ */
+const FORKS: Record<string, [number, number][]> = { w2: [[8, 25], [14, 40]] };
+const forksOf = (pick: number) => (FORKS[seed] ?? []).flatMap(([a, b]) => (a === pick ? [b] : b === pick ? [a] : []));
+/** How far a point lies from a line, in metres, from its points (a step apart, near enough for which of two lines is nearer). */
+const offLine = (line: [number, number][], x: number, z: number) => { let d = Infinity; for (const [px, pz] of line) d = Math.min(d, (px - x) ** 2 + (pz - z) ** 2); return Math.sqrt(d); };
+/**
+ * A grid of `a` grown to reach as far as `b` does, on `a`'s own lattice: where only one has land, that one's; where both do, the one
+ * whose run's line is nearer (`b`'s where `nearerB`). (The snow at a metre lies on the world's own lattice in every slice; the land
+ * about the run, at four metres, on one begun where the slice begins, so `b`'s is read between its points.)
+ */
+function grown(a: Grid, b: Grid, nearerB: (x: number, z: number) => boolean): Grid {
+  const c = a.cell, ax1 = a.x0 + (a.nx - 1) * c, az1 = a.z0 + (a.nz - 1) * c, bx1 = b.x0 + (b.nx - 1) * b.cell, bz1 = b.z0 + (b.nz - 1) * b.cell;
+  const x0 = a.x0 - Math.ceil(Math.max(0, a.x0 - b.x0) / c) * c, z0 = a.z0 - Math.ceil(Math.max(0, a.z0 - b.z0) / c) * c;
+  const nx = Math.round((ax1 + Math.ceil(Math.max(0, bx1 - ax1) / c) * c - x0) / c) + 1, nz = Math.round((az1 + Math.ceil(Math.max(0, bz1 - az1) / c) * c - z0) / c) + 1;
+  const data = new Float32Array(nx * nz).fill(NaN);
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const x = x0 + i * c, z = z0 + j * c, ai = Math.round((x - a.x0) / c), aj = Math.round((z - a.z0) / c);
+    const va = ai < 0 || aj < 0 || ai >= a.nx || aj >= a.nz ? NaN : a.data[aj * a.nx + ai], vb = gridAt(b, x, z);
+    data[j * nx + i] = Number.isNaN(va) ? vb : Number.isNaN(vb) ? va : nearerB(x, z) ? vb : va;
+  }
+  return { x0, z0, cell: c, nx, nz, data };
+}
+/** A run's slice with the land of the runs that part from it, and their lines as its branches. */
+function forked(main: SkiSlice, others: { id: string; slice: SkiSlice }[]) {
+  let { snow, near } = main;
+  const branches = others.map(({ id, slice: o }) => {
+    const a = main.run.points, b = o.run.points;
+    let k = 0;
+    while (k < Math.min(a.length, b.length) - 1 && Math.hypot(a[k][0] - b[k][0], a[k][1] - b[k][1]) < 0.5) k++;
+    const from = k * main.run.step, nearerB = (x: number, z: number) => offLine(b, x, z) < offLine(a, x, z) - 1;
+    snow = grown(snow, o.snow, nearerB);
+    near = grown(near, o.near, nearerB);
+    return { id, from, run: o.run };
+  });
+  return { ...main, snow, near, branches };
+}
+
 for (const pick of picks) {
   const run = kept[pick - 1];
   if (!run) { console.log(`  no run ${pick} kept`); process.exitCode = 1; continue; }
   t = performance.now();
-  const slice = sliceAlone(run);
+  const alone = sliceAlone(run), parts = forksOf(pick).map((o) => ({ id: idOf(o), slice: sliceAlone(kept[o - 1]!) }));
+  const slice = parts.length ? forked(alone, parts) : alone;
+  if (parts.length) console.log(`  run ${pick}: forked, its branches ${(slice as ReturnType<typeof forked>).branches.map((b) => `${b.id} from ${b.from} m`).join(', ')}`);
   const text = writeSlice(slice), out = `slopes/${idOf(pick)}.json`;
   mkdirSync('slopes', { recursive: true });
   writeFileSync(out, text);

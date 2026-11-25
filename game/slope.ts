@@ -39,7 +39,7 @@
  * land as it lies. The run's line is only for the edges, the views and where the kickers stand.
  */
 import {
-  ACESFilmicToneMapping, AdditiveBlending, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
+  ACESFilmicToneMapping, AdditiveBlending, Box3, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, DoubleSide,
   Group, HemisphereLight, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
   PCFShadowMap, PerspectiveCamera, PlaneGeometry, PointLight, Quaternion, Raycaster, RepeatWrapping, Scene, SkinnedMesh, Sphere, SRGBColorSpace, Vector2, Vector3,
 } from 'three';
@@ -55,12 +55,12 @@ import { type BodySpec, type Ground, HUMAN, humanSpec, JOINTS, Ragdoll } from '.
 import { Horse, horseAirPose, horseRidePose, type HorseSkis, saddlePose } from '../src/figures/horse';
 import { horseCoatMaterial } from '../src/figures/horseCoat';
 import { Rng } from '../src/core/rng';
-import { readSlice } from '../src/core/skiSlice';
+import { readSlice, type SkiSlice } from '../src/core/skiSlice';
 import { readRunMap, type RunMap } from '../src/core/runMap';
 import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sparks, Sweep } from './slopeArms';
 import { Drops, type Item, LootCard, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
-import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
+import { type Branch, type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { paintNearer } from './slopeTrees';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type Den, type FoeKind, Horde } from './slopeOrcs';
@@ -76,7 +76,10 @@ import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
-import { carve, Cave, findSite, sitePoint, sliceGround } from './slopeDungeon';
+import { carve, Cave, findSite, paintsOf, sitePoint, sliceGround, STUFF_LOOK, STUFF_PAINT } from './slopeDungeon';
+import { PROP_KINDS, Props } from './slopeProps';
+import { forkSign } from './slopeSign';
+import { Deeps, planDeeps } from './slopeDeeps';
 import { horseCadence, horseWalk, Walker } from './slopeFoot';
 import { MiniMap } from './slopeMini';
 import { doneGenerating, generateTextureSet } from '../src/render/textures';
@@ -284,7 +287,7 @@ const loading = (() => {
  * A file the page needs, fetched once and counted as it comes in. (Where the host packs it for the way, its size on arrival is not
  * said; then it is taken as about as large as the file is kept, and grown if it comes larger.)
  */
-const ABOUT: Record<string, number> = { 'clips.glb': 0.78e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6, 'w2-8.json': 1.03e6, 'w2-10.json': 1.2e6, 'w2-2.json': 0.97e6, 'w2-14.json': 1.45e6, 'w2-17.json': 1.01e6, 'w2-25.json': 1.14e6, 'w2-40.json': 1.45e6, 'w2-map.json': 0.39e6 };
+const ABOUT: Record<string, number> = { 'clips.glb': 0.78e6, 'superhero-male.glb': 1.38e6, 'superhero-female.glb': 1.47e6, 'w2.json': 1.08e6, 'w2-3.json': 1.29e6, 'w2-8.json': 1.19e6, 'w2-10.json': 1.2e6, 'w2-2.json': 0.97e6, 'w2-14.json': 1.81e6, 'w2-17.json': 1.01e6, 'w2-25.json': 1.19e6, 'w2-40.json': 1.81e6, 'w2-map.json': 0.39e6 };
 const fetching = new Map<string, Promise<ArrayBuffer>>();
 const fetchCounted = (url: string): Promise<ArrayBuffer> => {
   let made = fetching.get(url);
@@ -347,13 +350,13 @@ async function start() {
   const runs: { id: string; label: string; where?: string; title: string; detail: string; cave?: boolean }[] = ([
     { id: 'w2', label: 'Silent Warden', where: 'below The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side; halfway down, a cave in the bank beside the piste, a camp before it and a tomb under the mountain', detail: '1.02 km along a crest, from beside the highest summit; a cave halfway down', cave: true },
     { id: 'w2-3', label: 'Pale Crown', where: 'below The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay', detail: '1.43 km down a spur into wooded foothills above a bay' },
-    { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge', detail: '0.80 km, the steepest, under rock walls to a lake' },
+    { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge; a hundred metres down, Ashbridge Bend parts from it to the south, and either way can be taken', detail: '0.80 km, the steepest, under rock walls to a lake; Ashbridge Bend parts from it' },
     { id: 'w2-10', label: 'Carndale', where: 'above Carndale', title: 'Long and gentle, straight down a wooded spur in the west of the range to a lake above Carndale', detail: '1.32 km, gentle, down a wooded spur to a lake' },
     { id: 'w2-2', label: "Warden's Spur", where: "on the Silent Warden's south spur", title: "From beside the highest summit down its south spur, along the crest for half its length", detail: '0.76 km from the summit, half of it along a crest' },
-    { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end and across above the lake below Ashbridge, to where Ashbridge ends, its kickers big', detail: '1.54 km, broad above and steep below, big kickers, to where Ashbridge ends' },
+    { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end and across above the lake below Ashbridge, to where Ashbridge ends, its kickers big; two hundred metres down, Lake Wall East parts from it, and either way can be taken', detail: '1.54 km, broad above and steep below, big kickers, to where Ashbridge ends; Lake Wall East parts from it' },
     { id: 'w2-17', label: 'Balestead', where: 'near Balestead', title: 'In among the mountains, down a crest to the glen below Balestead', detail: '0.77 km down a crest inside the range' },
-    { id: 'w2-25', label: 'Ashbridge Bend', where: 'round the spur below Ashbridge', title: "From Ashbridge's top, away from it to the south, round the spur and through the head of a gully, then back east under it to the lake where Ashbridge ends", detail: "0.99 km from Ashbridge's top, round a spur to where it ends" },
-    { id: 'w2-40', label: 'Lake Wall East', where: 'east of the spur above the lake below Ashbridge', title: "From Lake Wall's knoll, away from it to the east, down the far side of its spur and round under it to the west, to the lake where Ashbridge ends", detail: "1.6 km from Lake Wall's top, round its spur to where Ashbridge ends" },
+    { id: 'w2-25', label: 'Ashbridge Bend', where: 'round the spur below Ashbridge', title: "From Ashbridge's top, away from it to the south, round the spur and through the head of a gully, then back east under it to the lake where Ashbridge ends; or, where it parts, down Ashbridge itself", detail: "0.93 km from Ashbridge's top, round a spur to where it ends" },
+    { id: 'w2-40', label: 'Lake Wall East', where: 'east of the spur above the lake below Ashbridge', title: "From Lake Wall's knoll, away from it to the east, down the far side of its spur and round under it to the west, to the lake where Ashbridge ends; or, where it parts, down Lake Wall itself", detail: "1.64 km from Lake Wall's top, round its spur to where Ashbridge ends" },
   ]).map((r) => ({ ...r, cave: true, title: r.title.includes('cave') ? r.title : `${r.title}; halfway down, a cave beside the piste, a camp before it and a dungeon under the mountain`, detail: r.detail.includes('cave') ? r.detail : `${r.detail}; a cave halfway down` }));
   const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
   if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
@@ -369,6 +372,9 @@ async function start() {
   let caveMade = 0;
   /** A land, and the cave in it, if it has one. */
   type CaveLand = Land & { cave?: Cave };
+  /** A land with the deeps under it, between the caves of a run that parts. */
+  /** A land with deeps: them, its caves by way, and the way down each of their doors is on (`Deeps.doors`, in order). */
+  type DeepsLand = Land & { deeps?: Deeps; caves?: Cave[]; deepsWays?: number[] };
   const hashed = location.hash.slice(1);
   // (Opened on what the address asks for: after a choice on the page, its end, `#groomed` or `#w2-3`, which the page sets.)
   const opensOn = query.get('land') === 'groomed' ? 'groomed' : asked ?? runs[0].id;
@@ -542,7 +548,12 @@ async function start() {
   // (The haze's colour worked out at the corners of what is drawn and blended between them, not at every point: it changes slowly
   // across the picture, and worked out at every point of every surface it cost a sixth of a frame of the groomed slope drawn in software.)
   const level: SkyN = normalize(positionWorld.sub(cameraPosition).mul(vec3(1, 0, 1)).add(vec3(1e-4, 0, 0)));
-  scene.fogNode = fogOf(vertexStage(skyAt(vec3(level.x, 0.03, level.z), false).mul(float(1).sub(uGloom.mul(0.45)))), rangeFogFactor(uFogNear, uFogFar));
+  // (Underground (`uUnder`: in a cave, in the deeps), the haze dark and near: what is any way off going into the dark, as it does under
+  // the mountain, the eye some twenty metres over the one on foot.)
+  scene.fogNode = fogOf(
+    mix(vertexStage(skyAt(vec3(level.x, 0.03, level.z), false).mul(float(1).sub(uGloom.mul(0.45)))), vec3(0.011, 0.012, 0.017), uUnder),
+    rangeFogFactor(mix(uFogNear, float(24), uUnder), mix(uFogFar, float(62), uUnder)),
+  );
 
   // The snow: groomed corduroy faintly lined along the run, a little uneven in tone; and loose snow off the run, unlined.
   const snowMap = (() => {
@@ -613,9 +624,42 @@ async function start() {
    * The cave made part of a run's land (`slopeDungeon.ts`): drawn with it, and kept by it (`CaveLand`); no kicker built in its camp or
    * over its mound, and none of the piste's poles standing in them.
    */
-  const dig = (made: Land, cave: Cave) => {
+  /**
+   * The sign where a run parts (`slopeSign.ts`): thirty metres above where the ways part, three outside the path on the side the other
+   * way goes off to, facing up the run; each board the run that goes off to its side, and its arrow that way. Let go of with the land.
+   */
+  const standSign = (made: Land, kind: string) => {
+    const branch = made.ways![1], nameOf = (id?: string) => runs.find((r) => r.id === (id ?? kind))?.label ?? id ?? kind;
+    made.setWay!(1);
+    const p = made.at(Math.min(branch.length, branch.from + 80), 0);
+    made.setWay!(0);
+    const side = Math.sign(made.frame(p.x, p.z).left) || 1, s = Math.max(10, branch.from - 30), [lo, hi] = made.edges(s), at = made.at(s, side > 0 ? hi + 3 : lo - 3);
+    const sign = forkSign(side > 0 ? nameOf(branch.id) : nameOf(), side > 0 ? nameOf() : nameOf(branch.id));
+    sign.group.position.set(at.x, made.height(at.x, at.z), at.z);
+    // (Its boards' faces, along its own +z, turned up the run, so that its +x is the skier's right going down.)
+    sign.group.rotation.y = Math.atan2(-at.dx, -at.dz);
+    made.group.add(sign.group);
+    const letGo = made.dispose;
+    made.dispose = () => { letGo?.(); sign.dispose(); };
+  };
+  /** The deeps laid into a land, its own (`DeepsLand`), let go of with it. */
+  const layDeeps = (made: Land, plan: ReturnType<typeof planDeeps>, ends: number[]) => {
+    const d = new Deeps(plan, caveLights);
+    made.group.add(d.group);
+    // (Not drawn but while one on foot is in them: under the snow, riding, they are a cost with nothing to show for it.)
+    d.group.visible = false;
+    Object.assign(made as DeepsLand, { deeps: d, deepsWays: ends });
+    const letGo = made.dispose;
+    made.dispose = () => { letGo?.(); d.dispose(); };
+  };
+  const dig = (made: Land, cave: Cave, way = 0) => {
     made.group.add(cave.group);
-    (made as CaveLand).cave = cave;
+    // (On a run that parts, a cave on each way down (asked: "these combined runs could have two dungeons!"): the land's cave the one of
+    // the way ridden, so that all that asks for the cave, `caveNow`, finds the one on the way it is on.)
+    const caves = ((made as Land & { caves?: Cave[] }).caves ??= []);
+    caves[way] = cave;
+    if (!made.ways) (made as CaveLand).cave = cave;
+    else if (!Object.getOwnPropertyDescriptor(made, 'cave')) Object.defineProperty(made, 'cave', { get: () => caves[made.way!()] ?? null, configurable: true });
     const letGo = made.dispose;
     made.dispose = () => { letGo?.(); cave.dispose(); };
     const kickable = made.kickable;
@@ -650,13 +694,35 @@ async function start() {
       const slice = readSlice(sliceText), where = runs.find((r) => r.id === kind)?.where;
       // (The cave's camp levelled and the hole behind its mouth cut in the slice, before its land is made from it.)
       // (`?cave=0`: none, the runs as they were before them.)
-      const site = runs.find((r) => r.id === kind)?.cave && query.get('cave') !== '0' ? findSite(slice, kickerZones(sliceGround(slice))) : null, base = site ? carve(slice, site) : null;
+      const caved = !!runs.find((r) => r.id === kind)?.cave && query.get('cave') !== '0';
+      const site = caved ? findSite(slice, kickerZones(sliceGround(slice))) : null, base = site ? carve(slice, site) : null;
+      // (And one on each way that parts from it, found and carved as the run's own is, along that way's line in the same land.)
+      const branchCaves = caved ? ((slice as SkiSlice & { branches?: Branch[] }).branches ?? []).map((b, k) => {
+        // (As far from the run's own as a good site may be: so that the deeps between them join two places apart on the mountain.)
+        const along = { ...slice, run: b.run }, at = findSite(along, kickerZones(sliceGround(along)), site?.mouth);
+        return at ? { site: at, base: carve(along, at), way: k + 1 } : null;
+      }) : [];
       made = sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined);
       // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
       if (where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
       // (Where its top lies in the world: each run's land is laid with its own top at the middle of the scene.)
       if (slice) topOf.set(made, new Vector3(slice.run.points[0][0], 0, slice.run.points[0][1]));
-      if (site && base) { const t0 = performance.now(); dig(made, new Cave(site, base, dungeonSeed, (query.get('tags') ?? '').split(',').map((t) => t.trim()), caveLights)); caveMade = performance.now() - t0; }
+      const tags = (query.get('tags') ?? '').split(',').map((t) => t.trim());
+      // (On a run that parts, each cave given a way out to the deeps toward the others', the middle of their mouths: two, three, more.)
+      const mouths = [site?.mouth, ...branchCaves.map((b) => b?.site.mouth)], toward = (i: number) => {
+        const o = mouths.filter((m, k): m is { x: number; z: number } => !!m && k !== i);
+        return o.length ? { x: o.reduce((n, m) => n + m.x, 0) / o.length, z: o.reduce((n, m) => n + m.z, 0) / o.length } : undefined;
+      };
+      const own = site && base ? new Cave(site, base, dungeonSeed, tags, caveLights, toward(0)) : null;
+      if (own) { const t0 = performance.now(); dig(made, own); caveMade = performance.now() - t0; }
+      // (Each its own dungeon: laid out from a seed of its own.)
+      const theirs = branchCaves.map((b, k) => b && new Cave(b.site, b.base, `${dungeonSeed}-${b.way}`, tags, caveLights, toward(k + 1)));
+      branchCaves.forEach((b, k) => { if (b && theirs[k]) dig(made!, theirs[k]!, b.way); });
+      // The deeps between all of them (`slopeDeeps.ts`), from the dungeons' seed: a door in each, and the way down each door is on.
+      const joined = [own && { door: own.deepDoor(), way: 0 }, ...theirs.map((c, k) => c && { door: c.deepDoor(), way: branchCaves[k]!.way })].filter((j): j is { door: NonNullable<ReturnType<Cave['deepDoor']>>; way: number } => !!j?.door);
+      // (Never the run lost for it: what goes wrong laying them is said, and the run is ridden without them.)
+      if (joined.length >= 2) try { layDeeps(made!, planDeeps(joined.map((j) => j.door), (x, z) => made!.height(x, z), `${dungeonSeed} deeps`), joined.map((j) => j.way)); } catch (e) { console.error('the deeps', e); }
+      if (made.ways) standSign(made, kind);
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
     lands.set(key, made);
     return made;
@@ -684,11 +750,13 @@ async function start() {
   // as it lies there; a few about the skier at a time. The snow's height anywhere is the land's, with a kicker's on it where there is one.
   let kickersOn = false;
   interface Kicker extends KickDims { i: number; s: number; left: number; x: number; z: number; dx: number; dz: number; group?: Group; flags?: Mesh[]; safe?: number }
-  const kickerAt = new Map<number, Kicker | null>();
+  // (Kept by the way down they stand on, too, on a run that parts: each way's `i`th is its own.)
+  const kickerAt = new Map<string, Kicker | null>();
   const kickerOf = (i: number): Kicker | null => {
-    if (kickerAt.has(i)) return kickerAt.get(i)!;
+    const key = `${land.way?.() ?? 0}:${i}`;
+    if (kickerAt.has(key)) return kickerAt.get(key)!;
     const at = kickerSpot(land, i), p = at && land.at(at.s, at.left), k: Kicker | null = at && p ? { i, s: at.s, left: at.left, ...p, ...kickSize(i, at.s, at.left, p, at.spare) } : null;
-    kickerAt.set(i, k);
+    kickerAt.set(key, k);
     return k;
   };
   /**
@@ -776,6 +844,9 @@ async function start() {
   const inArena = () => !!arena && !arena.sinking && mode === 'ride' && !flyingDemo && ride.down > (horde.pen?.lo ?? arena.pipe.foot) - 30 && ride.down < arena.pipe.foot + arena.pipe.end;
   // (Over the cave's mound, its rock: the snow under it is cut away there.)
   const ground = (x: number, z: number) => {
+    // (In the deeps, their floor, about where the one on foot is along them.)
+    const deeps = (land as DeepsLand).deeps;
+    if (foot?.deep && deeps) { const o = land.group.position; return deeps.groundAt(x - o.x, z - o.z, foot.y - o.y, foot.deep.s) + o.y; }
     const cave = caveNow();
     if (cave) {
       const o = land.group.position, lx = x - o.x, lz = z - o.z;
@@ -868,6 +939,15 @@ async function start() {
     // (None where an arena is laid, riding: its pen and its pipe have the snow, and a kicker's landing ran into the pipe.)
     const clear = (k: Kicker) => !arena || k.s < arena.pipe.foot - 120 || k.s > arena.pipe.foot + arena.pipe.end + 20;
     for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i); if (k && k.s < land.length && clear(k)) near.push(k); }
+    // (On a run that parts, the other ways' kickers past where they part too, while they are as near: seen from the fork down either
+    // way, and there to be ridden into, before the skier is on that way and its kickers are its own.)
+    const was = land.way?.() ?? 0;
+    for (let w = 0; w < (land.ways?.length ?? 0); w++) {
+      if (w === was) continue;
+      land.setWay!(w);
+      for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i); if (k && k.s < land.length && k.s > land.ways![w].from + 10 && !near.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < 5)) near.push(k); }
+    }
+    land.setWay?.(was);
     for (const k of kickerAt.values()) if (k && !near.includes(k)) takeDown(k);
     if (kickersOn) for (const k of near) if (!k.group) buildKicker(k);
     kicks = kickersOn ? near : [];
@@ -1403,7 +1483,7 @@ async function start() {
    * a horse's stride, which of the dungeon's rooms it was last in, and whether it has been told where it is. Riding into the cave's
    * camp, the skier brakes to a stop (`stopping`), and the skis come off.
    */
-  let foot: { x: number; y: number; z: number; heading: number; speed: number; dx: number; dz: number; turn: number; phase: number; room: number; told: boolean } | null = null;
+  let foot: { deep?: { s: number; piece: number }; x: number; y: number; z: number; heading: number; speed: number; dx: number; dz: number; turn: number; phase: number; room: number; told: boolean } | null = null;
   let stopping = false;
   let flyingDemo = false;
   /**
@@ -1746,7 +1826,15 @@ async function start() {
    * (and, in the air, going no further out).
    */
   const keepOn = () => {
-    let f = land.frame(ride.x, ride.z, ride.down);
+    // (On a run that parts, the way whose path the skier is on, once it is on the other's: not while the demo run is flown, which goes
+    // down the run's own way.)
+    // (Its way and facing then kept as they were in the world, as at any turn of the run under it, below.)
+    let switched = false;
+    if (land.wayAt && !flyingDemo) {
+      const w = land.wayAt(ride.x, ride.z);
+      if (w !== land.way!()) { land.setWay!(w); switched = true; }
+    }
+    let f = land.frame(ride.x, ride.z, switched ? undefined : ride.down);
     const [lo, hi] = reachAt(f.s), end = land.length + 20;
     if (f.left < lo + 1 || f.left > hi - 1 || f.s < -20 || f.s > end) {
       const s = clamp(f.s, -20, end), left = clamp(f.left, lo + 1, hi - 1), p = land.at(s, left);
@@ -1762,6 +1850,7 @@ async function start() {
     const turned = Math.atan2(f.dx * here.dz - f.dz * here.dx, f.dx * here.dx + f.dz * here.dz);
     ride.way = wrapAngle(ride.way - turned); ride.facing -= turned;
     here = f; ride.down = f.s; ride.left = f.left;
+    if (switched) tookWay();
   };
 
   /** The style a trick is known by: the one held longest, for a quarter of a second at least. */
@@ -1846,11 +1935,24 @@ async function start() {
     el.addEventListener('animationend', () => el.remove());
     popsEl.appendChild(el);
   };
+  /**
+   * The run ridden, by its slice's name, for its best score and best time: on a run that parts in two (`Land.ways`), the way now ridden
+   * down it, so that one come down Ashbridge Bend from Ashbridge's top counts as Ashbridge Bend's.
+   */
+  const runKey = () => land.ways?.[land.way?.() ?? 0]?.id ?? landKind;
+  /** The other way down taken, where a run parts: said so, its best score the one to beat now, and its kickers put out. */
+  const tookWay = () => {
+    const id = runKey(), run = runs.find((r) => r.id === id);
+    if (run && mode === 'ride') tell(run.label, 'the way taken where the run parts', false, 3);
+    best = bestBefore = Math.max(0, Number(kept(`best.${id}`)) || 0);
+    showBest();
+    placeKickers(ride.down);
+  };
   /** Points won riding, counted. */
   const addScore = (n: number) => {
     if (mode !== 'ride') return;
     score += n;
-    if (score > best) { best = score; keep(`best.${landKind}`, String(best)); }
+    if (score > best) { best = score; keep(`best.${runKey()}`, String(best)); }
     showBest();
     scoreEl.textContent = score.toLocaleString('en');
     scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
@@ -1874,11 +1976,11 @@ async function start() {
    */
   const bestTimeSaid = () => {
     if (!Number.isFinite(land.length)) return '';
-    const was = Number(kept(`bestTime.${landKind}`)) || 0, beat = !was || ride.time < was;
-    if (beat) keep(`bestTime.${landKind}`, ride.time.toFixed(1));
+    const was = Number(kept(`bestTime.${runKey()}`)) || 0, beat = !was || ride.time < was;
+    if (beat) keep(`bestTime.${runKey()}`, ride.time.toFixed(1));
     return !was ? '' : beat ? 'new best' : `best ${Math.round(was)} s`;
   };
-  const resetScore = () => { tricksRun = 0; runStats = newStats(); foundRun.length = 0; score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; best = bestBefore = Math.max(0, Number(kept(`best.${landKind}`)) || 0); showBest(); };
+  const resetScore = () => { tricksRun = 0; runStats = newStats(); foundRun.length = 0; score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; land.setWay?.(0); best = bestBefore = Math.max(0, Number(kept(`best.${runKey()}`)) || 0); showBest(); };
   /** An orc downed at `p`: shot (the cross where it was struck), or run down; and the run of them it comes in. */
   /**
    * How many orcs the rider has brought down riding, over every run since the page was opened, which says what it carries
@@ -2145,6 +2247,8 @@ async function start() {
   /** The skier back at the top, going a little. */
   const resetRide = () => {
     runOver = null;
+    // (Down the run's own way, on a run that parts: the demo run flown down it, and each run begun at its top.)
+    land.setWay?.(0);
     leaveFoot();
     offPisteFor = 0; backOnto = null;
     Object.assign(ride, { shove: 0, way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null, stones: 0, overStones: 0, bare: 0, deep: 0 });
@@ -2164,6 +2268,7 @@ async function start() {
   /** The run again from the top, going a little. */
   const restart = () => {
     caveNow()?.shutChest();
+    (land as DeepsLand).deeps?.restock();
     // (What was found and not yet come to the player, given it now: nothing found is lost.)
     giveLeft();
     // (Come down at another run's top: that the run now, the old let go of.)
@@ -4707,7 +4812,7 @@ async function start() {
   };
   // The minimap (`slopeMini.ts`), shown or not: kept in this browser; `?minimap=0` or `1`; `N`.
   const miniEl = $<HTMLCanvasElement>('mini'), mini = new MiniMap(miniEl);
-  let miniOn = true, miniTall = 0;
+  let miniOn = true, miniTall = 0, miniWay = 0;
   /**
    * On a phone or a tablet, the run as a slim rail at the right in place of the minimap (`#rail`, `body.touchhud` in the page): its top,
    * its kickers, the cave and its foot along it, and how far down the skier is; tapped, the minimap itself, tapped again, the rail.
@@ -4745,6 +4850,15 @@ async function start() {
     const show = miniOn && landKind !== 'groomed';
     // (On foot in the dungeon, its plan as seen so far in the run's stead.)
     const cave = caveNow(), o = land.group.position, onPlan = show && foot && cave && mode === 'ride' ? cave.onPlan(foot.x - o.x, foot.z - o.z) : null;
+    // (In the deeps, theirs: `MiniMap.deeps`.)
+    const deeps = (land as DeepsLand).deeps;
+    if (show && foot?.deep && deeps && mode === 'ride' && mini.has) {
+      if (miniEl.hidden) miniEl.hidden = false;
+      if (!railEl.hidden) railEl.hidden = true;
+      const P = deeps.plan;
+      mini.deeps({ pts: P.pts, walk: P.walk, floor: P.floor, kind: deeps.mapKind, seen: deeps.seen, links: deeps.links }, { x: foot.x - o.x, z: foot.z - o.z, y: foot.y - o.y }, foot.heading, isoYaw(), deeps.seen.reduce((n, v) => n + v, 0));
+      return;
+    }
     if (onPlan && cave && foot && mini.has) {
       if (miniEl.hidden) miniEl.hidden = false;
       if (!railEl.hidden) railEl.hidden = true;
@@ -4754,11 +4868,17 @@ async function start() {
     }
     if (show && !carting && !inside) {
       const tall = innerHeight <= 500 && innerWidth > innerHeight ? 84 : 140;
-      if (mini.of !== land || tall !== miniTall) {
-        miniTall = tall;
-        const kicks: { s: number; left: number }[] = [];
-        for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) kicks.push(k); }
-        mini.draw(land, kicks, tall, innerWidth < 420 ? 84 : 108);
+      if (mini.of !== land || tall !== miniTall || (land.way?.() ?? 0) !== miniWay) {
+        miniTall = tall; miniWay = land.way?.() ?? 0;
+        const kickersAll = () => { const out: { s: number; left: number }[] = []; for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) out.push(k); } return out; };
+        const kicks = kickersAll();
+        // (On a run that parts, the other ways down it too, each seen through the land set to it for as long as it is asked.)
+        const ridden = land.way?.() ?? 0, onWay = <T>(w: number, f: () => T): T => { land.setWay!(w); try { return f(); } finally { land.setWay!(ridden); } };
+        const others = (land.ways ?? []).flatMap((o, w) => w === ridden ? [] : [{
+          land: { length: o.length, at: (s: number, l: number) => onWay(w, () => land.at(s, l)), edges: (s: number) => onWay(w, () => land.edges(s)) },
+          kicks: onWay(w, kickersAll),
+        }]);
+        mini.draw(land, kicks, tall, innerWidth < 420 ? 84 : 108, others);
         if (touchHud) layRail(kicks);
       }
     }
@@ -5056,6 +5176,8 @@ async function start() {
     if (!quietly) { $('choose').hidden = true; $('intro').hidden = true; document.body.classList.remove('choosing'); }
     showEnding = false; showBack = 0;
     if (m === mode) return;
+    // (The demo run watched down the run's own way, which it was flown down, on a run that parts.)
+    if (m === 'watch') land.setWay?.(0);
     leaveFoot();
     abortTrip();
     offPisteFor = 0; $('offPiste').hidden = true;
@@ -6433,6 +6555,21 @@ async function start() {
     };
   };
   /**
+   * The deeps as the foes come through them (asked: the crossing to have "possible enemies and loot"): out of the dens the seed set in
+   * its halls and guardrooms, along its line, on its floors, the one each stands on where one way passes over another; seen only through
+   * its open space. In the land's frame, as the deeps are stood in it.
+   */
+  const deepDen = (deeps: Deeps, s: number): Den => {
+    const o = land.group.position, local = (p: Vector3) => new Vector3(p.x - o.x, p.y - o.y, p.z - o.z);
+    return {
+      spawn: (rng, from) => { const p = deeps.denSpawn(rng, local(from), s); return p && p.add(o); },
+      way: (p, to) => deeps.wayToward(local(p), local(to)),
+      floor: (x, z, y) => deeps.floorFree(x - o.x, z - o.z, y === undefined ? undefined : y - o.y) + o.y,
+      walk: (x, z, tx, tz, r, y) => { const [a, b] = deeps.walkFree(x - o.x, z - o.z, tx - o.x, tz - o.z, r, y === undefined ? undefined : y - o.y); return [a + o.x, b + o.z]; },
+      shows: (p) => !foot || deeps.sees(new Vector3(foot.x - o.x, foot.y - o.y + 1.6, foot.z - o.z), local(p)),
+    };
+  };
+  /**
    * Health, on foot in the cave (asked: dungeon stakes, so that a fight there can be lost): sixty hit points, each blow that strikes home
    * taking as many as its damage rolled (`struck`: an orc's some six and a half, the barrow-king's sixteen); they come back slowly once
    * no blow has come for some seconds (`after`, then `back` a second); and all of them, on leaving the cave or on a new run. All gone,
@@ -6499,7 +6636,11 @@ async function start() {
     scoreEl.textContent = score.toLocaleString('en');
     bladeJolt = Math.max(bladeJolt, r.crit ? 0.9 : blow > 2 ? 0.6 : 0.2);
     const away = new Vector3(f.x - from.x, 0, f.z - from.z).normalize().multiplyScalar(1.2 * Math.sqrt(blow) * (r.crit ? 1.4 : 1)), o = land.group.position;
-    const [x, z] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + away.x, f.z - o.z + away.z, walks() ? FOOT.person : FOOT.horse);
+    const deeps = (land as DeepsLand).deeps, r0 = walks() ? FOOT.person : FOOT.horse;
+    // (In the deeps, along their line and kept to it; in the dungeon, round its walls.)
+    const w = f.deep && deeps ? deeps.walk(f.x - o.x, f.z - o.z, f.x - o.x + away.x, f.z - o.z + away.z, f.y - o.y, f.deep.s, r0) : null;
+    const [x, z] = w ? (w.out === undefined ? [w.x, w.z] : [f.x - o.x, f.z - o.z]) : cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + away.x, f.z - o.z + away.z, r0);
+    if (w && w.out === undefined && f.deep) f.deep.s = w.s;
     f.x = x + o.x; f.z = z + o.z;
     dmgPop(head.clone().addScaledVector(UP, 0.3), String(r.dmg), r.crit ? 'hurt crit' : 'hurt', r.crit ? 'crushing blow' : '');
     const s = overPictureAt(head);
@@ -6889,7 +7030,9 @@ async function start() {
     // (Any downed as the orcs come on, the skier ran down: the rounds' are counted as they strike.)
     const cave = caveNow();
     let ranDown: { at: Vector3; kind: FoeKind }[] = [];
-    if (foot && cave) horde.within(going, den(cave), { at: rider.position, down: now.down, left: now.left, v, reach: 0.9 }, struck);
+    const deepsHere = foot?.deep && (land as DeepsLand).deeps;
+    if (foot && deepsHere) horde.within(going, deepDen(deepsHere, foot.deep!.s), { at: rider.position, down: now.down, left: now.left, v, reach: 0.9 }, struck);
+    else if (foot && cave) horde.within(going, den(cave), { at: rider.position, down: now.down, left: now.left, v, reach: 0.9 }, struck);
     else ranDown = horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
     for (const r of ranDown) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run', r.kind);
     wardStep(going, !watching);
@@ -6978,6 +7121,7 @@ async function start() {
     // (The orcs on the run gone: those of the dungeon come in it, `Horde.within`; the run's count kept.)
     horde.clear(true);
     cave.rackSkis(who === 'person' ? 'person' : horse.skis, who === 'person' ? 1.18 : who === 'mounted' ? 2.3 : 0);
+    gearAt = cave; fetchTo = null; arrival = null;
     const mouse = document.body.classList.contains('mouse');
     tell(who === 'mounted' ? 'Down off the horse' : 'Skis off', mouse ? 'W A S D to go, the mouse to aim, click to attack; right click to walk to a spot; Shift to walk' : 'the stick to go; tap to attack there, or to walk there', false, 3.5);
     placed = false;
@@ -7005,9 +7149,93 @@ async function start() {
     healAll();
     if (who === 'person') for (const s of personSkis) s.visible = true;
     horde.clear(true);
-    if (who === 'mounted') { caveNow()?.parkHorse(false); horse.model.position.set(0, 0, 0); horse.model.quaternion.identity(); rider.add(horse.model); seat(); }
-    caveNow()?.rackSkis(null, 0);
+    const at = gearAt ?? caveNow();
+    if (arrival) { arrival.skis?.removeFromParent(); arrival.dispose(); arrival = null; }
+    if (who === 'mounted') { at?.parkHorse(false); horse.model.position.set(0, 0, 0); horse.model.quaternion.identity(); rider.add(horse.model); seat(); }
+    at?.rackSkis(null, 0);
+    gearAt = null; fetchTo = null;
     placed = false;
+  };
+  /**
+   * Come out at the other dungeon of a run that parts, through the deeps (asked: "if player comes out of the other side than they came
+   * in, when exiting the dungeon, there should be shown an animation of the horse arriving by skis on their own to the camp site"): the
+   * cave whose rack has the skis (and by which the horse stands), `gearAt`; the one come out at, which they are to be brought to as the
+   * one on foot comes out of its mouth, `fetchTo`; and, as they come, `arrival`: the horse riderless on its skis, or the skis alone,
+   * sliding down the run from above the camp to the rack and stopping there, watched from the camp, a few seconds.
+   */
+  let gearAt: Cave | null = null, fetchTo: Cave | null = null;
+  let arrival: { t: number; T: number; from: Vector3; mid: Vector3; to: Vector3; cave: Cave; skis: Group | null; dispose(): void; eye: Vector3; look: Vector3 } | null = null;
+  /** Skis for the arrival as the rack has them (a person's pair, a horse's long pair or its four short), lying flat along +z. */
+  const arrivingSkis = () => {
+    const kind = who === 'person' ? 'person' : horse.skis, [len, width, n] = kind === 'person' ? [1.68, 0.075, 2] : kind === 'pair' ? [2.88, 0.11, 2] : [1.0, 0.1, 4];
+    const g = new Group(), paint = new MeshStandardMaterial({ color: 0xc0322b, roughness: 0.5 }), shape = new BoxGeometry(width, 0.025, len);
+    for (let i = 0; i < n; i++) {
+      const m = new Mesh(shape, paint);
+      // (A horse's four short ones two by two, under where its hooves would be; a pair side by side.)
+      if (n === 4) m.position.set(i % 2 ? 0.2 : -0.2, 0.02, i < 2 ? 0.75 : -0.75); else m.position.set((i - 0.5) * 0.22, 0.02, 0);
+      m.castShadow = true;
+      g.add(m);
+    }
+    return { group: g, dispose: () => { shape.dispose(); paint.dispose(); } };
+  };
+  /** The arrival begun, at `cave` (come out of its mouth): what is coming taken from the other camp and set off from above this one. */
+  const beginArrival = (cave: Cave) => {
+    const from = gearAt!, o = land.group.position;
+    from.rackSkis(null, 0);
+    if (who === 'mounted') from.parkHorse(false);
+    const end = who === 'mounted' ? cave.horseSpot : cave.rackSpot, to = new Vector3(end.x + o.x, 0, end.z + o.z);
+    // (From up the run above the camp, some forty metres, curving in to it.)
+    const at = land.frame(to.x, to.z), top = land.at(Math.max(0, at.s - 42), at.left * 0.4), bend = land.at(Math.max(0, at.s - 14), at.left * 0.8);
+    const fromP = new Vector3(top.x, 0, top.z), mid = new Vector3(bend.x, 0, bend.z);
+    fromP.y = ground(fromP.x, fromP.z);
+    const skis = who === 'mounted' ? null : arrivingSkis();
+    if (skis) scene.add(skis.group);
+    else { horse.model.removeFromParent(); scene.add(horse.model); }
+    // (Watched from the camp: beside the rack and back from it down the run, a little above, looking up at what comes.)
+    const down = new Vector3(to.x - mid.x, 0, to.z - mid.z).normalize(), side = new Vector3(-down.z, 0, down.x);
+    const eye = to.clone().addScaledVector(down, 6).addScaledVector(side, 4.5);
+    eye.y = ground(eye.x, eye.z) + 2.6;
+    arrival = { t: 0, T: 5.2, from: fromP, mid, to, cave, skis: skis?.group ?? null, dispose: () => skis?.dispose(), eye, look: fromP.clone() };
+    tell(who === 'mounted' ? 'Your horse' : 'Your skis', who === 'mounted' ? 'come round on its skis from the other camp' : 'come round on their own from the other camp', false, 4);
+  };
+  /** The arrival a frame on: down the curve, slowing, to stop at the rack; there, the skis put on it (and the horse stood by it). */
+  const stepArrival = (dt: number) => {
+    const a = arrival!;
+    a.t = Math.min(a.T, a.t + dt);
+    const k = a.t / a.T, u = 1 - (1 - k) ** 2;
+    // (Along a curve through `mid`, as a bend down the run into the camp: where it is and which way it goes.)
+    const p = a.from.clone().multiplyScalar((1 - u) ** 2).addScaledVector(a.mid, 2 * u * (1 - u)).addScaledVector(a.to, u * u);
+    const go = a.mid.clone().sub(a.from).multiplyScalar(2 * (1 - u)).addScaledVector(a.to.clone().sub(a.mid), 2 * u);
+    p.y = ground(p.x, p.z);
+    const heading = Math.atan2(go.x, go.z);
+    if (a.skis) { a.skis.position.copy(p); a.skis.quaternion.setFromAxisAngle(UP, heading); }
+    else {
+      horse.model.position.copy(p);
+      horse.model.quaternion.setFromAxisAngle(UP, heading);
+      horse.pose(horseRidePose({ s: 0, ski: 0, tuck: 0.3 * (1 - k), brake: k > 0.6 ? 1 : 0, tall: 0, flickL: 0, flickR: 0, life: ride.time }));
+    }
+    a.look.lerp(p, ease(dt, 6));
+    if (a.t < a.T) return;
+    // (Come to the rack: the skis on it, the horse stood by it as it is left, and the one on foot free to go on.)
+    a.skis?.removeFromParent();
+    a.dispose();
+    arrival = null;
+    gearAt = a.cave; fetchTo = null;
+    a.cave.rackSkis(who === 'person' ? 'person' : horse.skis, who === 'person' ? 1.18 : who === 'mounted' ? 2.3 : 0);
+    // (Stood there as it is when its rider gets down: the rider, whom that takes out of the saddle, back on its own feet.)
+    if (who === 'mounted') { parkHorse(a.cave); jockey.model.position.set(0, 0, 0); jockey.model.quaternion.identity(); rider.add(jockey.model); }
+    placed = false;
+  };
+  /** The view while it comes: held in the camp, turned to follow it. */
+  const placeArrivalView = (dt: number) => {
+    const a = arrival!;
+    camera.up.set(0, 1, 0);
+    camera.position.lerp(a.eye, placed ? ease(dt, 3) : 1);
+    camera.lookAt(a.look.clone().setY(a.look.y + 1));
+    if (Math.abs(camera.fov - FOV) > 0.01) { camera.fov = fovNow = FOV; camera.updateProjectionMatrix(); }
+    placed = true;
+    sun.position.copy(a.to).addScaledVector(sunFrom, 50);
+    sun.target.position.copy(a.to);
   };
   /** The skis on again where it has walked out of the camp, and on down the run the way it was walking, pushing off. */
   const skisOn = () => {
@@ -7069,7 +7297,8 @@ async function start() {
     if (footPad.walk) { const g = footGround(footPad.ndc); if (g) footPad.to = g; }
     heal(dt);
     // (Beaten: brought down where it stands, going nowhere, until the new run.)
-    if (beaten) { move.set(0, 0, 0); footPad.to = null; }
+    if (beaten || arrival) { move.set(0, 0, 0); footPad.to = null; }
+    if (arrival) stepArrival(dt);
     if (move.lengthSq() > 0.01) footPad.to = null;
     else if (footPad.to) { const d = new Vector3(footPad.to.x - f.x, 0, footPad.to.z - f.z), l = d.length(); if (l < 0.3) footPad.to = null; else move.copy(d.divideScalar(l)); }
     const amount = Math.min(1, move.length());
@@ -7083,11 +7312,39 @@ async function start() {
     const was = f.heading;
     f.heading = wrapAngle(f.heading + clamp(wrapAngle(face - f.heading), -14 * dt, 14 * dt));
     f.turn += ((dt > 0 ? wrapAngle(f.heading - was) / dt / 3 : 0) - f.turn) * ease(dt, 8);
-    const r = person ? FOOT.person : FOOT.horse;
-    const [nx, nz] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + f.dx * f.speed * dt, f.z - o.z + f.dz * f.speed * dt, r);
+    const r = person ? FOOT.person : FOOT.horse, deeps = (land as DeepsLand).deeps, ends = (land as DeepsLand).deepsWays;
+    let nx: number, nz: number, floor: number;
+    if (f.deep && deeps && ends) {
+      // In the deeps (`slopeDeeps.ts`): along their line; a lift ridden; out through a door, into the dungeon there, the run's way its.
+      const lift = deeps.stepLifts(dt, { x: f.x - o.x, z: f.z - o.z, y: f.y - o.y });
+      if (lift?.said) tell(lift.said, '', false, 2.5);
+      const w = deeps.walk(f.x - o.x, f.z - o.z, f.x - o.x + f.dx * f.speed * dt, f.z - o.z + f.dz * f.speed * dt, f.y - o.y, f.deep.s, r);
+      // (A door with no dungeon behind it (a picture's, `__slope.deeps`): a wall.)
+      if (w.out !== undefined && ends[w.out] === undefined) { w.x = f.x - o.x; w.z = f.z - o.z; w.out = undefined; }
+      if (w.out !== undefined) {
+        land.setWay?.(ends[w.out]);
+        const back = caveNow()?.insideExit();
+        // (Out at the other dungeon from where the skis were left: brought round to it, as it comes out of its mouth.)
+        fetchTo = gearAt && caveNow() !== gearAt ? caveNow() ?? null : null;
+        f.deep = undefined;
+        nx = back?.x ?? w.x; nz = back?.z ?? w.z; floor = (back?.y ?? f.y - o.y) + o.y;
+        f.room = -1;
+      } else {
+        nx = w.x; nz = w.z; f.deep.s = lift ? lift.s : w.s;
+        // (As far as it is seen from here, for the maps.)
+        deeps.see(f.deep.s);
+        floor = (lift ? lift.y : deeps.floorAt(f.deep.s)) + o.y;
+        const piece = deeps.pieceAt(f.deep.s), at = piece ? deeps.plan.pieces.indexOf(piece) : -1;
+        if (at !== f.deep.piece) { f.deep.piece = at; if (piece?.name) tell(piece.name, piece.up ? 'up toward the other dungeon' : 'under the mountain', false, 3); }
+      }
+    } else {
+      [nx, nz] = cave.walk(f.x - o.x, f.z - o.z, f.x - o.x + f.dx * f.speed * dt, f.z - o.z + f.dz * f.speed * dt, r);
+      floor = cave.floorUnder(nx, nz) ?? land.height(nx + o.x, nz + o.z);
+      // (Out through the way to the deeps: theirs now, from the end at this dungeon's door.)
+      if (deeps && ends && cave.throughExit(nx, nz)) { f.deep = { s: deeps.doors[Math.max(0, ends.indexOf(land.way?.() ?? 0))].s, piece: -2 }; f.room = -1; }
+    }
     f.x = nx + o.x; f.z = nz + o.z;
-    const floor = cave.floorUnder(nx, nz) ?? land.height(f.x, f.z);
-    f.y = Math.abs(floor - f.y) > 1 ? floor : f.y + (floor - f.y) * ease(dt, 18);
+    f.y = Math.abs(floor - f.y) > 1 || deeps?.carrying ? floor : f.y + (floor - f.y) * ease(dt, 18);
     // (Its body: the person by the clips, the horse by its gait, going forward or back as the way it goes lies to the way it faces.)
     const ahead = f.speed * (f.dx * Math.sin(f.heading) + f.dz * Math.cos(f.heading));
     if (person) walkerNow()?.update(dt, Math.abs(ahead) < 0.3 * f.speed ? f.speed : ahead);
@@ -7096,7 +7353,8 @@ async function start() {
       horse.pose(horseWalk(f.phase, ahead, f.turn, ride.time));
     }
     // (The horse left by the rack standing easy, its tail swishing.)
-    if (who === 'mounted') horse.pose(horseWalk(0, 0, 0, ride.time));
+    if (who === 'mounted' && !arrival) horse.pose(horseWalk(0, 0, 0, ride.time));
+    if (!f.deep && fetchTo === cave && !arrival && !cave.inside(nx, nz)) beginArrival(cave);
     rider.position.set(f.x, f.y, f.z);
     rider.quaternion.setFromAxisAngle(UP, f.heading);
     rider.updateMatrixWorld(true);
@@ -7104,13 +7362,13 @@ async function start() {
     here = land.frame(f.x, f.z, ride.down);
     ride.down = here.s; ride.left = here.left;
     // (Where it is, said: the place named as it comes in at the gate, and each room as it comes into it; the chest opened.)
-    const room = cave.roomAt(nx, nz);
+    const room = f.deep ? null : cave.roomAt(nx, nz);
     if (room && room.i !== f.room) {
       f.room = room.i;
       if (!f.told) { f.told = true; tell(cave.title.name, `${cave.title.about}. ${room.note}`, false, 4.5); } else tell(room.note, '', false, 3);
     }
     const chest = cave.chest.at;
-    if (!cave.chest.opened && Math.hypot(nx - chest.x, nz - chest.z) < 1.7 && Math.abs(f.y - chest.y) < 1.5) {
+    if (!f.deep && !cave.chest.opened && Math.hypot(nx - chest.x, nz - chest.z) < 1.7 && Math.abs(f.y - chest.y) < 1.5) {
       cave.openChest();
       addScore(5000);
       runStats.chest = true;
@@ -7120,7 +7378,19 @@ async function start() {
       // (And something more in it: `slopeLoot.ts`.)
       findLoot('chest', new Vector3(chest.x + o.x, chest.y + 0.6, chest.z + o.z), `found in ${cave.title.name.replace(/^The /, 'the ')}`, chest.y);
     }
-    if (!cave.inCamp(nx, nz, 1.2) && !cave.inside(nx, nz)) skisOn();
+    // (A chest in the deeps come up to: as a dungeon's, its gold and something more in it.)
+    if (f.deep && deeps) deeps.chests.forEach((c, i) => {
+      if (c.opened || Math.hypot(nx - c.at.x, nz - c.at.z) > 1.7 || Math.abs(f.y - o.y - c.at.y) > 1.5) return;
+      deeps.openChest(i);
+      addScore(5000);
+      runStats.chest = true;
+      const at = c.at.clone().add(o), s = overPictureAt(at.clone().setY(at.y + 1));
+      if (s) popUp(s, '+5,000', 'trick', 'treasure');
+      const where = deeps.pieceAt(f.deep!.s)?.name ?? 'the deeps';
+      tell('Treasure!', `left in ${where} · 5,000 points`, false, 4);
+      findLoot('chest', at.setY(at.y + 0.6), `found in ${where}`, c.at.y);
+    });
+    if (!f.deep && caveNow() === cave && !cave.inCamp(nx, nz, 1.2) && !cave.inside(nx, nz)) skisOn();
     // (Its way against the run's, as riding has it, for what it carries to be aimed from.)
     const dir = new Vector3(Math.sin(f.heading), 0, Math.cos(f.heading)), way = Math.atan2(dir.dot(runLeft(here)), dir.dot(runDir(here)));
     return { down: here.s, left: here.left, speed: Math.abs(f.speed), way, ski: way, skid: 0, tuck: 0, brake: 0 };
@@ -7173,7 +7443,7 @@ async function start() {
    * the mound with it, but the land about, the camp and the snow still drawn, and the sky as it is, through the hole the land has for
    * the tunnel.
    */
-  let under = false;
+  let under = false, wasDeep = false;
   const underground = (cave: Cave, on: boolean, shallow: boolean, floor: number) => {
     cave.overhead(!!foot && mode === 'ride', on, floor);
     const dark = on && !shallow;
@@ -7186,7 +7456,37 @@ async function start() {
   };
   /** How far into the cave's dark the eye is (0 to 1): the sun and the sky dimmed by as much, and the picture drawn brighter. */
   let caveDark = 0;
+  /** Held for a picture of what lies under the snow (`__slope.cutaway`): what it hid, and the sky and the haze it took away, to give back. */
+  let cutaway: { shown: boolean[]; fog: unknown; rider: boolean; kicks: boolean[] } | null = null;
   const stepCave = (dt: number, seconds: number) => {
+    // (Held for the picture: only the deeps' flames turned to the eye.)
+    if (cutaway) { caveDark = 1; (land as DeepsLand).deeps?.update(seconds, camera.position.clone().sub(land.group.position)); return; }
+    const deeps = (land as DeepsLand).deeps, inDeeps = !!(foot?.deep && deeps && mode === 'ride');
+    if (deeps) deeps.group.visible = inDeeps;
+    if (inDeeps && deeps && foot) {
+      // In the deeps: all dark but what their torches and the lantern light; the land and all on it not drawn; their stone cut away over
+      // the floor the one on foot is on, and all of a floor above it.
+      const o = land.group.position, eye = camera.position.clone().sub(o), at = new Vector3(foot.x - o.x, foot.y - o.y, foot.z - o.z);
+      caveDark = 1;
+      uUnder.value = 1;
+      if (!under) { under = true; for (const k of kicks) if (k.group) k.group.visible = false; for (const m of watchTracks) m.visible = false; }
+      // (Near a door, the dungeon behind it drawn too, cut away over the same floor: from the one into the other with nothing gone.)
+      // (The dungeon of the door nearest along the deeps, within thirty metres of it.)
+      const s = foot.deep!.s, ends = (land as DeepsLand).deepsWays, caves = (land as DeepsLand).caves ?? [];
+      const door = deeps.doors.findIndex((d) => deeps.apart(d.s, s) < 30), nearCave = ends && door >= 0 ? caves[ends[door]] : undefined;
+      for (const c of deeps.group.parent?.children ?? []) c.visible = c === deeps.group || c === nearCave?.group;
+      nearCave?.overhead(true, true, at.y);
+      deeps.cutOver.value = 3; deeps.under.value = at.y;
+      const ahead = new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading));
+      caveLights.lantern.position.set(foot.x, foot.y + 2.5, foot.z).addScaledVector(ahead, 1.4);
+      caveLights.lantern.intensity = 5 * (0.92 + 0.08 * Math.sin(seconds * 23));
+      caveLights.fire.intensity = 0;
+      deeps.update(seconds, eye, at);
+      wasDeep = true;
+      return;
+    }
+    // (Back out of them: the land's other things shown again, and how dark it is worked out afresh, as the cave there has it.)
+    if (wasDeep) { wasDeep = false; under = false; for (const c of deeps?.group.parent?.children ?? []) if (c !== deeps?.group) c.visible = true; }
     const cave = caveNow();
     if (!cave) { caveDark = 0; uUnder.value = 0; under = false; caveLights.lantern.intensity = caveLights.fire.intensity = 0; return; }
     const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
@@ -7194,6 +7494,8 @@ async function start() {
     caveDark = cave.darkness(at && mode === 'ride' ? at : eye);
     const into = !!at && mode === 'ride' && cave.inside(at.x, at.z);
     underground(cave, into, into && cave.shallow(at!.x, at!.z), at ? at.y : 0);
+    // (Near its way out to the deeps, the deeps beyond drawn too, cut away over the same floor.)
+    if (deeps && at && into) { const door = cave.deepDoor(), near = !!door && Math.hypot(at.x - door.x, at.z - door.z) < 26; deeps.group.visible = near; if (near) { deeps.cutOver.value = 3; deeps.under.value = at.y; } }
     const ahead = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : undefined;
     cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0, ahead);
   };
@@ -8025,7 +8327,12 @@ async function start() {
     mapView.draw();
     // (The dungeon under this run on the map as far as it has been seen, and where the one on foot stands in it.)
     const cave = caveNow(), top = topOf.get(land), o = land.group.position, plan = cave?.plan();
-    mapView.setDungeon(cave && top && plan ? { x: cave.site.mouth.x + top.x, z: cave.site.mouth.z + top.z, plan, here: foot ? cave.onPlan(foot.x - o.x, foot.z - o.z) : null, name: plan.name } : null);
+    // (And the deeps from it, as far as they have been come near: each stretch of them seen, in the world.)
+    const deeps = (land as DeepsLand).deeps, ways: [number, number][][] = [];
+    // (Each pair of metres joined, both come near: along a line, or into a side way.)
+    if (deeps && top) for (const [a, b] of deeps.links) if (deeps.seen[a] && deeps.seen[b]) ways.push([a, b].map((k) => [deeps.plan.pts[k][0] + top.x, deeps.plan.pts[k][1] + top.z] as [number, number]));
+    const deepHere: [number, number] | null = foot?.deep && top ? [foot.x - o.x + top.x, foot.z - o.z + top.z] : null;
+    mapView.setDungeon(cave && top && plan ? { x: cave.site.mouth.x + top.x, z: cave.site.mouth.z + top.z, plan, here: foot && !foot.deep ? cave.onPlan(foot.x - o.x, foot.z - o.z) : null, name: plan.name, deeps: { ways, here: deepHere } } : null);
     if (mode === 'ride' && playing) { playing = false; heldRide = true; reflect(); }
     choose.hidden = false;
     document.body.classList.add('choosing');
@@ -8203,7 +8510,7 @@ async function start() {
     land.lod?.(camera.position.x, camera.position.z);
     land.trees?.(camera.position, now / 1000);
     if (kickersOn) { placeKickers(at.down); flutter(now / 1000); }
-    if (mode === 'ride' && cat) placeCatapultView(dt); else if (mode === 'ride' && foot) placeIsoView(dt); else placeView(at, dt);
+    if (mode === 'ride' && cat) placeCatapultView(dt); else if (mode === 'ride' && foot) (arrival ? placeArrivalView : placeIsoView)(dt); else placeView(at, dt);
     shiftView(dt);
     reinsNow();
     showFoot();
@@ -8450,6 +8757,55 @@ async function start() {
     // (The sword `k` of the way through a swing at `side` (1, the right), held there while all is held still: for pictures.)
     swingAt: (k: number, side: number, charge = 0) => { swing = { ...newSwing(side, false, k), charge }; },
     kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, safe: +(safeOff(k) * 3.6).toFixed(0), height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
+    // (On a run that parts, its ways down: each's run, where it parts and how long it is; which is ridden, and the run it counts as. And
+    // `onWay`, the skier put `down` and `left` on a way, riding: the ride takes it from there as if it had come.)
+    ways: () => ({ ways: land.ways ?? null, way: land.way?.() ?? 0, key: runKey() }),
+    // (The way under the mountain between the two caves of a run that parts, `slopeDeeps.ts`, laid and shown for a look before it can be
+    // walked: from a seed (the dungeons' own, unless another is given), between the doors each cave gives it for now; its flames turned
+    // to the eye as the page goes on. Again with another seed, the last let go of.)
+    // (On foot, walked toward a point of the scene, as a tap on the snow or the floor walks there; and where on foot it is in the deeps.)
+    walkTo: (x: number, z: number) => { footPad.to = new Vector3(x, 0, z); },
+    deepAt: () => (foot?.deep ? { s: +foot.deep.s.toFixed(1), y: +foot.y.toFixed(1), piece: (land as DeepsLand).deeps?.pieceAt(foot.deep.s)?.name ?? '' } : null),
+    // (On foot in the deeps `s` metres along them, from the cave of the land's way: as if come there through its door.)
+    goDeeps: async (s = 0) => {
+      const L = land as DeepsLand;
+      if (!L.deeps) return 'no deeps here';
+      if (!foot) await (window as unknown as { __slope: { goCave: (w: string) => Promise<unknown> } }).__slope.goCave('room');
+      if (!foot) return 'not on foot';
+      const o = land.group.position, P = L.deeps.plan, k = Math.max(0, Math.min(P.pts.length - 1, Math.round(s)));
+      foot.deep = { s: k, piece: -2 };
+      foot.x = P.pts[k][0] + o.x; foot.z = P.pts[k][1] + o.z; foot.y = P.floor[k] + o.y;
+      return { at: k, piece: L.deeps.pieceAt(k)?.name ?? 'a passage', floor: +P.floor[k].toFixed(1) };
+    },
+    // (With `doors` more than the caves give, the rest are made up for the look of it: each in the rock about the others, where the most
+    // of it is over it, facing their middle; no dungeon behind it (asked: "dynamic in a way that it could serve possible three dungeon
+    // interconnect in the future").)
+    deeps: (seed?: string, doors = 0) => {
+      const L = land as DeepsLand, real = (L.caves ?? []).map((c) => c?.deepDoor()).filter((d): d is NonNullable<ReturnType<Cave['deepDoor']>> => !!d);
+      if (real.length < 2) return 'not a run with two caves joined';
+      const all = [...real], o0 = land.group.position, h = (x: number, z: number) => land.height(x + o0.x, z + o0.z);
+      while (all.length < doors) {
+        const cx = all.reduce((n, d) => n + d.x, 0) / all.length, cz = all.reduce((n, d) => n + d.z, 0) / all.length, y = Math.min(...all.map((d) => d.y));
+        let best: (typeof all)[number] | null = null, most = -Infinity;
+        for (let a = 0; a < 16; a++) for (const r of [110, 140, 170]) {
+          const x = cx + Math.cos((a / 16) * Math.PI * 2) * r, z = cz + Math.sin((a / 16) * Math.PI * 2) * r, over = h(x, z) - y;
+          if (all.some((d) => Math.hypot(d.x - x, d.z - z) < 90) || over < 12 || over <= most) continue;
+          const l = Math.hypot(cx - x, cz - z);
+          most = over; best = { x, y, z, dx: (cx - x) / l, dz: (cz - z) / l };
+        }
+        if (!best) break;
+        all.push(best);
+      }
+      const w = window as unknown as { __deeps?: Deeps };
+      if (seed) { L.deeps?.group.removeFromParent(); L.deeps?.dispose(); L.deeps = undefined; }
+      const t0 = performance.now(), o = land.group.position, plan = seed ? planDeeps(all, (x, z) => land.height(x + o.x, z + o.z), seed) : L.deeps!.plan, t1 = performance.now();
+      if (seed) layDeeps(land, plan, L.deepsWays ?? [0, 1]);
+      const d = (w.__deeps = L.deeps!);
+      const turn = () => { if (w.__deeps !== d) return; d.update(performance.now() / 1000, camera.position.clone().sub(land.group.position)); requestAnimationFrame(turn); };
+      turn();
+      return { planned: Math.round(t1 - t0), built: Math.round(performance.now() - t1), metres: plan.pts.length, pieces: plan.pieces.filter((q) => q.kind !== 'way').map((q) => `${q.name} (${q.kind}${q.up ? ', up' : ''})`), doors: plan.doors.map((q) => plan.pts[q.s].map((v) => +v.toFixed(1))), asked: all.length, sides: plan.lines.slice(1).map((l) => ({ from: l.from, to: l.to, metres: l.s1 - l.s0, rooms: plan.pieces.filter((q) => q.s0 >= l.s0 && q.s1 <= l.s1 && q.kind === 'landing').map((q) => q.name) })), floors: [Math.min(...plan.floor), Math.max(...plan.floor)].map((v) => +v.toFixed(1)), dens: plan.dens.map((d) => [d.s, d.size]), chests: plan.chests.map((c) => [c.s, +(c.x + o.x).toFixed(1), +(c.z + o.z).toFixed(1)]) };
+    },
+    onWay: (w: number, down: number, left = 0) => { land.setWay?.(w); putAt(down, left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); placed = false; },
     put: (o: Partial<typeof ride>) => { Object.assign(ride, o); if (o.down !== undefined || o.left !== undefined) { putAt(ride.down, ride.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); } placed = false; },
     land: () => ({ name: land.name, length: land.length, half: land.half, about: land.about }),
     setSkier: (w: Who, skis?: HorseSkis) => setSkier(w, skis), who: () => who,
@@ -8495,6 +8851,64 @@ async function start() {
       blurLevel = was.blur; sun.castShadow = was.shadows;
       if (o.shadowSize) { sun.shadow.mapSize.set(was.size, was.size); sun.shadow.map?.dispose(); (sun.shadow as unknown as { map: unknown }).map = null; }
       return { ms: +ms.toFixed(1), ...info };
+    },
+    // (For a picture of what lies under the snow (asked: "a rendering that somehow shows both the underground connecting tunnels and the
+    // snowy above ground landscape in one picture"): with `on`, nothing of the land drawn but its caves, whole, and the deeps between
+    // them, uncut, lit as underground and on black, the skier and the kickers gone too; as it was again with `on` false. Drawn from the
+    // same place both ways (`lookAt`), the two pictures go one over the other.)
+    cutaway: (on: boolean) => {
+      const L = land as DeepsLand, kids = land.group.children;
+      if (on && !cutaway) {
+        cutaway = { shown: kids.map((c) => c.visible), fog: scene.fogNode, rider: rider.visible, kicks: kicks.map((k) => !!k.group?.visible) };
+        for (const c of kids) c.visible = (L.caves ?? []).some((cv) => cv?.group === c) || c === L.deeps?.group;
+        for (const cv of L.caves ?? []) cv?.drawWhole();
+        if (L.deeps) { L.deeps.cutOver.value = 1e5; L.deeps.under.value = 1e5; L.deeps.backs.value = 0; }
+        for (const k of kicks) if (k.group) k.group.visible = false;
+        scene.fogNode = null; rider.visible = false; uUnder.value = 1;
+      } else if (!on && cutaway) {
+        kids.forEach((c, i) => { c.visible = cutaway!.shown[i] ?? true; });
+        kicks.forEach((k, i) => { if (k.group) k.group.visible = cutaway!.kicks[i] ?? true; });
+        if (L.deeps) L.deeps.backs.value = 1;
+        scene.fogNode = cutaway.fog as typeof scene.fogNode; rider.visible = cutaway.rider; uUnder.value = 0; under = false;
+        cutaway = null;
+      }
+      if (!cutaway) return null;
+      // (Where in the picture each cave's mouth, its dungeon, and each named part of the deeps are, for marking them on it: in pixels.)
+      const o = land.group.position, size = renderer.getDrawingBufferSize(new Vector2());
+      camera.updateMatrixWorld();
+      const px = (x: number, y: number, z: number) => { const p = new Vector3(x + o.x, y + o.y, z + o.z).project(camera); return [Math.round((p.x + 1) / 2 * size.x), Math.round((1 - p.y) / 2 * size.y)]; };
+      const caves = (L.caves ?? []).map((cv) => cv && { name: cv.title.name, mouth: px(cv.site.mouth.x, land.height(cv.site.mouth.x + o.x, cv.site.mouth.z + o.z) - o.y, cv.site.mouth.z), door: (() => { const d = cv.deepDoor(); return d && px(d.x, d.y + 2, d.z); })() });
+      const P = L.deeps?.plan;
+      const parts = P ? P.pieces.filter((q) => q.kind !== 'way').map((q) => { const k = Math.floor((q.s0 + q.s1) / 2); return { name: q.name, kind: q.kind, up: !!q.up, at: px(P.pts[k][0], P.floor[k] + 2, P.pts[k][1]) }; }) : [];
+      const doors = L.deeps ? L.deeps.doors.map((d) => px(P!.pts[d.s][0], P!.floor[d.s] + 2, P!.pts[d.s][1])) : [];
+      return { size: [size.x, size.y], caves, parts, doors };
+    },
+    // (Every prop there is, for a picture of them (asked: "create plenty of new possible nice props"): laid in rows on the snow ahead of the
+    // skier, in the day's light, each its own stuffs; where each stands, and its name, given back. Again, the last let go of; `false`, gone.)
+    propGallery: (on = true, cols = 9, apart = 3.4) => {
+      const w = window as unknown as { __gallery?: Group };
+      if (w.__gallery) { w.__gallery.traverse((o) => { const m = o as Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as Material).dispose(); } }); w.__gallery.removeFromParent(); w.__gallery = undefined; }
+      if (!on) return null;
+      const props = new Props(), group = new Group(), here = land.frame(rider.position.x, rider.position.z, ride.down), out: { kind: string; at: number[] }[] = [];
+      PROP_KINDS.forEach((kind, i) => {
+        const row = Math.floor(i / cols), col = i % cols, p = land.at(here.s + 12 + row * apart, (col - (cols - 1) / 2) * apart);
+        const at = new Vector3(p.x, land.height(p.x, p.z), p.z);
+        props.put(kind, at, Math.atan2(-runDir(here).x, -runDir(here).z));
+        out.push({ kind, at: [at.x, at.y, at.z].map((v) => +v.toFixed(2)) });
+      });
+      const P = paintsOf();
+      for (const { stuff, shape, at } of props.parts()) {
+        const look = STUFF_LOOK[stuff], paint = STUFF_PAINT[stuff], m = new MeshStandardMaterial({ vertexColors: true, color: look.color ?? 0xffffff, roughness: look.roughness, metalness: look.metalness ?? 0, side: look.side });
+        if (paint) m.map = P[paint].map as unknown as MeshStandardMaterial['map'];
+        if (stuff === 'coal' || stuff === 'fungus' || stuff === 'wax') { m.emissive.set(stuff === 'coal' ? 0xff6a20 : stuff === 'fungus' ? 0x60e0b0 : 0x806a40); m.emissiveIntensity = stuff === 'coal' ? 1.2 : 0.6; }
+        const mesh = new InstancedMesh(shape, m, at.length);
+        at.forEach((x, k) => mesh.setMatrixAt(k, x));
+        mesh.castShadow = mesh.receiveShadow = true;
+        group.add(mesh);
+      }
+      scene.add(group);
+      w.__gallery = group;
+      return out;
     },
     // (What was drawn in the last frame.)
     drawn: () => ({ triangles: renderer.info.render.triangles, calls: renderer.info.render.drawCalls }),

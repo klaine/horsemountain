@@ -30,13 +30,14 @@ export interface Quarry { at: Vector3; down: number; left: number; v: Vector3; r
 /**
  * Somewhere walled the orcs come at the one on foot through, rather than up a run (a dungeon): where one may come from, out of the way
  * of `from`; which way to go from `p` to come at `to`, round the walls; the floor's height; and a step from (`x`, `z`) toward (`tx`, `tz`)
- * as the walls let a body `r` across its middle go.
+ * as the walls let a body `r` across its middle go. Each is told, `y`, the height the one asking is at, for a place where one way passes
+ * over another (the deeps), so that a floor is the one it stands on and not the one above or below it.
  */
 export interface Den {
   spawn(rng: Rng, from: Vector3): Vector3 | null;
   way(p: Vector3, to: Vector3): Vector3;
-  floor(x: number, z: number): number;
-  walk(x: number, z: number, tx: number, tz: number, r: number): [number, number];
+  floor(x: number, z: number, y?: number): number;
+  walk(x: number, z: number, tx: number, tz: number, r: number, y?: number): [number, number];
   /** Whether what stands at a point is to be drawn: in sight of the one on foot (the dark of the dungeon hides the rest). */
   shows?(p: Vector3): boolean;
 }
@@ -284,7 +285,7 @@ export class Horde {
           Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(...d.pace), next: 0, hp: kind.hp, reel: 0, bumped: 0, penned: false, met: false, comes: b.comes + 1, kneeling: false });
           if (kind.titles) b.title = this.naming.pick(kind.titles);
           b.p.set(from.x + this.rng.range(-0.8, 0.8), 0, from.z + this.rng.range(-0.8, 0.8));
-          b.p.y = den.floor(b.p.x, b.p.z);
+          b.p.y = den.floor(b.p.x, b.p.z, from.y);
           b.gait.go(b.pace * 0.9, this.rng.range(0, 1));
           b.gait.model.visible = true;
         }
@@ -306,18 +307,18 @@ export class Horde {
         let x = b.p.x, z = b.p.z;
         for (const a of [0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6]) {
           const c = Math.cos(a), sn = Math.sin(a), wx = way.x * c + way.z * sn, wz = way.z * c - way.x * sn;
-          const [nx, nz] = den.walk(b.p.x, b.p.z, b.p.x + wx * step, b.p.z + wz * step, 0.3 * b.size);
+          const [nx, nz] = den.walk(b.p.x, b.p.z, b.p.x + wx * step, b.p.z + wz * step, 0.3 * b.size, b.p.y);
           if (Math.abs(step) < 1e-6 || Math.hypot(nx - b.p.x, nz - b.p.z) > Math.abs(step) * 0.6) { x = nx; z = nz; break; }
         }
-        b.p.set(x, den.floor(x, z), z);
+        b.p.set(x, den.floor(x, z, b.p.y), z);
         const face = d < 4 ? new Vector3(to.x - b.p.x, 0, to.z - b.p.z) : way;
         if (Math.hypot(face.x, face.z) > 1e-4) b.yaw = Math.atan2(face.x, face.z);
       } else {
         b.v.y -= 9.8 * dt;
         b.p.addScaledVector(b.v, dt);
-        const y = den.floor(b.p.x, b.p.z);
+        const y = den.floor(b.p.x, b.p.z, b.p.y);
         if (b.p.y <= y) { b.p.y = y; b.v.y = 0; b.v.multiplyScalar(Math.exp(-4 * dt)); }
-        const [x, z] = den.walk(b.p.x - b.v.x * dt, b.p.z - b.v.z * dt, b.p.x, b.p.z, 0.25);
+        const [x, z] = den.walk(b.p.x - b.v.x * dt, b.p.z - b.v.z * dt, b.p.x, b.p.z, 0.25, b.p.y);
         b.p.x = x; b.p.z = z;
         if (b.since > 4.5) b.p.y = y - (b.since - 4.5) * 0.5;
         if (b.since > 6.5) { this.letGo(b); continue; }

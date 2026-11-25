@@ -20,7 +20,11 @@ import type { Plan } from './slopeMini';
  * The dungeon under the run ridden, as far as it has been seen (asked: "a dungeon minimap and inkmap that updates accordingly"): where
  * its mouth is in the world, its plan (`Cave.plan`), where in it the one on foot stands (if it is in it), and its name.
  */
-export interface MapDungeon { x: number; z: number; plan: Plan; here: { c: number; r: number } | null; name: string }
+export interface MapDungeon {
+  x: number; z: number; plan: Plan; here: { c: number; r: number } | null; name: string;
+  /** The deeps under the mountain from it to the other dungeon of the run, if it has them: the stretches of them come near (in the world), and where in them the one on foot stands. */
+  deeps?: { ways: [number, number][][]; here: [number, number] | null };
+}
 
 /** A run as the game offers it: its slice's name, what it is called, and what it is like, in a sentence. */
 export interface RunInfo { id: string; label: string; title: string }
@@ -232,7 +236,25 @@ export class RunMapView {
       marks.push(`<g class="run${this.hot === s.info.id ? ' hot' : ''}" data-id="${s.info.id}"><g class="medal" transform="translate(${x} ${y})"><path d="${markPath(g, r)}" fill="${g.ink}" stroke="${PAPER}" stroke-width="2" vector-effect="non-scaling-stroke"/>
         <text x="0" y="${0.5 * k}" text-anchor="middle" dominant-baseline="central" fill="${PAPER}" font-size="${13 * k}" font-family="Cinzel, Georgia, serif" font-weight="700">${s.n}</text></g>${name}</g>`);
     });
-    this.svg.innerHTML = parts.join('') + marks.join('') + this.layDungeon(k, z, best, corners, free, boxes);
+    this.svg.innerHTML = parts.join('') + marks.join('') + this.layDeeps(k) + this.layDungeon(k, z, best, corners, free, boxes);
+  }
+
+  /**
+   * The deeps on the map, as far as they have been come near: under the land, so dashed, as a map shows a way that goes through a
+   * tunnel; where the one on foot stands in them, a red dot.
+   */
+  private layDeeps(k: number): string {
+    const d = this.dungeon?.deeps;
+    if (!d || (!d.ways.length && !d.here)) return '';
+    const path = d.ways.filter((w) => w.length > 1).map((w) => w.map(([x, z], i) => `${i ? 'L' : 'M'} ${this.toX(x).toFixed(1)} ${this.toY(z).toFixed(1)}`).join(' ')).join(' ');
+    const out = [`<g class="deeps" aria-hidden="true">`];
+    if (path) {
+      out.push(`<path d="${path}" fill="none" stroke="${PAPER}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`);
+      out.push(`<path d="${path}" fill="none" stroke="${INK}" stroke-width="2.2" stroke-dasharray="5 4" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`);
+    }
+    if (d.here) out.push(`<circle cx="${this.toX(d.here[0])}" cy="${this.toY(d.here[1])}" r="${3.5 * k}" fill="#c0322b" stroke="${PAPER}" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`);
+    out.push('</g>');
+    return out.join('');
   }
 
   /**

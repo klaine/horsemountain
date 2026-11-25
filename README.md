@@ -197,6 +197,45 @@ last, a barrow-king, a crowned draugr half as tall again as a man, named, its st
 of 160 hit points, striking two and a half times as hard as an orc; shot, cut, burnt and blown up as on the run, your rounds stopped by the walls. Walk out of the camp, and the skis go back on (the rider back in the saddle) and
 you ride on down from there (come in on the cart, too: down, the run carried on as before the cart came).
 
+**The deeps.** On a run that parts, the two dungeons, one on each way, are joined under the mountain: in a lowest room of each, a
+door, and through it the deeps, a way of some two to five hundred metres from the one to the other, laid afresh with the dungeons
+(from their seed, so the same for the same `?dungeon=`). Down from the first door by one of seven ways (a stair round a shaft, a stair
+tower turning square, a stair back and forth across a tall hall, a great stair, a slope of scree, a ledge along a wall, or an old
+lift of planks on chains, called to you and ridden down standing on it), long ones broken by a room to rest in (a guardroom, a
+cistern, a shrine); then two to five chambers under the mountain (a pillared hall, a chasm crossed by a bridge, a cleft, a grotto
+with a still pool, a hall fallen in), each named as you come into it; and up the same way to the other door. Off the way, some
+side ways (two to four, as many as fit) out of the walls of its passages and chambers, each a passage to a room at its end (an armoury, an ossuary, barracks,
+a storeroom, a wellhouse, a forge, a sunken chapel, a hermit's cell…), sometimes a second room beyond: where the chests most often
+are, and foes waiting in barracks and bone pits. They are a little to find the way through: a side way's passage is as broad and as
+high as the way's own, half of them leave at a slant as a fork in the way does, some part again to a room of their own, and most
+crossings have a way round, out of one wall and back in further on through a room of its own, either way leading on. Some have a
+great chasm, round and forty metres deep, crossed on a narrow bridge and crossed again square to it on a second bridge some seven
+metres over or under the first: half the time by the way through itself, which goes round outside the chasm's wall after the first
+bridge, rising or falling, and over the second; else by a side way to a lookout room beyond. The deeps are laid between any number of doors, not only two: a run
+that parted three ways or more would have a door in each dungeon, the way through joining the first two and each other door's own way
+down joined into it where it comes nearest, each door the way out to its own dungeon and its own way down the run
+(`__slope.deeps(seed, 3)` lays them with doors made up for the look of it, walled, where a run has fewer dungeons). Each passage is cut its own way, as the seed has it: a natural tube of rough rock, its walls in and out, its floor uneven; a hewn
+gallery, straight walls and a flat roof, some propped with old timbers; a masonry barrel vault; the rooms and halls dressed stone, tiled;
+from one to the next over a few metres. Rubble lies at the foot of the natural walls, stalagmites stand in the grottos and the clefts, water
+lies in hollows, crystals in the grottos and down a great chasm's wall light the rock about them cold; each room is furnished as its
+name has it (crates, barrels and sacks in a storeroom, weapon racks in an armoury, skulls and urns in an ossuary, an altar and candles in a
+chapel, an anvil, grindstone and tool rack in a smithy, a well and trough in a wellhouse, a throne in a throne room, an alchemist's table, jar
+shelves and a cauldron in a den, a cooking fire and firewood in a kitchen, wine racks in a cellar, egg sacs in a spider's nest, glowing
+mushrooms and moss in a fungus garden, rails, ore and a mine cart at a mine head, gems in a treasury), and filled past those few pieces by its size: about each table stools or benches and on it what was being
+done there, barrels and crates two and three together and crates stacked, the rest of its walls lined with its own goods (a second row
+out from them where it keeps goods), a stack, a table or an anvil out on its floor, litter about it and cobwebs in its corners, all
+clear of the way through it and of any way leading off it; the hewn galleries that are propped
+have rails laid down them, a cart or ore left on them, picks and lanterns; the grottos grow mushrooms and moss, a fallen hall keeps a
+broken column or a giant's stone head, a chasm has cages and chains hung over it. `__slope.propGallery()` lays every prop on the snow
+ahead, to look them over; embers go up from the braziers, dust hangs in the air, mist drifts low in the chasms, and what is any way off goes into the dark. The stairs and bridges
+are solid stone, the halls tall, a way passing over another where it turns; lit by torches and braziers, the light worked out as
+the dungeon's is; laid to keep well under the land, the straight ways down turning at their rooms toward where it stands higher. Foes come out of dens in its halls and guardrooms (each lets out
+so many packs, and is then empty), find their way along it to you and are seen only through its open space; its chests open as a
+dungeon's does, with gold and something more. On foot in it, the minimap shows as much of it as you have come near, the map of the
+runs the same, dashed, as a tunnel is. Come out at the other dungeon and walk out of its mouth, and your horse comes round to its
+camp riderless on its skis, or your skis on their own, sliding down from above the camp to the rack, watched from the camp; and
+you ride on down the other way.
+
 **Loot.** Riding, the chest at a dungeon's end gives something besides its gold, and every great one felled leaves something
 behind (`game/slopeLoot.ts`): thrown up glowing out of where it was found, a gem in its rarity's colour (*Common*, *Fine*, *Rare*,
 *Ancient*) under a beam of light, it waits there a moment and is then drawn to you, nothing found ever lost, and a card high in the
@@ -240,7 +279,9 @@ Crown*, longer, down a spur into the wooded foothills above a bay; *Ashbridge*, 
 under its rock walls to a lake in a glen; *Carndale*, long and gentle, down a wooded spur in the west to a lake; *Warden's Spur*, from
 the summit down its south spur; *Lake Wall*, from a knoll at the head of a long spur, down its broad back and then steeply, with big kickers, across above the lake to where Ashbridge ends; *Balestead*, down a crest inside
 the range; *Ashbridge Bend*, from Ashbridge's top, away round the spur to the south and back under it to the same lake; *Lake Wall
-East*, from Lake Wall's top down the far side of its spur and round under it to the same lake; or a groomed slope
+East*, from Lake Wall's top down the far side of its spur and round under it to the same lake (Ashbridge and Ashbridge Bend part a
+hundred metres down, Lake Wall and Lake Wall East two hundred: either way can be taken from either's top, by steering onto it, a sign above where they part saying which goes where, the minimap
+showing both, a cave and its dungeon on each way, each laid out its own, and a run counts as the one it is come down); or a groomed slope
 going on for ever: one run is held at a time, the one left let go of), *Skier* (the horse with its
 rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
 *Camera* (*Cinema*, *Behind*, *Beside*, *Iso* (isometric: high, looking down across the slope at forty-five degrees, as on foot in the
@@ -321,7 +362,7 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   `game/slopeBlast.ts`, the blast, `game/slopeSaucer.ts`, the flying saucer, `game/slopeSnowman.ts`, the snowman, `game/slopePlane.ts`, the airplane, `game/slopeIce.ts`, the ice jump, and
   `game/slopeInvert.ts`, the land turned inside out, and `game/slopeCart.ts`, the rocket cart, the run's other ends; `game/slopeGun.ts`, the tommy gun, its
   tracers, flash and sound; `game/slopeArms.ts`, the weapons taken up in turn, the flamethrower's fire and the lightning's bolts; `game/slopeOrcs.ts`, the hordes coming up the run; `game/slopeFoes.ts`, what they are made of (orcs, goblins, wolves, the draugr and yetis, their hit points and guard); `game/slopeDice.ts`, the dice the fight is rolled with; `game/slopeArena.ts`, the arena laid where yetis come (the quarter-pipe and the boosters); `game/slopeLoot.ts`, the loot (what may be found, drawn, kept, worn and shown);
-  `game/slopeSplatter.ts`, their blood on the snow; `game/slopeDungeon.ts`, the cave on Silent Warden, its camp and the dungeon in it (where it is, the snow levelled and cut for it, the rooms grown, the torches' light worked out); `game/slopeFoot.ts`, on foot there, the person by the packs' walk and jog and the horse's walk and trot made here; `game/slopeProps.ts`, the props the dungeon is furnished with; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.
+  `game/slopeSplatter.ts`, their blood on the snow; `game/slopeDungeon.ts`, the cave on Silent Warden, its camp and the dungeon in it (where it is, the snow levelled and cut for it, the rooms grown, the torches' light worked out); `game/slopeFoot.ts`, on foot there, the person by the packs' walk and jog and the horse's walk and trot made here; `game/slopeProps.ts`, the props the dungeon is furnished with; `game/slopeDeeps.ts`, the deeps between two dungeons (laid out from their seed, built, lit, walked, and their foes' dens and chests); `game/slopeSign.ts`, the sign where a run parts; `game/slopeMap.ts`, the map of the runs, the runs over it, their cards and profiles.
 - `src/maps/inkWorld.ts`: the world's ink map, as klaine/dungeons draws it (the map of the runs is a stretch of it).
 - `src/figures/`: the figures: the person (`alpine.ts`, posed by a handful of numbers, on the ground and in the air), the horse
   (`horse.ts`, made in code on a skeleton of its own; `horseBody.ts`, `horseSculpt.ts`, how it looks; `horseCoat.ts`, its coat as hair, on a computer), the adventurer's clothes and
