@@ -59,7 +59,8 @@ import { readSlice, type SkiSlice } from '../src/core/skiSlice';
 import { readRunMap, type RunMap } from '../src/core/runMap';
 import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sparks, Sweep } from './slopeArms';
-import { Drops, type Item, LootCard, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
+import { Drops, type Item, LootCard, type Maps, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
+import { nearTrail, planTrail, type Trail, TrailLook } from './slopeTrail';
 import { type Branch, type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
 import { paintNearer } from './slopeTrees';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
@@ -347,7 +348,8 @@ async function start() {
   // (And a cave halfway down each, with a dungeon in it, `slopeDungeon.ts` (asked: "could we have a run have dungeon?"; then "add the
   // caves to warden's spur and balestead; and for other runs find suitable spots to add a mound or adjust land shape"): in a bank
   // beside the piste where there is one, Silent Warden's, Warden's Spur's and Balestead's; elsewhere in a knoll raised for it.)
-  const runs: { id: string; label: string; where?: string; title: string; detail: string; cave?: boolean }[] = ([
+  // (`trail: false`: no forgotten slope, `slopeTrail.ts`, will go on it with any seed, and no map is found of it.)
+  const runs: { id: string; label: string; where?: string; title: string; detail: string; cave?: boolean; trail?: boolean }[] = ([
     { id: 'w2', label: 'Silent Warden', where: 'below The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side; halfway down, a cave in the bank beside the piste, a camp before it and a tomb under the mountain', detail: '1.02 km along a crest, from beside the highest summit; a cave halfway down', cave: true },
     { id: 'w2-3', label: 'Pale Crown', where: 'below The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay', detail: '1.43 km down a spur into wooded foothills above a bay' },
     { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge; a hundred metres down, Ashbridge Bend parts from it to the south, and either way can be taken', detail: '0.80 km, the steepest, under rock walls to a lake; Ashbridge Bend parts from it' },
@@ -356,7 +358,7 @@ async function start() {
     { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end and across above the lake below Ashbridge, to where Ashbridge ends, its kickers big; two hundred metres down, Lake Wall East parts from it, and either way can be taken', detail: '1.54 km, broad above and steep below, big kickers, to where Ashbridge ends; Lake Wall East parts from it' },
     { id: 'w2-17', label: 'Balestead', where: 'near Balestead', title: 'In among the mountains, down a crest to the glen below Balestead', detail: '0.77 km down a crest inside the range' },
     { id: 'w2-25', label: 'Ashbridge Bend', where: 'round the spur below Ashbridge', title: "From Ashbridge's top, away from it to the south, round the spur and through the head of a gully, then back east under it to the lake where Ashbridge ends; or, where it parts, down Ashbridge itself", detail: "0.93 km from Ashbridge's top, round a spur to where it ends" },
-    { id: 'w2-40', label: 'Lake Wall East', where: 'east of the spur above the lake below Ashbridge', title: "From Lake Wall's knoll, away from it to the east, down the far side of its spur and round under it to the west, to the lake where Ashbridge ends; or, where it parts, down Lake Wall itself", detail: "1.64 km from Lake Wall's top, round its spur to where Ashbridge ends" },
+    { id: 'w2-40', trail: false, label: 'Lake Wall East', where: 'east of the spur above the lake below Ashbridge', title: "From Lake Wall's knoll, away from it to the east, down the far side of its spur and round under it to the west, to the lake where Ashbridge ends; or, where it parts, down Lake Wall itself", detail: "1.64 km from Lake Wall's top, round its spur to where Ashbridge ends" },
   ]).map((r) => ({ ...r, cave: true, title: r.title.includes('cave') ? r.title : `${r.title}; halfway down, a cave beside the piste, a camp before it and a dungeon under the mountain`, detail: r.detail.includes('cave') ? r.detail : `${r.detail}; a cave halfway down` }));
   const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
   if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
@@ -374,7 +376,9 @@ async function start() {
   type CaveLand = Land & { cave?: Cave };
   /** A land with the deeps under it, between the caves of a run that parts. */
   /** A land with deeps: them, its caves by way, and the way down each of their doors is on (`Deeps.doors`, in order). */
-  type DeepsLand = Land & { deeps?: Deeps; caves?: Cave[]; deepsWays?: number[] };
+  type DeepsLand = Land & { deeps?: Deeps; caves?: Cave[]; deepsWays?: number[]; deepsLater?: { plan: ReturnType<typeof planDeeps>; ways: number[] } };
+  /** A land with a forgotten slope a map shows on it (`slopeTrail.ts`): its cave, its way, and the way as it is seen. */
+  type TrailLand = Land & { forgotten?: { cave: Cave; trail: Trail; look: TrailLook } };
   const hashed = location.hash.slice(1);
   // (Opened on what the address asks for: after a choice on the page, its end, `#groomed` or `#w2-3`, which the page sets.)
   const opensOn = query.get('land') === 'groomed' ? 'groomed' : asked ?? runs[0].id;
@@ -652,6 +656,29 @@ async function start() {
     const letGo = made.dispose;
     made.dispose = () => { letGo?.(); d.dispose(); };
   };
+  /**
+   * The deeps of the run ridden built, laid out already as the run was made (asked: "The load time on ipad for ashbridge is btw now
+   * superlong. How can we improve it?"): as the skis first come off at one of its caves (`deepsSoon`, behind the loading screen a
+   * moment), or as a script asks. They had been built as the run was laid, and their shaders made with the rest, more than a second on
+   * a computer and several on an iPad, for deeps that most runs down it never go into.
+   */
+  const buildDeeps = () => {
+    const L = land as DeepsLand, later = L.deepsLater;
+    if (!later || L.deeps) return;
+    L.deepsLater = undefined;
+    try { layDeeps(L, later.plan, later.ways); } catch (e) { console.error('the deeps', e); }
+  };
+  const deepsSoon = async () => {
+    const L = land as DeepsLand;
+    if (!L.deepsLater || L.deeps) return;
+    await loading.busy('Lighting the deeps under the mountain');
+    if (land !== L) { loading.idle(); return; }
+    buildDeeps();
+    // (Their shaders made now too, behind the screen, not as they are first seen.)
+    const built = (land as DeepsLand).deeps;
+    if (built) warmSoon(built.group);
+    loading.idle();
+  };
   const dig = (made: Land, cave: Cave, way = 0) => {
     made.group.add(cave.group);
     // (On a run that parts, a cave on each way down (asked: "these combined runs could have two dungeons!"): the land's cave the one of
@@ -676,8 +703,22 @@ async function start() {
     }
   };
   const sliceTexts = new Map<string, string | null>();
+  const landTimes: Record<string, number> = {};
+  /**
+   * The map found of a run, if any: from the pack, or before it is made (the first run is laid before it), from what the browser keeps
+   * of it.
+   */
+  const mapFor = (kind: string): NonNullable<Item['map']> | null => {
+    // (The pack is declared further on: the first run is laid before that line is come to, when even looking at it throws.)
+    let had: Pack | null = null;
+    try { had = pack; } catch { /* (not yet) */ }
+    if (had) return had.maps().get(kind) ?? null;
+    if (query.get('pack') === '0') return null;
+    try { const items = (JSON.parse(localStorage.getItem('slope.pack') ?? 'null')?.items ?? []) as Item[]; return items.filter((i) => i.map?.run === kind).pop()?.map ?? null; } catch { return null; }
+  };
   const landOf = async (kind: LandKind): Promise<Land> => {
-    const key = kind !== 'groomed' ? `${kind}:${snowLook}` : kind;
+    // (Made again with a map found of it: laid with its forgotten slope.)
+    const key = kind !== 'groomed' ? `${kind}:${snowLook}:${mapFor(kind)?.seed ?? ''}` : kind;
     let made = lands.get(key);
     if (made) return made;
     if (kind !== 'groomed') {
@@ -691,19 +732,36 @@ async function start() {
       if (!sliceText) { sliceTexts.delete(kind); fetching.delete(`${slices}${kind}.json`); return landOf('groomed'); }
       if (snowLook === 'game' && !gameLook) { await loading.stage('paint'); gameLookOf(); }
       await loading.stage('snow', `Laying the snow ${whereOf(kind)}`);
+      // (How long each part of laying it took, for finding what is slow: `__slope.landTimes()`.)
+      let lap = performance.now();
+      const took = (what: string) => { const now = performance.now(); landTimes[what] = Math.round(now - lap); lap = now; };
+      for (const k of Object.keys(landTimes)) delete landTimes[k];
       const slice = readSlice(sliceText), where = runs.find((r) => r.id === kind)?.where;
       // (The cave's camp levelled and the hole behind its mouth cut in the slice, before its land is made from it.)
       // (`?cave=0`: none, the runs as they were before them.)
       const caved = !!runs.find((r) => r.id === kind)?.cave && query.get('cave') !== '0';
+      took('read');
       const site = caved ? findSite(slice, kickerZones(sliceGround(slice))) : null, base = site ? carve(slice, site) : null;
+      took('site');
       // (And one on each way that parts from it, found and carved as the run's own is, along that way's line in the same land.)
       const branchCaves = caved ? ((slice as SkiSlice & { branches?: Branch[] }).branches ?? []).map((b, k) => {
         // (As far from the run's own as a good site may be: so that the deeps between them join two places apart on the mountain.)
         const along = { ...slice, run: b.run }, at = findSite(along, kickerZones(sliceGround(along)), site?.mouth);
         return at ? { site: at, base: carve(along, at), way: k + 1 } : null;
       }) : [];
+      took('other sites');
+      // (A forgotten slope, a map of it found: its way and its cave's camp laid in the slice too, far from the run's own caves; never the
+      // run lost for it.)
+      const map = caved ? mapFor(kind) : null;
+      let trail: Trail | null = null, trailBase: ReturnType<typeof carve> | null = null;
+      if (map) try {
+        trail = planTrail(slice, map.seed, [site?.camp, ...branchCaves.map((b) => b?.site.camp)].filter((c): c is { x: number; z: number } => !!c));
+        if (trail) trailBase = carve(slice, trail.site);
+      } catch (e) { console.error('the forgotten slope', e); trail = null; }
+      took('forgotten slope');
       made = sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined);
       // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
+      took('land');
       if (where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
       // (Where its top lies in the world: each run's land is laid with its own top at the middle of the scene.)
       if (slice) topOf.set(made, new Vector3(slice.run.points[0][0], 0, slice.run.points[0][1]));
@@ -718,11 +776,25 @@ async function start() {
       // (Each its own dungeon: laid out from a seed of its own.)
       const theirs = branchCaves.map((b, k) => b && new Cave(b.site, b.base, `${dungeonSeed}-${b.way}`, tags, caveLights, toward(k + 1)));
       branchCaves.forEach((b, k) => { if (b && theirs[k]) dig(made!, theirs[k]!, b.way); });
+      took('caves');
       // The deeps between all of them (`slopeDeeps.ts`), from the dungeons' seed: a door in each, and the way down each door is on.
       const joined = [own && { door: own.deepDoor(), way: 0 }, ...theirs.map((c, k) => c && { door: c.deepDoor(), way: branchCaves[k]!.way })].filter((j): j is { door: NonNullable<ReturnType<Cave['deepDoor']>>; way: number } => !!j?.door);
       // (Never the run lost for it: what goes wrong laying them is said, and the run is ridden without them.)
-      if (joined.length >= 2) try { layDeeps(made!, planDeeps(joined.map((j) => j.door), (x, z) => made!.height(x, z), `${dungeonSeed} deeps`), joined.map((j) => j.way)); } catch (e) { console.error('the deeps', e); }
+      if (joined.length >= 2) try {
+        // (Laid out now, built when first wanted, `buildDeeps`.)
+        (made as DeepsLand).deepsLater = { plan: planDeeps(joined.map((j) => j.door), (x, z) => made!.height(x, z), `${dungeonSeed} deeps`), ways: joined.map((j) => j.way) };
+        took('deeps laid out');
+      } catch (e) { console.error('the deeps', e); }
       if (made.ways) standSign(made, kind);
+      took('sign');
+      if (trail && trailBase) {
+        const cave = new Cave(trail.site, trailBase, `${dungeonSeed}-forgotten-${map!.seed}`, tags, caveLights), look = new TrailLook(trail.path, (x, z) => made!.height(x, z));
+        made.group.add(cave.group, look.group);
+        (made as TrailLand).forgotten = { cave, trail, look };
+        const letGo = made.dispose;
+        made.dispose = () => { letGo?.(); cave.dispose(); look.dispose(); };
+        took('forgotten cave');
+      }
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
     lands.set(key, made);
     return made;
@@ -824,7 +896,24 @@ async function start() {
   };
   /** The snow's height at a point, and how it rises east and south there (over `e` metres); and which way is up from it. */
   /** The cave in the land now, if it has one (none while the land is turned inside out); and where the land is stood. */
-  const caveNow = (): Cave | null => (land as CaveLand).cave ?? null;
+  /**
+   * The cave now: the run's own (on a run that parts, the one on the way ridden); or, with a forgotten slope on it, that one's while it
+   * is the nearer, or while it is the one walked into.
+   */
+  const caveNow = (): Cave | null => {
+    const own = (land as CaveLand).cave ?? null, hid = (land as TrailLand).forgotten?.cave;
+    if (!hid) return own;
+    if (foot) return gearAt === hid ? hid : own;
+    const o = land.group.position, x = rider.position.x - o.x, z = rider.position.z - o.z, d = (c: Cave) => Math.hypot(c.site.camp.x - x, c.site.camp.z - z);
+    return !own || d(hid) < d(own) ? hid : own;
+  };
+  /** Whether the rider is on a forgotten slope's way, or in its camp (within `wide` metres of the way): off the piste, but not out of bounds. */
+  const onTrail = (wide = 10) => {
+    const f = (land as TrailLand).forgotten;
+    if (!f) return false;
+    const o = land.group.position, x = rider.position.x - o.x, z = rider.position.z - o.z;
+    return Math.hypot(f.cave.site.camp.x - x, f.cave.site.camp.z - z) < 45 || nearTrail(f.trail.path, x, z).off < wide;
+  };
   const toCave = <T extends { x: number; z: number; y?: number }>(p: T) => { const o = land.group.position; return { x: p.x - o.x, y: p.y ?? 0, z: p.z - o.z }; };
   /**
    * The arena laid where a great one is fought, riding (`slopeArena.ts`; asked: "for locations where these bosses spawn, we need to
@@ -1801,9 +1890,11 @@ async function start() {
    */
   let backOnto: { s: number; left: number } | null = null;
   const stepOffPiste = (dt: number) => {
-    const [lo, hi] = land.edges(ride.down), out = offPisteOk() && !foot && !stopping && !crash && !cat && !ride.ended && (ride.left < lo || ride.left > hi);
+    // (Not on a forgotten slope's way, which a map has shown: off the piste, but where it may be.)
+    const [lo, hi] = land.edges(ride.down), out = offPisteOk() && !foot && !stopping && !crash && !cat && !ride.ended && (ride.left < lo || ride.left > hi) && !onTrail();
     offPisteFor = out ? offPisteFor + dt : 0;
-    const left = OFF_PISTE.most - offPisteFor, late = out && left <= OFF_PISTE.warn;
+    // (The longer for what is worn, touring skis or boots.)
+    const left = OFF_PISTE.most + kit().roam - offPisteFor, late = out && left <= OFF_PISTE.warn;
     if (offPisteEl.hidden === out) offPisteEl.hidden = !out;
     offPisteEl.classList.toggle('late', late);
     if (out) say(offPisteN, String(Math.max(1, Math.ceil(left))));
@@ -1819,7 +1910,8 @@ async function start() {
   // (Off the piste allowed, no reach across the run at all (asked: "we can widen also the area how far the player can wander off piste;
   // probably no need for limits as there is the 15 second pull back?"): out over the land about the run as far as it can be ridden,
   // `Land.roam`, `keepOn`. It had been held to the run's own snow, some fifty metres either side of its line.)
-  const reachAt = (s: number): [number, number] => (offPisteOk() || (flyingDemo && demoKind === 'show') ? [-1e6, 1e6] : land.edges(s));
+  // (And on a forgotten slope's way, off the piste allowed or not.)
+  const reachAt = (s: number): [number, number] => (offPisteOk() || (flyingDemo && demoKind === 'show') || (mode === 'ride' && !flyingDemo && onTrail(14)) ? [-1e6, 1e6] : land.edges(s));
   /**
    * Where the skier now is against the run: its way and its body's facing kept as they were in the world as the run's own way turns
    * under it; kept on the skiable path, inside its edges (or, off the piste allowed, the snow's reach) and between its top and its foot
@@ -2036,10 +2128,14 @@ async function start() {
     pop: { T: 0.62, name: 'Pop 180' }, nose: { T: 1.05, name: 'Nose butter 180' }, smooth: { T: 0.85, name: 'Smooth 180' }, tail: { T: 1.05, name: 'Tail butter 180' },
   };
   let next180 = 0;
-  /** Begins the next ground 180, if it can be done now: on the snow and going, not on a kicker, not braking, not in one already. */
+  /**
+   * Begins the next ground 180, if it can be done now: on the snow, not on a kicker, not braking hard at speed, not in one already. At
+   * any speed (asked: "fix 180 to be possible when going uphill (helps for boss fights if accidentally riding switch)"): it had to be
+   * going three metres a second, and going up the arena's walls or a rise, slowing, or stood, it could not be turned round.
+   */
   const start180 = (dir?: number) => {
     if (foot) return false;
-    if (air || crash || ride.turn180 || ride.speed < 3 || ride.brake > 0.3 || ride.out > 0.02) return false;
+    if (air || crash || ride.turn180 || (ride.brake > 0.3 && Math.abs(ride.speed) > 3) || ride.out > 0.02) return false;
     const kind = GROUND_180[next180++ % GROUND_180.length];
     ride.turn180 = { kind, t: 0, dir: dir ?? (Math.abs(ask.x) > 0.2 ? -Math.sign(ask.x) : next180 % 2 ? 1 : -1) };
     tell(G180[kind].name, ride.switch ? 'back round from switch' : 'round to switch', false, 1.8);
@@ -2267,6 +2363,8 @@ async function start() {
   let clearGun: (() => void) | null = null;
   /** The run again from the top, going a little. */
   const restart = () => {
+    // (A map found of this run: laid again with its forgotten slope, which begins it again.)
+    if (mapLaysOut && mode === 'ride') { mapLaysOut = false; void setLand(landKind, true); return; }
     caveNow()?.shutChest();
     (land as DeepsLand).deeps?.restock();
     // (What was found and not yet come to the player, given it now: nothing found is lost.)
@@ -6717,16 +6815,21 @@ async function start() {
   /** Something found at `at`, as `source` gives, said to be `found` so; to wait over the snow, or `floor`. Riding only. */
   const findLoot = (source: Source, at: Vector3, found: string, floor?: number) => {
     if (!pack || mode !== 'ride' || flyingDemo) return null;
-    const item = rollLoot(lootRng.fork(`find ${finds++}`), source, pack.read, found, armed());
+    const item = rollLoot(lootRng.fork(`find ${finds++}`), source, pack.read, found, armed(), mapsNow());
     drops.add(item, at, new Vector3(at.x, (floor ?? ground(at.x, at.z)) + 1, at.z));
     return item;
   };
+  /** The runs a map may be of: those with caves, where each is, the run ridden, and those mapped already. */
+  const mapsNow = (): Maps | undefined => (pack ? { runs: runs.filter((r) => r.cave && r.trail !== false).map((r) => ({ id: r.id, where: r.where ?? r.label })), here: landKind, had: new Set(pack.maps().keys()) } : undefined);
+  /** A map found of the run ridden: the run laid again with its forgotten slope when it next begins (`restart`). */
+  let mapLaysOut = false;
   /** Something found come to the player: put in the pack (worn, or read, if it can be), said, and a chime. */
   const takeLoot = (item: Item) => {
     if (!pack) return;
     const on = pack.add(item);
     foundRun.push(item.name);
-    lootCard.show(item, on, item.slot === 'weapon' && !weaponsFree() ? `in your pack · ${HELD_BACK.toLowerCase()}` : undefined);
+    if (item.map?.run === landKind) mapLaysOut = true;
+    lootCard.show(item, on, item.slot === 'weapon' && !weaponsFree() ? `in your pack · ${HELD_BACK.toLowerCase()}` : item.map ? (item.map.run === landKind ? 'its old tracks show when this run begins again' : `its old tracks show when you ride ${item.map.where}`) : undefined);
     gunSound.hear('ring');
   };
   giveLeft = () => { for (const it of drops.clear()) takeLoot(it); };
@@ -7201,6 +7304,7 @@ async function start() {
   const skisOff = () => {
     const cave = caveNow()!, go = along(ride.way, here);
     stopping = false;
+    void deepsSoon();
     healAll();
     foot = { x: ride.x, y: ride.y, z: ride.z, heading: Math.atan2(go.x, go.z), speed: 0, dx: go.x, dz: go.z, turn: 0, phase: 0, room: -1, told: false };
     footPad.walk = false; footPad.to = null;
@@ -7330,6 +7434,24 @@ async function start() {
     sun.target.position.copy(a.to);
   };
   /** The skis on again where it has walked out of the camp, and on down the run the way it was walking, pushing off. */
+  /**
+   * Out of a forgotten slope's cave on its skis, lifted back to the piste by the plane (asked: "After exit the player gets an airplane
+   * lift back to piste"): as soon as it is on its skis and on the snow, the plane comes for it, as for a run's end, and lets it down onto
+   * the piste across from where the way came to its end (`backOnto`), the run going on from there, its time and points kept.
+   */
+  let liftAsked = false;
+  const liftHome = () => { liftAsked = true; };
+  const stepLift = () => {
+    const f = (land as TrailLand).forgotten;
+    if (!liftAsked || mode !== 'ride') return;
+    if (!f) { liftAsked = false; return; }
+    if (cat || air || foot || carting || inside || crash) return;
+    liftAsked = false;
+    const s = clamp(f.trail.to, 5, land.length === Infinity ? f.trail.to : land.length - 60), [a, b] = land.edges(s);
+    backOnto = { s, left: clamp((a + b) / 2, a + 4, b - 4) };
+    tell('The plane!', 'back to the piste', false, 2.5);
+    WAYS.plane.begin();
+  };
   const skisOn = () => {
     const f = foot!;
     leaveFoot();
@@ -7482,7 +7604,9 @@ async function start() {
       tell('Treasure!', `left in ${where} · 5,000 points`, false, 4);
       findLoot('chest', at.setY(at.y + 0.6), `found in ${where}`, c.at.y);
     });
-    if (!f.deep && caveNow() === cave && !cave.inCamp(nx, nz, 1.2) && !cave.inside(nx, nz)) skisOn();
+    // (Never under the mountain, whatever else says it is out: where the cave's floor under it lies well under the snow, not out.)
+    const under = cave.floorUnder(nx, nz), buried = under !== null && land.height(nx + o.x, nz + o.z) - under > 1.5;
+    if (!f.deep && caveNow() === cave && !cave.inCamp(nx, nz, 1.2) && !cave.inside(nx, nz) && !buried) { const lifted = cave === (land as TrailLand).forgotten?.cave; skisOn(); if (lifted) liftHome(); }
     // (Its way against the run's, as riding has it, for what it carries to be aimed from.)
     const dir = new Vector3(Math.sin(f.heading), 0, Math.cos(f.heading)), way = Math.atan2(dir.dot(runLeft(here)), dir.dot(runDir(here)));
     return { down: here.s, left: here.left, speed: Math.abs(f.speed), way, ski: way, skid: 0, tuck: 0, brake: 0 };
@@ -8571,6 +8695,7 @@ async function start() {
       // (Or, the run to end in the whirlwind, ridden into it.)
       if (playing && !cat && !trip && ((crash && atRest()) || (ride.ended && ride.speed < 0.5) || riddenInto())) beginEnding();
       if (playing && !menuOpen) stepTravel();
+      if (playing && !menuOpen) stepLift();
       if (cat) at = stepCatapult(playing && !menuOpen ? dt : 0, at);
       stepSpent(playing && !menuOpen ? dt : 0);
       stepWhirlwind(playing && !menuOpen ? dt : 0);
@@ -8860,6 +8985,7 @@ async function start() {
     deepAt: () => (foot?.deep ? { s: +foot.deep.s.toFixed(1), y: +foot.y.toFixed(1), piece: (land as DeepsLand).deeps?.pieceAt(foot.deep.s)?.name ?? '' } : null),
     // (On foot in the deeps `s` metres along them, from the cave of the land's way: as if come there through its door.)
     goDeeps: async (s = 0) => {
+      buildDeeps();
       const L = land as DeepsLand;
       if (!L.deeps) return 'no deeps here';
       if (!foot) await (window as unknown as { __slope: { goCave: (w: string) => Promise<unknown> } }).__slope.goCave('room');
@@ -8873,6 +8999,7 @@ async function start() {
     // of it is over it, facing their middle; no dungeon behind it (asked: "dynamic in a way that it could serve possible three dungeon
     // interconnect in the future").)
     deeps: (seed?: string, doors = 0) => {
+      buildDeeps();
       const L = land as DeepsLand, real = (L.caves ?? []).map((c) => c?.deepDoor()).filter((d): d is NonNullable<ReturnType<Cave['deepDoor']>> => !!d);
       if (real.length < 2) return 'not a run with two caves joined';
       const all = [...real], o0 = land.group.position, h = (x: number, z: number) => land.height(x + o0.x, z + o0.z);
@@ -8949,6 +9076,7 @@ async function start() {
     // them, uncut, lit as underground and on black, the skier and the kickers gone too; as it was again with `on` false. Drawn from the
     // same place both ways (`lookAt`), the two pictures go one over the other.)
     cutaway: (on: boolean) => {
+      buildDeeps();
       const L = land as DeepsLand, kids = land.group.children;
       if (on && !cutaway) {
         cutaway = { shown: kids.map((c) => c.visible), fog: scene.fogNode, rider: rider.visible, kicks: kicks.map((k) => !!k.group?.visible) };
@@ -9055,6 +9183,8 @@ async function start() {
     trees: () => (land.group.getObjectByName('woods')?.userData.trees ?? []) as { x: number; z: number; kind: string; tall: number }[],
     // (How long each stage of opening took, in milliseconds.)
     loadTimes: () => loading.times,
+    // (How long each part of laying the run last laid took, in milliseconds.)
+    landTimes: () => ({ ...landTimes }),
     // (On foot, turned to face a point, for a script.)
     faceTo: (x: number, z: number) => { if (foot) { foot.heading = Math.atan2(x - foot.x, z - foot.z); placed = false; } return !!foot; },
     // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
@@ -9084,10 +9214,35 @@ async function start() {
       const at = focus().add(along(ride.way, here).multiplyScalar(6)).addScaledVector(UP, 1);
       if (what === 'chest' || what === 'boss') return findLoot(what, at, 'given by a script')?.name ?? null;
       for (let n = 0; n < 2000; n++) {
-        const it = rollLoot(lootRng.fork(`script ${finds++}`), n % 2 ? 'boss' : 'chest', pack.read, 'given by a script');
+        const it = rollLoot(lootRng.fork(`script ${finds++}`), n % 2 ? 'boss' : 'chest', pack.read, 'given by a script', true, mapsNow());
         if (it.slot === what && (!rarity || it.rarity === rarity)) { drops.add(it, at, at); return it.name; }
       }
       return null;
+    },
+    // (A forgotten slope: a map of `run` (the run ridden, unless named) put in the pack at once, the run laid again with it if it is
+    // the one ridden; `trail()`, where its way and its cave are; `goTrail(along)`, the skier put on its way, so far along it.)
+    giveMap: (run?: string) => {
+      if (!pack) return null;
+      const r = runs.find((x) => x.id === (run ?? landKind));
+      if (!r) return null;
+      const item: Item = { id: `map${Date.now().toString(36)}`, slot: 'map', base: 'map', name: `Notes on a Forgotten Slope, ${r.where ?? r.label}`, rarity: 'rare', mods: {}, map: { run: r.id, where: r.where ?? r.label, seed: lootRng.fork(`map ${finds++}`).int(0, 1e9).toString(36) }, found: 'given by a script' };
+      takeLoot(item);
+      return item.map;
+    },
+    trail: () => {
+      const f = (land as TrailLand).forgotten;
+      if (!f) return null;
+      const o = land.group.position, len = nearTrail(f.trail.path, ...f.trail.path[f.trail.path.length - 1]).along;
+      return { from: +f.trail.from.toFixed(0), to: +f.trail.to.toFixed(0), side: f.trail.side, length: Math.round(len), camp: [+(f.cave.site.camp.x + o.x).toFixed(1), +(f.cave.site.camp.z + o.z).toFixed(1)], onTrail: onTrail(), cave: caveNow() === f.cave };
+    },
+    goTrail: (along = 0) => {
+      const f = (land as TrailLand).forgotten;
+      if (!f) return null;
+      const P = f.trail.path, k = clamp(Math.round(along / 2), 0, P.length - 2), o = land.group.position, at = land.frame(P[k][0] + o.x, P[k][1] + o.z, f.trail.from + along);
+      const dx = P[k + 1][0] - P[k][0], dz = P[k + 1][1] - P[k][1], fr = land.frame(P[k][0] + o.x, P[k][1] + o.z, at.s);
+      Object.assign(ride, { speed: 8, way: Math.atan2(dx * runLeft(fr).x + dz * runLeft(fr).z, dx * runDir(fr).x + dz * runDir(fr).z) });
+      putAt(at.s, at.left); ride.y = ground(ride.x, ride.z); placed = false;
+      return { down: +at.s.toFixed(1), left: +at.left.toFixed(1) };
     },
     // (Health on foot: what is left of it, or, given `by`, that much lost, as a blow takes it.)
     hurt: (by?: number) => { if (by) hurt(by, 'A script'); return { health: +health.toFixed(1), beaten: +beaten.toFixed(2), onFoot: !!foot }; },

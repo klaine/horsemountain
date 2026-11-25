@@ -78,7 +78,7 @@ export const knollAt = (k: Knoll, x: number, z: number) => {
   return e >= 1 ? 0 : k.high * Math.cos((Math.PI / 2) * e) ** 2;
 };
 /** A knoll's measures: long along the way in, so that the tunnel is under it soon and stays under it while it goes down. */
-const KNOLL = { along: 22, across: 13, high: 8.5 };
+export const KNOLL = { along: 22, across: 13, high: 8.5 };
 
 /** A point `t` in along the cave's way from its mouth and `lat` to the left of its line. */
 export const sitePoint = (c: CaveSite, t: number, lat: number) => ({ x: c.mouth.x + c.ax * t + c.az * lat, z: c.mouth.z + c.az * t - c.ax * lat });
@@ -99,7 +99,7 @@ export const floorAt = (c: CaveSite, t: number) => {
 };
 
 /** The run's line, the piste's edges, and the land's heights, as the slice has them, in the scene's frame. */
-function sliceFrame(slice: SkiSlice) {
+export function sliceFrame(slice: SkiSlice) {
   const [ox, oz] = slice.run.points[0], step = slice.run.step;
   const line = slice.run.points.map(([x, z]) => [x - ox, z - oz] as [number, number]), n = line.length;
   const shift = (g: Grid): Grid => ({ ...g, x0: g.x0 - ox, z0: g.z0 - oz });
@@ -212,7 +212,7 @@ function searchSites(slice: SkiSlice, raise: boolean, kickers: KickerZone[], awa
  * mouth on the run's own snow, the tunnel under the land a few metres in and all the way after, and the dungeon not too deep; its camp's
  * height, how deep the dungeon is and how far in the hole reaches, set on it. Gives back how well it goes (more, better), or none.
  */
-function trySite(F: ReturnType<typeof sliceFrame>, site: CaveSite, H: (x: number, z: number) => number): number | null {
+export function trySite(F: ReturnType<typeof sliceFrame>, site: CaveSite, H: (x: number, z: number) => number): number | null {
   const P = (t: number, lat: number) => sitePoint(site, t, lat), Hs = (t: number, lat: number) => { const p = P(t, lat); return H(p.x, p.z); };
   const c = P(-(CAVE.campR - 0.5), 0);
   site.camp = { x: c.x, z: c.z };
@@ -1583,10 +1583,15 @@ export class Cave {
     const [t, lat] = siteLocal(this.site, x, z);
     return Math.hypot(x - this.site.camp.x, z - this.site.camp.z) < CAVE.campR + more || (t < 0.5 && t > -CAVE.campR && Math.abs(lat) < CAVE.hw + more);
   }
-  /** Whether a point is inside, in the tunnel or the dungeon (past the mouth). */
+  /**
+   * Whether a point is inside, in the tunnel or the dungeon (past the mouth), or in the doorway of the way out to the deeps, where one
+   * may walk (`passAt`): left out, the half metre of it before the deeps take one over was taken for out of the cave, and the skis were
+   * put on there, under the mountain (asked: "I was thrown out of a dungeon to skis, off piste while traversing the dungeon in
+   * Ashbridge").
+   */
   inside(x: number, z: number): boolean {
     const [t, lat] = siteLocal(this.site, x, z);
-    return t > 0 && (t <= this.site.length ? Math.abs(lat) < CAVE.hw + CAVE.rough : this.openAt(lat, t));
+    return t > 0 && (t <= this.site.length ? Math.abs(lat) < CAVE.hw + CAVE.rough : this.openAt(lat, t) || this.outExit(lat, t));
   }
   /**
    * Whether a point inside is still near the mouth: in the tunnel where it runs under the hole cut in the land for it, which only the

@@ -61,7 +61,7 @@ demo run, inking the map, lighting the mountain), with what is being done and ho
   speed (from a straight air or a grab, through 180s to 1080s, corks, backflips and barrel rolls, rolled over sideways, to double
   backflips and double corks at the wildest), milder or wilder as the upright slider at the lower right says, *Wild* at its top and *Mild* at its foot. Each trick's turns are paced
   to the time the jump gives it, to come round about a third of a second before the snow. Over the slider, *180* (`X`; lit
-  while you ride switch) turns you round on the snow, to switch or back, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter. And over that, *Skate* (held, or `Z`) skates you on, a stride
+  while you ride switch) turns you round on the snow, to switch or back, each time the next of a pop 180, a nose butter, a smooth 180 and a tail butter, at any speed, going up a rise or an arena's wall, or stood (not on a kicker, nor braking hard at speed). And over that, *Skate* (held, or `Z`) skates you on, a stride
   with each leg in turn, at any speed: a little more speed, the less the faster you go, none past some 86 km/h. A run ends after a fall (a body sliding on down steep snow dug in after a second and a half, and soon stopped) or at
   the foot of the run, and you are asked how to get back to the top: one of nine ways, or *Random*. Tick *Remember my choice* and
   you are not asked again; *Back to the top* in the menu changes it (or sets it to be asked again). By chance, each way comes once
@@ -221,7 +221,7 @@ metres over or under the first: half the time by the way through itself, which g
 bridge, rising or falling, and over the second; else by a side way to a lookout room beyond. The deeps are laid between any number of doors, not only two: a run
 that parted three ways or more would have a door in each dungeon, the way through joining the first two and each other door's own way
 down joined into it where it comes nearest, each door the way out to its own dungeon and its own way down the run
-(`__slope.deeps(seed, 3)` lays them with doors made up for the look of it, walled, where a run has fewer dungeons). Each passage is cut its own way, as the seed has it: a natural tube of rough rock, its walls in and out, its floor uneven; a hewn
+(`__slope.deeps(seed, 3)` lays them with doors made up for the look of it, walled, where a run has fewer dungeons). They are laid out as the run is made, and built (and their shaders made) only as the skis first come off at one of its caves, behind the loading screen a moment, so that a run that parts opens as quickly as any other. Each passage is cut its own way, as the seed has it: a natural tube of rough rock, its walls in and out, its floor uneven; a hewn
 gallery, straight walls and a flat roof, some propped with old timbers; a masonry barrel vault; the rooms and halls dressed stone, tiled;
 from one to the next over a few metres. Rubble lies at the foot of the natural walls, stalagmites stand in the grottos and the clefts, water
 lies in hollows, crystals in the grottos and down a great chasm's wall light the rock about them cold; each room is furnished as its
@@ -266,7 +266,15 @@ riding the horse alone, none of these is found. And
 *guidebooks*, read as they are found and learned for good: *The Rodeo Scrolls* (a rodeo 540 and 900), *The Barrelwright's Almanac*
 (the double barrel roll), the *Codex of the Three Turnings* (the triple backflip) and the *Treatise on the Triple Cork* (triple corks
 of 1440 and 1800), the trick chosen off a kicker then sometimes theirs, when the air it gives is long enough and the slider wild
-enough (with *Orcs & weapons* on, only with the meter full, at *Wild 8/8*). Nothing worn alters the demo runs. `?pack=0` rides with nothing found, without forgetting what is kept.
+enough (with *Orcs & weapons* on, only with the meter full, at *Wild 8/8*). Touring skis and touring boots keep you off the piste
+some seconds longer before you are sent back. And *maps*, *Notes on a Forgotten Slope* of a run (the one ridden as often as not, else
+another on the mountain), kept in the pack under *Maps* (`game/slopeTrail.ts`): ridden, that run is laid with an old way down off the
+piste, found from a seed of the map's own as the land is made, out across the land to a cave of its own in a clearing some way off,
+never climbing nor too steep, the woods keeping off it; its old tracks glow on the snow, a light running down them, and a beam of
+light stands where they leave the piste's edge. On them the off-piste clock does not run (and they may be ridden with *Off piste* not
+allowed). Its cave, raised in a knoll turned into the rising ground, has its own camp and dungeon; walked out of it, skis on, the
+plane comes and lets you down onto the piste across from where the way ended, the run going on. A map of the run ridden lays its
+slope out when the run begins again. (Lake Wall East, along its spur above the lake, has no way off its piste that will do, and no map is found of it.) Nothing worn alters the demo runs. `?pack=0` rides with nothing found, without forgetting what is kept.
 
 **On a phone or a tablet**, held either way, what is read sits in one slim strip across the top: the arm carried and how many more
 to the next over a thin bar, how wild the tricks are (eight pips, earned with *Orcs & weapons* on; else a *Mild*–*Wild* slider), and

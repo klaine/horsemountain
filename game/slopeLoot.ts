@@ -21,9 +21,9 @@ import {
 import type { Rng } from '../src/core/rng';
 import type { ArmKind } from './slopeArms';
 
-export type Slot = 'skis' | 'boots' | 'ward' | 'weapon' | 'gloves' | 'ring' | 'necklace' | 'book';
+export type Slot = 'skis' | 'boots' | 'ward' | 'weapon' | 'gloves' | 'ring' | 'necklace' | 'book' | 'map';
 /** The slots something is worn in, in the order the pack shows them; and those that are of use only with arms carried. */
-export const WORN: Exclude<Slot, 'book'>[] = ['skis', 'boots', 'ward', 'weapon', 'gloves', 'ring', 'necklace'];
+export const WORN: Exclude<Slot, 'book' | 'map'>[] = ['skis', 'boots', 'ward', 'weapon', 'gloves', 'ring', 'necklace'];
 const ARMED = new Set<Slot>(['ward', 'weapon', 'gloves', 'ring', 'necklace']);
 export type Rarity = 'common' | 'fine' | 'rare' | 'ancient';
 export type WardKind = 'ember' | 'storm' | 'shield' | 'magpie';
@@ -36,6 +36,7 @@ export type WardKind = 'ember' | 'storm' | 'shield' | 'magpie';
  * spin or a flip still landed; `might`, a share harder blows; `haste`, a share quicker rounds; `points`, a share more points.
  * The ward's: `ember`, blows a second to every foe within `emberR` metres; `storm`, seconds between bolts at a foe within `stormR`;
  * `shield`, the chance a blow on foot is turned aside.
+ * `roam`, seconds more off the marked piste before the skier is sent back onto it.
  * The aim's (the arms aiming themselves, *Aiming: Auto*): `aim`, a share quicker turning to a foe and onto the next; `accuracy`, points
  * added to the die; `steady`, a share taken off what a foe moving fast across the view takes from it; `far`, a share further before
  * distance takes from it and from a round's blow.
@@ -45,11 +46,11 @@ export interface Mods {
   landing: number; pop: number; forgive: number;
   might: number; haste: number; points: number;
   ember: number; emberR: number; storm: number; stormR: number; shield: number;
-  aim: number; accuracy: number; steady: number; far: number;
+  aim: number; accuracy: number; steady: number; far: number; roam: number;
 }
 export const NO_MODS: Readonly<Mods> = Object.freeze({
   turn: 0, top: 0, accel: 0, powder: 0, stones: 0, landing: 0, pop: 0, forgive: 0, might: 0, haste: 0, points: 0,
-  ember: 0, emberR: 0, storm: 0, stormR: 0, shield: 0, aim: 0, accuracy: 0, steady: 0, far: 0,
+  ember: 0, emberR: 0, storm: 0, stormR: 0, shield: 0, aim: 0, accuracy: 0, steady: 0, far: 0, roam: 0,
 });
 
 /** A trick a guidebook teaches, as the ride's trick pool has them: what it is, how wild, and how long in the air it wants. */
@@ -86,7 +87,7 @@ export const BOOKS: Book[] = [
 ];
 
 /** What may be found, apart from the books: a slot, what it is called, its stats' ranges (a rare one's), and for a weapon its arm. */
-interface Base { id: string; slot: Exclude<Slot, 'book'>; noun: string; stats: Partial<Record<keyof Mods, [number, number]>>; arm?: ArmKind; ward?: WardKind }
+interface Base { id: string; slot: Exclude<Slot, 'book' | 'map'>; noun: string; stats: Partial<Record<keyof Mods, [number, number]>>; arm?: ArmKind; ward?: WardKind }
 const ARM_NOUN: Record<ArmKind, string> = { sword: 'sword', pistol: 'pistol', shotgun: 'shotgun', flamer: 'flamethrower', smg: 'tommy gun', lightning: 'lightning gun', bazooka: 'bazooka' };
 const BASES: Base[] = [
   // Skis: each better at one thing and a little worse at another, so that which is best is a matter of the run and the rider.
@@ -95,11 +96,14 @@ const BASES: Base[] = [
   { id: 'powder', slot: 'skis', noun: 'powder skis', stats: { powder: [0.35, 0.6], turn: [-0.08, -0.04] } },
   { id: 'skating', slot: 'skis', noun: 'skating skis', stats: { accel: [0.25, 0.45], top: [-0.03, -0.01] } },
   { id: 'stone', slot: 'skis', noun: 'iron-edged skis', stats: { stones: [10, 20], top: [-0.03, -0.01] } },
+  // (Off the piste the longer (asked: "Another stat which could be modified by loot: how long the player can traverse off piste").)
+  { id: 'touring', slot: 'skis', noun: 'touring skis', stats: { roam: [10, 22], powder: [0.1, 0.2], top: [-0.04, -0.02] } },
   // Boots.
   { id: 'padded', slot: 'boots', noun: 'padded boots', stats: { landing: [1.6, 3.0] } },
   { id: 'spring', slot: 'boots', noun: 'spring boots', stats: { pop: [0.8, 1.5] } },
   { id: 'masters', slot: 'boots', noun: "masters' boots", stats: { forgive: [15, 30] } },
   { id: 'hobnail', slot: 'boots', noun: 'hobnailed boots', stats: { stones: [6, 12], landing: [0.6, 1.2] } },
+  { id: 'tourboot', slot: 'boots', noun: 'touring boots', stats: { roam: [12, 28] } },
   // Wards, which act about the player while it rides or walks (`slope.ts`, `wardStep`).
   { id: 'ember', slot: 'ward', ward: 'ember', noun: 'ember ward', stats: { ember: [1.2, 2.2], emberR: [5, 7.5] } },
   { id: 'storm', slot: 'ward', ward: 'storm', noun: 'storm ward', stats: { storm: [3.2, 2.0], stormR: [16, 24] } },
@@ -134,7 +138,7 @@ const QUALITY: Record<Rarity, [number, number]> = { common: [0.45, 0.6], fine: [
 export const RARITY: Record<Rarity, { name: string; colour: string }> = {
   common: { name: 'Common', colour: '#d8d2c4' }, fine: { name: 'Fine', colour: '#8fd17a' }, rare: { name: 'Rare', colour: '#6fb0ff' }, ancient: { name: 'Ancient', colour: '#ffb347' },
 };
-const PREFIX: Record<Exclude<Slot, 'book'>, Record<Rarity, string[]>> = {
+const PREFIX: Record<Exclude<Slot, 'book' | 'map'>, Record<Rarity, string[]>> = {
   skis: { common: ['Old', 'Patched', 'Birch'], fine: ['Hickory', 'Ashwood', 'Waxed'], rare: ['Whalebone', 'Runed', 'Lacquered'], ancient: [] },
   boots: { common: ['Old', 'Cracked', 'Hide'], fine: ['Sealskin', 'Stitched', 'Lined'], rare: ['Runed', 'Dwarf-made', 'Silvered'], ancient: [] },
   ward: { common: ['Bone', 'Clay', 'Knotted'], fine: ['Amber', 'Jet', 'Carved'], rare: ['Runed', 'Moonstone', 'Gilt'], ancient: [] },
@@ -147,6 +151,7 @@ const PREFIX: Record<Exclude<Slot, 'book'>, Record<Rarity, string[]>> = {
 const ANCIENT: Record<string, string[]> = {
   slalom: ["Ullr's Own", 'The Hare\'s Way'], downhill: ['The Long Fall', 'Avalanche-runners'], powder: ['Cloudwalkers', 'The Drift Kings'],
   skating: ['The Fox\'s Feet', 'Swiftsoles'], stone: ['Scree-singers', 'The Mountain\'s Teeth'],
+  touring: ['The Wanderers', 'Far-from-the-Poles'], tourboot: ['The Long Way Round', 'Bootsoles of the Lost'],
   padded: ['Featherfalls', 'The Soft Landing'], spring: ['Hartleaps', 'The Seven Leagues'], masters: ['The Old Masters', 'Second Chances'], hobnail: ['Gravelgrinders', 'Ironsoles'],
   ember: ['The Last Hearth', 'Coal of the Barrow-king'], storm: ['The Thunder-eye', 'Stormglass'], shield: ['The Unbroken Ring', 'Ward of the Seven Dead'], magpie: ['The Magpie Queen', 'Hoardheart'],
   sword: ['Gram', 'Yeti\'s Bane'], pistol: ['The Widow\'s Answer', 'Quickfinger'], shotgun: ['Old Thunder', 'The Doorknocker'], flamer: ['Dragon\'s Breath', 'The Hearthfather'],
@@ -159,15 +164,19 @@ const ANCIENT: Record<string, string[]> = {
 export interface Item {
   id: string; slot: Slot; base: string; name: string; rarity: Rarity; mods: Partial<Mods>;
   arm?: ArmKind; ward?: WardKind; book?: string;
+  /** A map's: the run it shows a forgotten slope on, where that run is (as the menu says it), and the seed its way and its cave are laid from. */
+  map?: { run: string; where: string; seed: string };
   /** Where it was found, said on its card and in the pack. */
   found: string;
 }
 
+/** The runs a map may be found of (each its id and where it is, as the menu says it), the run ridden, and those already mapped. */
+export interface Maps { runs: { id: string; where: string }[]; here: string; had: ReadonlySet<string> }
 /** Where loot comes from: a chest at the end of a dungeon (more often a book), or a great one felled (more often a weapon or a ward). */
 export type Source = 'chest' | 'boss';
 const SLOT_ODDS: Record<Source, Record<Slot, number>> = {
-  chest: { book: 3, skis: 2.5, boots: 2.5, ward: 1.5, weapon: 1.5, gloves: 1.2, ring: 1.2, necklace: 1 },
-  boss: { book: 1, skis: 1.5, boots: 1.5, ward: 2.5, weapon: 3, gloves: 1.5, ring: 1.5, necklace: 1.5 },
+  chest: { book: 3, skis: 2.5, boots: 2.5, ward: 1.5, weapon: 1.5, gloves: 1.2, ring: 1.2, necklace: 1, map: 1.6 },
+  boss: { book: 1, skis: 1.5, boots: 1.5, ward: 2.5, weapon: 3, gloves: 1.5, ring: 1.5, necklace: 1.5, map: 0.8 },
 };
 const RARITY_ODDS: Record<Source, Record<Rarity, number>> = {
   chest: { common: 2, fine: 4, rare: 3, ancient: 1 },
@@ -188,10 +197,17 @@ const round = (v: number, by: number) => Math.round(v / by) * by;
  * (no orcs and weapons, or the horse ridden alone), no weapon, ward, gloves, ring nor necklace: none does anything there, and a find of
  * one was a find of nothing.
  */
-export function rollLoot(rng: Rng, source: Source, read: ReadonlySet<string>, found: string, arms = true): Item {
+export function rollLoot(rng: Rng, source: Source, read: ReadonlySet<string>, found: string, arms = true, maps?: Maps): Item {
   const id = `${Date.now().toString(36)}${rng.int(0, 1e9).toString(36)}`;
-  const can = (odds: Partial<Record<Slot, number>>) => Object.fromEntries(Object.entries(odds).filter(([k]) => arms || !ARMED.has(k as Slot))) as Record<Slot, number>;
+  // (A map only where there are runs and one is not mapped yet.)
+  const unmapped = maps ? maps.runs.filter((r) => !maps.had.has(r.id)) : [];
+  const can = (odds: Partial<Record<Slot, number>>) => Object.fromEntries(Object.entries(odds).filter(([k]) => (arms || !ARMED.has(k as Slot)) && (k !== 'map' || unmapped.length))) as Record<Slot, number>;
   let slot = weighted(rng, can(SLOT_ODDS[source]));
+  if (slot === 'map') {
+    // (Of the run ridden, as often as not, if it is not mapped yet; else of another, anywhere on the mountain.)
+    const here = unmapped.find((r) => r.id === maps!.here), run = here && rng.chance(0.55) ? here : rng.pick(unmapped), rarity: Rarity = rng.chance(0.3) ? 'ancient' : 'rare';
+    return { id, slot, base: 'map', name: `Notes on a Forgotten Slope, ${run.where}`, rarity, mods: {}, map: { run: run.id, where: run.where, seed: rng.int(0, 1e9).toString(36) }, found };
+  }
   const unread = BOOKS.filter((b) => !read.has(b.id));
   if (slot === 'book' && !unread.length) slot = weighted(rng.fork('again'), can({ skis: 1, boots: 1, ward: 1, weapon: 1, gloves: 1, ring: 1, necklace: 1 }));
   if (slot === 'book') {
@@ -207,7 +223,7 @@ export function rollLoot(rng: Rng, source: Source, read: ReadonlySet<string>, fo
     // says, an ancient one's past its end; but a drawback, a stat below nothing, drawn anywhere in its range whatever the rarity, an
     // ancient one's halved.)
     const v = hi < 0 ? (lo + (hi - lo) * rng.next()) * (rarity === 'ancient' ? 0.5 : 1) : lo + (hi - lo) * rng.range(q0, q1);
-    mods[k] = k === 'storm' ? Math.max(1.4, round(v, 0.1)) : round(v, k === 'stones' || k === 'forgive' || k === 'accuracy' ? 1 : 0.01);
+    mods[k] = k === 'storm' ? Math.max(1.4, round(v, 0.1)) : round(v, k === 'stones' || k === 'forgive' || k === 'accuracy' || k === 'roam' ? 1 : 0.01);
   }
   const named = rarity === 'ancient' ? rng.pick(ANCIENT[base.id]) : `${rng.pick(PREFIX[base.slot][rarity])} ${base.noun}`;
   const name = rarity === 'ancient' ? `${named}, ${/s$/.test(base.noun) ? '' : base.noun.match(/^[aeiou]/) ? 'an ' : 'a '}${base.noun}` : named;
@@ -218,6 +234,7 @@ const pct = (v: number) => `${v > 0 ? '+' : '−'}${Math.round(Math.abs(v) * 100
 /** What an item does, a line a stat. */
 export function linesOf(item: Item): string[] {
   if (item.book) { const b = BOOKS.find((x) => x.id === item.book)!; return [`Teaches ${b.teaches}`, b.about]; }
+  if (item.map) return [`An old way down off the piste ${item.map.where}, to a cave of its own: its tracks glow when you ride that run`, 'Out of that cave, a plane lifts you back to the piste'];
   const m = item.mods, out: string[] = [];
   if (m.turn) out.push(`Turns ${pct(m.turn)} ${m.turn > 0 ? 'sharper' : '(wider)'}`);
   if (m.top) out.push(`Top speed ${pct(m.top)}`);
@@ -227,6 +244,7 @@ export function linesOf(item: Item): string[] {
   if (m.landing) out.push(`Fall tolerance +${Math.round((m.landing / 14) * 100)}%`);
   if (m.pop) out.push(`Pops ${m.pop.toFixed(1)} m/s higher off kickers`);
   if (m.forgive) out.push(`Lands spins and flips up to ${Math.round(m.forgive)}° short`);
+  if (m.roam) out.push(`Off the piste ${Math.round(m.roam)} s longer`);
   if (m.might) out.push(`Strikes ${pct(m.might)} harder`);
   if (m.haste) out.push(`Fires ${pct(m.haste)} faster`);
   if (m.ember) out.push(`Burns foes within ${m.emberR!.toFixed(1)} m (${m.ember.toFixed(1)} blows a second)`);
@@ -239,9 +257,9 @@ export function linesOf(item: Item): string[] {
   if (m.far) out.push(`True to ${pct(m.far)} further`);
   return out;
 }
-export const SLOT_NAME: Record<Slot, string> = { skis: 'Skis', boots: 'Boots', ward: 'Ward', weapon: 'Weapon', gloves: 'Gloves', ring: 'Ring', necklace: 'Necklace', book: 'Guidebook' };
+export const SLOT_NAME: Record<Slot, string> = { skis: 'Skis', boots: 'Boots', ward: 'Ward', weapon: 'Weapon', gloves: 'Gloves', ring: 'Ring', necklace: 'Necklace', book: 'Guidebook', map: 'Map' };
 /** What kind of thing it is, as its card heads it: its rarity and slot. */
-export const kindOf = (item: Item) => `${RARITY[item.rarity].name} ${item.slot === 'weapon' ? ARM_NOUN[item.arm!] : item.slot === 'book' ? 'guidebook' : item.slot === 'ward' ? 'ward' : item.slot}`;
+export const kindOf = (item: Item) => `${RARITY[item.rarity].name} ${item.slot === 'weapon' ? ARM_NOUN[item.arm!] : item.slot === 'book' ? 'guidebook' : item.slot === 'map' ? 'map' : item.slot === 'ward' ? 'ward' : item.slot}`;
 
 /** How many of a slot are kept, besides what is worn: the oldest not worn let go of past it. */
 const KEEP = 8;
@@ -270,8 +288,8 @@ export class Pack {
   add(item: Item): boolean {
     this.items.push(item);
     let on = false;
-    if (item.book) { this.read.add(item.book); on = true; } else if (!this.wornIn(item.slot)) { this.worn[item.slot] = item.id; on = true; }
-    const of = this.items.filter((i) => i.slot === item.slot && i.slot !== 'book' && i.id !== this.worn[i.slot]);
+    if (item.book) { this.read.add(item.book); on = true; } else if (item.map) on = true; else if (!this.wornIn(item.slot)) { this.worn[item.slot] = item.id; on = true; }
+    const of = this.items.filter((i) => i.slot === item.slot && i.slot !== 'book' && i.slot !== 'map' && i.id !== this.worn[i.slot]);
     while (of.length > KEEP) { const old = of.shift()!; this.items = this.items.filter((i) => i !== old); }
     this.changed();
     return on;
@@ -289,6 +307,8 @@ export class Pack {
     }
     return m;
   }
+  /** The maps found, kept for good: each run's (the last found of it, should there be two). */
+  maps(): Map<string, NonNullable<Item['map']>> { return new Map(this.items.filter((i) => i.map).map((i) => [i.map!.run, i.map!])); }
   /** The tricks the books read teach. */
   tricks(): BookTrick[] { return BOOKS.filter((b) => this.read.has(b.id)).flatMap((b) => b.tricks); }
 }
@@ -461,10 +481,10 @@ export class LootCard {
     const lines = el.querySelector('.lines')!;
     // (A book's last line, what it looks like, set apart from what it teaches.)
     lines.replaceChildren(...linesOf(item).map((t, i, all) => Object.assign(document.createElement('li'), { textContent: t, className: item.book && i === all.length - 1 ? 'about' : '' })));
-    el.querySelector('.where')!.textContent = `${item.found} · ${note ?? (item.book ? 'read, and learned for good' : on ? 'put on' : 'in your pack (Menu)')}`;
+    el.querySelector('.where')!.textContent = `${item.found} · ${note ?? (item.book ? 'read, and learned for good' : item.map ? 'kept in your pack' : on ? 'put on' : 'in your pack (Menu)')}`;
     void el.offsetWidth;
     el.classList.add('on');
-    this.until = now + (item.book ? 6 : 4.6);
+    this.until = now + (item.book || item.map ? 6 : 4.6);
   }
 }
 
@@ -497,5 +517,10 @@ export function packView(el: HTMLElement, pack: Pack, plain: (slot: Slot) => str
   const read = BOOKS.filter((b) => pack.read.has(b.id));
   if (!read.length) parts.push(card('None yet', ['Found in the chests of the dungeons, and on the great ones felled'], false, null, null));
   for (const b of read) parts.push(card(b.name, [`Teaches ${b.teaches}`], false, RARITY[b.rarity].colour, null));
+  const m = document.createElement('div'); m.className = 'slot'; m.textContent = 'Maps';
+  parts.push(m);
+  const maps = pack.items.filter((i) => i.map);
+  if (!maps.length) parts.push(card('None yet', ['Notes on forgotten slopes, found in the chests and on the great ones felled'], false, null, null));
+  for (const it of maps) parts.push(card(it.name, linesOf(it).slice(0, 1), false, RARITY[it.rarity].colour, null));
   el.replaceChildren(...parts);
 }
