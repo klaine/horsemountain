@@ -604,6 +604,8 @@ async function start() {
   const dig = (made: Land, cave: Cave) => {
     made.group.add(cave.group);
     (made as CaveLand).cave = cave;
+    const letGo = made.dispose;
+    made.dispose = () => { letGo?.(); cave.dispose(); };
     const kickable = made.kickable;
     // (Its ramp and the snow it lands on, across its breadth, each clear.)
     made.kickable = (s, left, length) => {
@@ -8034,6 +8036,26 @@ async function start() {
    * ready made as it is first drawn (a stutter, at worst).
    */
   let warming: Promise<unknown> | null = null;
+  /**
+   * Whether this frame's picture may be left undrawn: the ride held (paused, or under the menu) and the view where it was, at the same
+   * size, the last picture staying on the canvas. (Held, the scene and its shadows were drawn whole all the same, every frame the screen
+   * showed, the same picture over and over: a phone kept warm and its battery drawn on by a game set aside.) Drawn again at once when
+   * the view moves or the window changes, and a few times a second all the same, so that whatever the menu changes is soon seen.
+   */
+  const heldView = new Float64Array(16);
+  let heldSize = '', heldDrawn = 0, heldFrames = 0;
+  const heldStill = (now: number): boolean => {
+    if (!(mode === 'ride' && (!playing || menuOpen)) || drawnFrames >= 0 || warming) { heldFrames = 0; return false; }
+    const e = camera.matrixWorld.elements, size = `${canvas.width}x${canvas.height}`;
+    let same = size === heldSize;
+    // (Within a millionth: the camera eases on toward where it is, by nothing that shows, every frame.)
+    for (let i = 0; i < 16; i++) if (Math.abs(heldView[i] - e[i]) > 1e-6) { same = false; heldView[i] = e[i]; }
+    heldSize = size;
+    // (Two frames drawn after it is held, or after it moved, for what was still settling.)
+    if (!same) heldFrames = 0;
+    if (++heldFrames <= 2 || now - heldDrawn > 250) { heldDrawn = now; return false; }
+    return true;
+  };
   // (Longer as the page opens, behind its loading screen, where a phone was seen to take four seconds over them all.)
   const WARM_WAIT = 3000, WARM_WAIT_OPENING = 12000;
   const frameOnce = async () => {
@@ -8047,7 +8069,8 @@ async function start() {
     const dt = realDt * (mode === 'ride' ? timeScale : 1);
     stepIntro(now);
     if (drawnFrames >= 0 && ++drawnFrames > 2) { drawnFrames = -1; loading.done(); openedAt = performance.now(); }
-    adapt(now - then);
+    // (Not while the ride is held: its frames, mostly not drawn (`heldStill`), would read as room to spare.)
+    if (!(mode === 'ride' && (!playing || menuOpen))) adapt(now - then);
     then = now;
     let at: Now;
     if (mode === 'watch') {
@@ -8151,7 +8174,8 @@ async function start() {
       }
       if (!opening) { unwarm(); unwarm = null; }
     }
-    if (blurNow() > 0) {
+    const still = heldStill(now);
+    if (still) { /* the last picture left on the canvas */ } else if (blurNow() > 0) {
       uShutter.value = clamp(1 / 60 / Math.max(realDt, 1e-3), 0.005, 3) * blurLevel;
       uBlur.value = blurLevel;
       // (The land turning over in focus as it does, rather than the skier, small in the middle of it.)
@@ -8161,7 +8185,8 @@ async function start() {
       pipeline.render();
     } else sharp.render();
     unwarm?.();
-    probeBlack(now);
+    // (Only a picture just drawn is looked at: one left from before may read back as nothing.)
+    if (!still) probeBlack(now);
     // (For a script making a video a frame at a time: told once each frame is drawn, `__slope.everyFrame`.)
     afterFrame?.();
   };
@@ -8411,6 +8436,8 @@ async function start() {
     drawn: () => ({ triangles: renderer.info.render.triangles, calls: renderer.info.render.drawCalls }),
     // (What is drawn, by name, and how much of it casts shadows: for finding where the frame's draws go.)
     scene: () => ({ scene, camera }),
+    // (What the graphics card holds, shapes and pictures, and the page's heap where the browser tells it: for finding what is never let go of.)
+    memory: () => ({ ...renderer.info.memory, heapMB: Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 1e6) }),
     // (A run by its slice's name, or `groomed`; `world` for the first run, as the page named it before it had two.)
     setLand: (k: LandKind) => setLand(k === 'world' ? runs[0].id : k),
     // (The view from `d` metres to the left of the skier across the run, `up` over it and `back` up the run, carried along with it:
