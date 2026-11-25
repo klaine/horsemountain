@@ -4137,25 +4137,58 @@ async function start() {
     /**
      * Off the piste in place of the `n`th kicker (the showcase's, `SHOW_TRICKS`): from a little after the landing of the one before it to
      * a little before the approach to the one after it; out to whichever side, and as far out (twenty-four metres past the poles, or
-     * less), the snow lies with no stones showing and no tree along the way, as far as the way out reaches and a little more; none such,
-     * not off the piste at all.
+     * less), the snow lies with no stones showing and no tree along the way, as far as the way out reaches and a little more, and the
+     * land falls enough for it to keep going (`rideable`); ended sooner, if it is clear and falls enough only so far; none such, not off
+     * the piste at all.
      */
-    const wanderFor = (n: number) => {
+    type Wander = { from: number; to: number; side: number; out: number };
+    /** Where across the run a wander aims to be `s` along it: out past the poles over some forty-five metres, back in over the last fifty. */
+    const wanderLeft = (w: Wander, s: number) => {
+      const [lo, hi] = land.edges(s), mid = (lo + hi) / 2, edge = w.side > 0 ? hi : lo;
+      const outK = smooth((s - w.from) / 45) * (1 - smooth((s - (w.to - 50)) / 50));
+      return mid + (edge + w.side * w.out - mid) * outK;
+    };
+    /**
+     * Whether a wander keeps its pace up through the deep snow along its way: its speed reckoned from some 43 km/h, as it comes off the
+     * last landing and slows, by what the land's fall gives it against what the snow (`DEEP`) and the air take, with a little more for
+     * its short turns; never under 18 km/h. (Held back by a sixth of its weight in the deep snow, it wants a fall of one in six to keep
+     * going: out to one side of Pale Crown, where the land lies flatter than along the piste and then climbs again, it slowed to a
+     * stop, and the demo never skates.)
+     */
+    const rideable = (w: Wander) => {
+      let v2 = 12 ** 2, y = NaN;
+      for (let s = w.from; s <= w.to; s += 3) {
+        const l = wanderLeft(w, s), [lo, hi] = land.edges(s), p = land.at(s, l), was = y;
+        y = land.height(p.x, p.z);
+        if (Number.isNaN(was)) continue;
+        const deep = smooth((Math.max(lo - l, l - hi) + 1) / 6), air = v2 > 14 ** 2 ? 0.0065 : 0.0037;
+        v2 += 2 * (G * (was - y) - 3 * (G * (0.04 + DEEP.friction * deep + 0.02) + (air + DEEP.drag * deep) * v2));
+        if (v2 < 5 ** 2) return false;
+      }
+      return true;
+    };
+    const wanderFor = (n: number): Wander | null => {
       const before = kicked[n - 1], after = kicked[n + 1];
       const from = before ? before.s + before.L + 30 : 20, to = after ? after.s + after.L - 90 : land.length - 60;
       if (to - from < 90) return null;
+      let best: Wander | null = null;
       for (const out of [24, 18, 12]) for (const side of [1, -1]) {
-        let clear = true;
-        for (let s = from; s <= to && clear; s += 3) {
+        // (Clear as far as the first stones or tree out there.)
+        let clearTo = to;
+        for (let s = from; s <= to && clearTo === to; s += 3) {
           const [lo, hi] = land.edges(s), edge = side > 0 ? hi : lo;
-          for (let l = 0; l <= out + 4 && clear; l += 3) {
+          for (let l = 0; l <= out + 4; l += 3) {
             const p = land.at(s, edge + side * l);
-            if ((land.snowAt?.(p.x, p.z) ?? 1) < 0.85 || land.treeNear?.(p.x, p.z, 1.5)) clear = false;
+            if ((land.snowAt?.(p.x, p.z) ?? 1) < 0.85 || land.treeNear?.(p.x, p.z, 1.5)) { clearTo = s - 3; break; }
           }
         }
-        if (clear) return { from, to, side, out };
+        // (The longest way out that is clear and keeps its pace, at least as long as the way out and back.)
+        for (let end = clearTo; end - from >= 90; end -= 15) {
+          const w = { from, to: end, side, out };
+          if (rideable(w)) { if (!best || end > best.to) best = w; break; }
+        }
       }
-      return null;
+      return best;
     };
     let wander = TRICKS[0] === null ? wanderFor(0) : null;
     const dt = 1 / 120;
@@ -4212,8 +4245,7 @@ async function start() {
       } else if (wander && ride.down > wander.from - 40 && ride.down < wander.to) {
         // The showcase's way off the piste: out past the poles over some forty-five metres, along beside the piste in the deep snow in
         // short turns, and back in over the last fifty, tucked to keep its pace in the snow; no 180s out there.
-        const w = wander, [lo, hi] = land.edges(ride.down), mid = (lo + hi) / 2, edge = w.side > 0 ? hi : lo;
-        const outK = smooth((ride.down - w.from) / 45) * (1 - smooth((ride.down - (w.to - 50)) / 50)), aimLeft = mid + (edge + w.side * w.out - mid) * outK;
+        const aimLeft = wanderLeft(wander, ride.down);
         phase += (dt * Math.PI) / 1.6;
         want.x = steer(clamp((aimLeft - ride.left) * 0.06, -0.7, 0.7) + 0.22 * Math.sin(phase));
         want.y = ride.speed < 14 ? 1 : 0;
