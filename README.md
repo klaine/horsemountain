@@ -220,7 +220,8 @@ you are, tapped for the minimap (tapped again, the rail). The bottom is left to 
 inside its ring (or wherever the left thumb comes down on the left of the picture, under the strip: the stick comes to it there, and
 goes back to its corner as it is let go; a finger on the rest of the picture fires what is carried), and *Skate* and *180* as two round buttons at the lower right. The run's end is a sheet at the foot (a card held
 sideways): what became of it, its points, how far down and how long, the tricks landed, what was brought down and found, and *Map of
-the runs* or *Next run*. On a computer, all as it was.
+the runs* or *Next run*. On a computer the same, held as a phone held sideways is (larger on a screen of a good height), the minimap kept
+whole at the right rather than the rail, and no stick.
 
 *Menu* (or `H`), at the top right, opens everything else: beside the picture on a computer or a phone held sideways, as a sheet from
 the foot on a phone held upright, the picture sliding aside so that the skier stays in sight. At its head a card names the run and

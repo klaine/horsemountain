@@ -4553,6 +4553,8 @@ async function start() {
    */
   const touchHud = !matchMedia('(hover: hover) and (pointer: fine)').matches;
   document.body.classList.toggle('touchhud', touchHud);
+  // (The strip and the rest in its style on a computer too, `body.hud`: the rail, the stick where the thumb is and the rest for thumbs only.)
+  document.body.classList.add('hud');
   const railEl = $<HTMLButtonElement>('rail'), railTicks = railEl.querySelector('.ticks') as HTMLElement;
   let railOf: Land | null = null, railAt = '', miniOpen = false;
   const openMini = (on: boolean) => { miniOpen = on; document.body.classList.toggle('miniOpen', on); };
@@ -7417,7 +7419,7 @@ async function start() {
   };
   const stepRunEnd = () => {
     sayLostBefore();
-    const over = runOver, on = touchHud && mode === 'ride' && !!over && !foot && !trip;
+    const over = runOver, on = mode === 'ride' && !!over && !foot && !trip;
     if (document.body.classList.contains('ended') !== on) document.body.classList.toggle('ended', on);
     if (runEndEl.hidden === on) runEndEl.hidden = !on;
     if (!on || !over) { runEndKey = ''; return; }

@@ -596,7 +596,7 @@
        similar style for horizontal but fit for horizontal use"): what is read in one slim strip across the top (the arms toward the next,
        how wild the tricks are, the menu as a button of its own); what has just happened under it; the run as a slim rail at the right,
        tapped for the minimap; the bottom left to the thumbs alone, the stick with its words inside its ring and the skate and the 180
-       as two round buttons at the lower right; the run's end a sheet at the foot. (`body.touchhud`: no mouse, as the page opened.) */
+       as two round buttons at the lower right; the run's end a sheet at the foot. (`body.hud`: no mouse, as the page opened.) */
     #rail, #runEnd, #armBar .now, #armBar .to { display: none; }
     /* Another run being made, riding (asked: "it froze for a while after selecting the new location, it didnt show that it is loading the
        other run"): the ride held, and a card saying where to and what is being done, its wheel turning even while the page works. */
@@ -612,58 +612,58 @@
     #making .bar { position: relative; height: 3px; margin-top: 5px; border-radius: 2px; overflow: hidden; background: var(--band-strong); }
     #making .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--k, 0) * 100%); background: var(--brass); transition: width .3s ease-out; }
     body.choosing #making, body.menu-open #making { display: none; }
-    body.touchhud { --strip: 44px; --stripTop: calc(12px + env(safe-area-inset-top, 0px)); --under: calc(var(--stripTop) + var(--strip) + 8px); --wildW: 150px; --menuW: 44px; }
-    body.touchhud #menuButton { top: var(--stripTop); width: var(--menuW); height: var(--strip); min-height: 0; padding: 0; border-radius: 12px; justify-content: center; font-size: 0; gap: 0; }
-    body.touchhud #armBar, body.touchhud #tricky .wild { position: fixed; top: var(--stripTop); height: var(--strip); box-sizing: border-box; border-radius: 12px; border-color: transparent;
+    body.hud { --strip: 44px; --stripTop: calc(12px + env(safe-area-inset-top, 0px)); --under: calc(var(--stripTop) + var(--strip) + 8px); --wildW: 150px; --menuW: 44px; }
+    body.hud #menuButton { top: var(--stripTop); width: var(--menuW); height: var(--strip); min-height: 0; padding: 0; border-radius: 12px; justify-content: center; font-size: 0; gap: 0; }
+    body.hud #armBar, body.hud #tricky .wild { position: fixed; top: var(--stripTop); height: var(--strip); box-sizing: border-box; border-radius: 12px; border-color: transparent;
       background: var(--sheet); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-    body.touchhud #armBar { left: var(--gutter-l); right: calc(var(--gutter-r) + var(--menuW) + var(--wildW) + 16px); bottom: auto; min-width: 0; }
-    body.touchhud #armBar:not([hidden]) { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); grid-template-rows: auto 5px; align-content: center; align-items: baseline; gap: 6px 7px; padding: 0 11px; }
-    body.touchhud #armBar .cap, body.touchhud #armBar .next, body.touchhud #armBar .left { display: none; }
-    body.touchhud #armBar .now { display: block; grid-column: 1; grid-row: 1; font: 700 11px/1 "Cinzel", var(--serif); letter-spacing: .1em; text-transform: uppercase; color: var(--brass);
+    body.hud #armBar { left: var(--gutter-l); right: calc(var(--gutter-r) + var(--menuW) + var(--wildW) + 16px); bottom: auto; min-width: 0; }
+    body.hud #armBar:not([hidden]) { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); grid-template-rows: auto 5px; align-content: center; align-items: baseline; gap: 6px 7px; padding: 0 11px; }
+    body.hud #armBar .cap, body.hud #armBar .next, body.hud #armBar .left { display: none; }
+    body.hud #armBar .now { display: block; grid-column: 1; grid-row: 1; font: 700 11px/1 "Cinzel", var(--serif); letter-spacing: .1em; text-transform: uppercase; color: var(--brass);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    body.touchhud #armBar .to { display: block; grid-column: 2; grid-row: 1; justify-self: end; font: 600 11px/1 var(--sans); color: var(--ink-dim); white-space: nowrap; }
-    body.touchhud #armBar.won .to { color: #ffe07a; }
-    body.touchhud #armBar .blocks { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; flex-direction: row; width: auto; height: 5px; gap: 2px; }
-    body.touchhud #armBar .blocks i { flex: 1 1 0; height: 5px; border: 0; border-radius: 2px;
+    body.hud #armBar .to { display: block; grid-column: 2; grid-row: 1; justify-self: end; font: 600 11px/1 var(--sans); color: var(--ink-dim); white-space: nowrap; }
+    body.hud #armBar.won .to { color: #ffe07a; }
+    body.hud #armBar .blocks { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; flex-direction: row; width: auto; height: 5px; gap: 2px; }
+    body.hud #armBar .blocks i { flex: 1 1 0; height: 5px; border: 0; border-radius: 2px;
       background: linear-gradient(to right, var(--brass) calc(var(--f, 0) * 100%), rgba(232, 226, 214, .16) calc(var(--f, 0) * 100%)); }
-    body.touchhud #armBar.won { border-color: #ffe07a; }
-    body.touchhud #armBar.won .blocks i { box-shadow: none; background: #ffe07a; }
-    body.touchhud #tricky .wild { right: calc(var(--gutter-r) + var(--menuW) + 8px); width: var(--wildW); padding: 0 10px; display: flex; flex-direction: row; align-items: center; gap: 6px; }
-    body.touchhud #tricky .wild .cap { display: none; }
-    body.touchhud #tricky .wild > span { font: 700 9px/1 "Cinzel", var(--serif); letter-spacing: .06em; }
-    body.touchhud #tricky .wild > span:nth-of-type(3) { order: 1; }
-    body.touchhud #tricky input { order: 2; writing-mode: horizontal-tb; direction: ltr; flex: 1; min-width: 0; width: auto; height: var(--strip); }
-    body.touchhud #tricky .wild > span:nth-of-type(2) { order: 3; }
-    body.touchhud #tricky.earned .wild > span:nth-of-type(3) { display: none; }
-    body.touchhud #tricky.earned .wild > span:nth-of-type(2) { order: 1; }
-    body.touchhud #tricky.earned #wildMeter { order: 2; flex-direction: row; flex: 1; width: auto; height: 11px; gap: 2px; }
-    body.touchhud #wildMeter i { flex: 1 1 0; height: 11px; border-radius: 2px;
+    body.hud #armBar.won { border-color: #ffe07a; }
+    body.hud #armBar.won .blocks i { box-shadow: none; background: #ffe07a; }
+    body.hud #tricky .wild { right: calc(var(--gutter-r) + var(--menuW) + 8px); width: var(--wildW); padding: 0 10px; display: flex; flex-direction: row; align-items: center; gap: 6px; }
+    body.hud #tricky .wild .cap { display: none; }
+    body.hud #tricky .wild > span { font: 700 9px/1 "Cinzel", var(--serif); letter-spacing: .06em; }
+    body.hud #tricky .wild > span:nth-of-type(3) { order: 1; }
+    body.hud #tricky input { order: 2; writing-mode: horizontal-tb; direction: ltr; flex: 1; min-width: 0; width: auto; height: var(--strip); }
+    body.hud #tricky .wild > span:nth-of-type(2) { order: 3; }
+    body.hud #tricky.earned .wild > span:nth-of-type(3) { display: none; }
+    body.hud #tricky.earned .wild > span:nth-of-type(2) { order: 1; }
+    body.hud #tricky.earned #wildMeter { order: 2; flex-direction: row; flex: 1; width: auto; height: 11px; gap: 2px; }
+    body.hud #wildMeter i { flex: 1 1 0; height: 11px; border-radius: 2px;
       background: linear-gradient(to right, var(--brass) calc(var(--f, 0) * 100%), rgba(232, 226, 214, .12) calc(var(--f, 0) * 100%)); }
-    body.touchhud #tricky.earned #wildLvl { order: 3; font-size: 10.5px; }
-    body.touchhud #tricky { position: static; width: auto; }
-    body.touchhud #skate, body.touchhud #stance { position: fixed; width: 64px; height: 64px; min-height: 0; border-radius: 50%; border-color: var(--rule);
+    body.hud #tricky.earned #wildLvl { order: 3; font-size: 10.5px; }
+    body.hud #tricky { position: static; width: auto; }
+    body.hud #skate, body.hud #stance { position: fixed; width: 64px; height: 64px; min-height: 0; border-radius: 50%; border-color: var(--rule);
       -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); z-index: 2; }
-    body.touchhud #stance { right: var(--gutter-r); bottom: calc(28px + env(safe-area-inset-bottom, 0px)); font-size: 17px; }
-    body.touchhud #skate { right: calc(var(--gutter-r) + 72px); bottom: calc(100px + env(safe-area-inset-bottom, 0px)); font-size: 13.5px; }
-    body.touchhud #stick { bottom: calc(28px + env(safe-area-inset-bottom, 0px)); width: 136px; height: 136px; }
-    body.touchhud #stick .up { top: 9px; }
-    body.touchhud #stick .down { bottom: 9px; }
-    body.touchhud #stick .say { font-size: 9.5px; letter-spacing: .14em; color: rgba(255, 255, 255, .82); }
+    body.hud #stance { right: var(--gutter-r); bottom: calc(28px + env(safe-area-inset-bottom, 0px)); font-size: 17px; }
+    body.hud #skate { right: calc(var(--gutter-r) + 72px); bottom: calc(100px + env(safe-area-inset-bottom, 0px)); font-size: 13.5px; }
+    body.hud #stick { bottom: calc(28px + env(safe-area-inset-bottom, 0px)); width: 136px; height: 136px; }
+    body.hud #stick .up { top: 9px; }
+    body.hud #stick .down { bottom: 9px; }
+    body.hud #stick .say { font-size: 9.5px; letter-spacing: .14em; color: rgba(255, 255, 255, .82); }
     /* (What has just happened, under the strip, across it; a great one's bar and what is found under that.) */
-    body.touchhud #told { top: var(--under); left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); max-width: none; transform: translateY(-6px); text-align: left;
+    body.hud #told { top: var(--under); left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); max-width: none; transform: translateY(-6px); text-align: left;
       padding: 8px 13px 9px; border-radius: 12px; border-color: transparent; }
-    body.touchhud #told.shown { transform: none; }
-    body.touchhud #told.bad { border-color: var(--warn); }
-    body.touchhud #told .text { font-size: 16px; }
-    body.touchhud #bosses { top: var(--under); bottom: auto; left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); width: auto; translate: 0 0; }
-    body.touchhud:has(#bosses .boss) #told { top: calc(var(--under) + 44px); }
-    body.touchhud #loot { top: calc(var(--under) + 64px); left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); width: auto; translate: 0 0; }
-    body.touchhud #loot.on { animation-name: lootInHud; }
+    body.hud #told.shown { transform: none; }
+    body.hud #told.bad { border-color: var(--warn); }
+    body.hud #told .text { font-size: 16px; }
+    body.hud #bosses { top: var(--under); bottom: auto; left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); width: auto; translate: 0 0; }
+    body.hud:has(#bosses .boss) #told { top: calc(var(--under) + 44px); }
+    body.hud #loot { top: calc(var(--under) + 64px); left: var(--gutter-l); right: calc(var(--gutter-r) + 40px); width: auto; translate: 0 0; }
+    body.hud #loot.on { animation-name: lootInHud; }
     @keyframes lootInHud { from { opacity: 0; translate: 0 -14px; scale: .94; } to { opacity: 1; translate: 0 0; scale: 1; } }
-    body.touchhud #where { top: var(--under); }
-    body.touchhud.info #told { top: calc(var(--under) + 78px); }
+    body.hud #where { top: var(--under); }
+    body.hud.info #told { top: calc(var(--under) + 78px); }
     /* (The run as a rail: its top, its kickers as brass ticks, the cave, its foot; how far down it the skier is. The minimap, tapped.) */
-    body.touchhud #rail:not([hidden]) { display: block; position: fixed; top: var(--under); right: var(--gutter-r); z-index: 2; width: 30px; height: min(300px, 36vh); padding: 0;
+    body.hud #rail:not([hidden]) { display: block; position: fixed; top: var(--under); right: var(--gutter-r); z-index: 2; width: 30px; height: min(300px, 36vh); padding: 0;
       border: 0; border-radius: 15px; background: rgba(11, 10, 9, .5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
     #rail .track, #rail .done { position: absolute; left: 13.5px; top: 14px; width: 3px; border-radius: 2px; }
     #rail .track { bottom: 14px; background: rgba(232, 226, 214, .32); }
@@ -675,11 +675,11 @@
     #rail .ticks i.cave { left: 9px; width: 12px; height: 12px; margin-top: -6px; border-radius: 3px; background: transparent; border: 1.5px solid var(--ink); box-sizing: border-box; }
     #rail .me { position: absolute; left: 8px; top: calc(14px + (100% - 28px) * var(--at, 0)); width: 0; height: 0; margin-top: -9px;
       border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 11px solid #ff6a3a; }
-    body.touchhud #mini { top: var(--under); }
-    body.touchhud.miniOpen #mini { pointer-events: auto; cursor: pointer; }
+    body.hud #mini { top: var(--under); }
+    body.hud.miniOpen #mini { pointer-events: auto; cursor: pointer; }
     body.choosing #rail, body.menu-open #rail { display: none !important; }
     /* (The run's end: what became of it, its points, how far down and how long; what was landed, brought down and found; and on.) */
-    body.touchhud #runEnd:not([hidden]) { display: grid; position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; gap: 12px; box-sizing: border-box;
+    body.hud #runEnd:not([hidden]) { display: grid; position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; gap: 12px; box-sizing: border-box;
       padding: 18px max(18px, env(safe-area-inset-left, 0px)) calc(22px + env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-right, 0px));
       border-radius: 20px 20px 0 0; background: rgba(11, 10, 9, .88); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); animation: sheetUp .35s ease-out; }
     #runEnd .head { display: grid; justify-items: center; gap: 4px; text-align: center; }
@@ -697,40 +697,52 @@
     #runEnd .acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     #runEnd .acts button { min-height: 48px; border-radius: 12px; font-weight: 650; font-size: 15px; background: transparent; border-color: var(--edge); }
     #runEnd .acts button.go { background: var(--brass); color: var(--on-brass); border-color: var(--brass); font-weight: 700; }
-    body.touchhud.ended #told, body.touchhud.ended #stick, body.touchhud.ended #skate, body.touchhud.ended #stance { display: none; }
+    body.hud.ended #told, body.hud.ended #stick, body.hud.ended #skate, body.hud.ended #stance { display: none; }
     body.asking #runEnd, body.menu-open #runEnd, body.choosing #runEnd { display: none !important; }
+    /* (On a computer too (asked: "renew the desktop gui as well"): the same strip, what has just happened, the great ones' bars and what
+       is found, and the run's end as a card; the minimap kept whole at the right, there being room, and no stick. A screen of a good
+       height has it all a little larger than a phone held sideways.) */
+    @media (orientation: landscape) and (min-height: 600px) {
+      body.hud { --strip: 44px; --stripTop: calc(12px + env(safe-area-inset-top, 0px)); --wildW: 168px; --menuW: 44px; }
+      body.hud #armBar { width: 290px; }
+      body.hud #tricky .wild { left: calc(var(--gutter-l) + 298px); }
+      body.hud #skate, body.hud #stance { width: 60px; height: 60px; }
+      body.hud #stance { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); font-size: 16px; }
+      body.hud #skate { right: calc(var(--gutter-r) + 66px); bottom: calc(90px + env(safe-area-inset-bottom, 0px)); font-size: 13px; }
+      body.hud #told .text { font-size: 18px; }
+    }
     /* (Held sideways: the strip at the top left, shorter; the rail shorter; the stick and the buttons smaller; the run's end a card at
        the foot, its numbers and its buttons in one row.) */
     @media (orientation: landscape) {
-      body.touchhud { --strip: 38px; --stripTop: calc(8px + env(safe-area-inset-top, 0px)); --wildW: 146px; --menuW: 40px; }
-      body.touchhud #armBar { right: auto; width: 230px; }
-      body.touchhud #tricky .wild { right: auto; left: calc(var(--gutter-l) + 238px); }
-      body.touchhud #tricky:has(#armBar[hidden]) .wild { left: var(--gutter-l); }
-      body.touchhud #told { left: 50%; right: auto; width: max-content; max-width: min(460px, calc(100vw - 160px)); transform: translate(-50%, -6px); text-align: center; }
-      body.touchhud #told.shown { transform: translate(-50%, 0); }
-      body.touchhud #bosses { left: 50%; right: auto; width: min(460px, calc(100vw - 200px)); translate: -50% 0; }
-      body.touchhud #loot { left: 50%; right: auto; width: min(360px, calc(100vw - 200px)); translate: -50% 0; top: calc(var(--under) + 48px); }
-      body.touchhud #loot.on { animation-name: lootIn; }
-      body.touchhud #rail:not([hidden]) { height: min(200px, calc(100vh - var(--under) - 150px)); width: 26px; }
+      body.hud { --strip: 38px; --stripTop: calc(8px + env(safe-area-inset-top, 0px)); --wildW: 146px; --menuW: 40px; }
+      body.hud #armBar { right: auto; width: 230px; }
+      body.hud #tricky .wild { right: auto; left: calc(var(--gutter-l) + 238px); }
+      body.hud #tricky:has(#armBar[hidden]) .wild { left: var(--gutter-l); }
+      body.hud #told { left: 50%; right: auto; width: max-content; max-width: min(460px, calc(100vw - 160px)); transform: translate(-50%, -6px); text-align: center; }
+      body.hud #told.shown { transform: translate(-50%, 0); }
+      body.hud #bosses { left: 50%; right: auto; width: min(460px, calc(100vw - 200px)); translate: -50% 0; }
+      body.hud #loot { left: 50%; right: auto; width: min(360px, calc(100vw - 200px)); translate: -50% 0; top: calc(var(--under) + 48px); }
+      body.hud #loot.on { animation-name: lootIn; }
+      body.hud #rail:not([hidden]) { height: min(200px, calc(100vh - var(--under) - 150px)); width: 26px; }
       #rail .track, #rail .done { left: 11.5px; }
       #rail .ticks i { left: 8px; } #rail .ticks i.top, #rail .ticks i.cave { left: 7px; } #rail .ticks i.foot { left: 6px; }
       #rail .me { left: 6px; }
-      body.touchhud #stick { width: 104px; height: 104px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
-      body.touchhud #stick .knob { width: 42px; height: 42px; margin: -21px 0 0 -21px; }
-      body.touchhud #stick .up { top: 7px; } body.touchhud #stick .down { bottom: 7px; }
-      body.touchhud #stick .say { font-size: 8.5px; }
-      body.touchhud #skate, body.touchhud #stance { width: 52px; height: 52px; }
-      body.touchhud #stance { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); font-size: 15px; }
-      body.touchhud #skate { right: calc(var(--gutter-r) + 58px); bottom: calc(74px + env(safe-area-inset-bottom, 0px)); font-size: 12px; }
-      body.touchhud #runEnd:not([hidden]) { left: 50%; right: auto; width: min(620px, calc(100vw - 24px)); translate: -50% 0; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+      body.hud #stick { width: 104px; height: 104px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+      body.hud #stick .knob { width: 42px; height: 42px; margin: -21px 0 0 -21px; }
+      body.hud #stick .up { top: 7px; } body.hud #stick .down { bottom: 7px; }
+      body.hud #stick .say { font-size: 8.5px; }
+      body.hud #skate, body.hud #stance { width: 52px; height: 52px; }
+      body.hud #stance { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); font-size: 15px; }
+      body.hud #skate { right: calc(var(--gutter-r) + 58px); bottom: calc(74px + env(safe-area-inset-bottom, 0px)); font-size: 12px; }
+      body.hud #runEnd:not([hidden]) { left: 50%; right: auto; width: min(620px, calc(100vw - 24px)); translate: -50% 0; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
         grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 14px; padding: 12px 14px; border-radius: 16px; }
-      body.touchhud #runEnd .head { grid-column: 1 / -1; grid-template-columns: auto auto 1fr; align-items: baseline; justify-items: start; gap: 10px; }
-      body.touchhud #runEnd .what { font-size: 17px; }
-      body.touchhud #runEnd .stats div { padding: 6px 4px; }
-      body.touchhud #runEnd .stats b { font-size: 16px; }
-      body.touchhud #runEnd .line { grid-column: 1 / -1; grid-row: 3; text-align: left; font-size: 11.5px; }
-      body.touchhud #runEnd .acts { grid-template-columns: auto auto; }
-      body.touchhud #runEnd .acts button { min-height: 42px; padding: 0 14px; font-size: 14px; }
+      body.hud #runEnd .head { grid-column: 1 / -1; grid-template-columns: auto auto 1fr; align-items: baseline; justify-items: start; gap: 10px; }
+      body.hud #runEnd .what { font-size: 17px; }
+      body.hud #runEnd .stats div { padding: 6px 4px; }
+      body.hud #runEnd .stats b { font-size: 16px; }
+      body.hud #runEnd .line { grid-column: 1 / -1; grid-row: 3; text-align: left; font-size: 11.5px; }
+      body.hud #runEnd .acts { grid-template-columns: auto auto; }
+      body.hud #runEnd .acts button { min-height: 42px; padding: 0 14px; font-size: 14px; }
     }
     @media (prefers-reduced-motion: reduce) { #status .bar::after { animation: none; } }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -783,21 +795,21 @@
     #pops .pop.dmg.miss { font: italic 600 13px/1 var(--serif); color: rgba(235, 235, 235, .85); }
     @keyframes dmgUp { 0% { opacity: 0; transform: translateY(4px) scale(.7); } 15% { opacity: 1; transform: translateY(-4px) scale(1.15); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-34px) scale(.95); } }
     @media (prefers-reduced-motion: reduce) { #pops .pop.dmg { animation: popFade .75s ease-out forwards; } }
-    body.touchhud #fight { left: auto; right: var(--gutter-r); bottom: calc(28px + env(safe-area-inset-bottom, 0px)); grid-template-columns: 46px 46px 78px;
+    body.hud #fight { left: auto; right: var(--gutter-r); bottom: calc(28px + env(safe-area-inset-bottom, 0px)); grid-template-columns: 46px 46px 78px;
       grid-template-areas: "foe foe ." "prev next attack"; gap: 6px 6px; }
-    body.touchhud #fight .foe { width: 98px; padding: 5px 7px 4px; }
-    body.touchhud #fight .roll { font-size: 9px; }
-    body.touchhud #fight #attack { width: 78px; height: 78px; border-radius: 50%; font-size: 13px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-    body.touchhud #fight #prevFoe, body.touchhud #fight #nextFoe { width: 46px; height: 46px; min-height: 0; border-radius: 50%; align-self: end; margin-bottom: 4px; font-size: 15px; }
-    body.touchhud.autoaim #stance { right: calc(var(--gutter-r) + 10px); bottom: calc(118px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; font-size: 15px; }
-    body.touchhud.autoaim #skate { right: calc(var(--gutter-r) + 10px); bottom: calc(184px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
+    body.hud #fight .foe { width: 98px; padding: 5px 7px 4px; }
+    body.hud #fight .roll { font-size: 9px; }
+    body.hud #fight #attack { width: 78px; height: 78px; border-radius: 50%; font-size: 13px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+    body.hud #fight #prevFoe, body.hud #fight #nextFoe { width: 46px; height: 46px; min-height: 0; border-radius: 50%; align-self: end; margin-bottom: 4px; font-size: 15px; }
+    body.hud.autoaim #stance { right: calc(var(--gutter-r) + 10px); bottom: calc(118px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; font-size: 15px; }
+    body.hud.autoaim #skate { right: calc(var(--gutter-r) + 10px); bottom: calc(184px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
     @media (orientation: landscape) {
-      body.touchhud #fight { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); grid-template-columns: 40px 40px 64px; }
-      body.touchhud #fight #attack { width: 64px; height: 64px; font-size: 11.5px; }
-      body.touchhud #fight #prevFoe, body.touchhud #fight #nextFoe { width: 40px; height: 40px; }
-      body.touchhud.autoaim #stance { right: calc(var(--gutter-r) + 76px + 92px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 14px; }
-      body.touchhud.autoaim #skate { right: calc(var(--gutter-r) + 76px + 92px + 54px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 11px; }
-      body.touchhud #fight .foe { width: 90px; }
+      body.hud #fight { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); grid-template-columns: 40px 40px 64px; }
+      body.hud #fight #attack { width: 64px; height: 64px; font-size: 11.5px; }
+      body.hud #fight #prevFoe, body.hud #fight #nextFoe { width: 40px; height: 40px; }
+      body.hud.autoaim #stance { right: calc(var(--gutter-r) + 76px + 92px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 14px; }
+      body.hud.autoaim #skate { right: calc(var(--gutter-r) + 76px + 92px + 54px); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 11px; }
+      body.hud #fight .foe { width: 90px; }
     }
     /* (Lightning striking flashes the picture blue-white a moment; a crushing blow taken reddens its edges. Criticals, gilt and larger,
        *critical* under them; a blow taken, its number in red; a foe's roll at you, red in the fight's line.) */
