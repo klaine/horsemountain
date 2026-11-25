@@ -61,6 +61,7 @@ import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sparks, Sweep } from './slopeArms';
 import { Drops, type Item, LootCard, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
 import { type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
+import { paintNearer } from './slopeTrees';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type Den, type FoeKind, Horde } from './slopeOrcs';
 import { ARM_DICE, attack as rollAttack, blow as rollBlow, BURN_EVERY, CHARGED, GUARD, HP, LEAP, type Roll, rollAt, rollSaid } from './slopeDice';
@@ -7861,14 +7862,16 @@ async function start() {
   let res: Res = asRes(query.get('res')) ?? asRes(kept('res')) ?? 'auto', autoScale = clamp(Number(kept('autoScale')) || budget, 0.5, 1);
   /**
    * Past half the points each way and frames still slow, *Auto* goes on to what else costs most: the blur, drawn without (1); and the
-   * sun's shadows, drawn half as finely each way (2). Back again the other way, before more points, as frames come with room to spare.
+   * sun's shadows, drawn half as finely each way (2); and the trees about the run painted from nearer (3, `paintNearer`), where the game's
+   * own are grown, which no fewer points made cheaper. Back again the other way, before more points, as frames come with room to spare.
    * Kept with the points; the *Blur* chosen is left as it was chosen, only not drawn.
    */
-  let autoDrop = clamp(Math.round(Number(kept('autoDrop')) || 0), 0, 2);
+  let autoDrop = clamp(Math.round(Number(kept('autoDrop')) || 0), 0, 3);
   const blurNow = () => (res === 'auto' && autoDrop >= 1 ? 0 : blurLevel);
   const applyDrop = () => {
     const size = res === 'auto' && autoDrop >= 2 ? 1024 : 2048;
     if (sun.shadow.mapSize.x !== size) { sun.shadow.mapSize.set(size, size); sun.shadow.map?.dispose(); (sun.shadow as unknown as { map: unknown }).map = null; }
+    paintNearer(res === 'auto' && autoDrop >= 3);
   };
   const dropTo = (d: number) => {
     const blurWas = blurNow() > 0;
@@ -7887,7 +7890,7 @@ async function start() {
       b.classList.toggle('on', resChoices[i][1] === res);
       if (resChoices[i][1] !== 'auto') return;
       b.textContent = res === 'auto' && autoScale < 0.995 ? `Auto ${Math.round(autoScale * 100)}%` : 'Auto';
-      b.title = res === 'auto' && autoDrop ? `Fewer points drawn while frames come slowly; and now ${autoDrop >= 2 ? 'no blur, and softer shadows' : 'no blur'}` : 'Fewer points drawn while frames come slowly';
+      b.title = res === 'auto' && autoDrop ? `Fewer points drawn while frames come slowly; and now ${autoDrop >= 3 ? 'no blur, softer shadows, and the trees painted nearer' : autoDrop >= 2 ? 'no blur, and softer shadows' : 'no blur'}` : 'Fewer points drawn while frames come slowly';
     });
   };
   const setRes = (r: Res) => { const blurWas = blurNow() > 0; res = r; keep('res', String(r)); Object.assign(auto, { slow: 0, slowFrames: 0, fast: 0, hold: 1500 }); if (blurWas !== blurNow() > 0) warmSoon(); applyDrop(); applyRatio(); };
@@ -7900,7 +7903,7 @@ async function start() {
     const target = Math.max(auto.best, 1000 / 62);
     auto.hold -= interval;
     if (interval > target * 1.3) { auto.slow += interval; auto.slowFrames++; auto.fast = 0; } else { auto.slow = Math.max(0, auto.slow - interval * 0.5); auto.slowFrames = 0; auto.fast = interval < target * 1.12 ? auto.fast + interval : 0; }
-    if (auto.slow > 500 && auto.slowFrames >= 3 && auto.hold <= 0 && (autoScale > 0.5 || autoDrop < 2)) {
+    if (auto.slow > 500 && auto.slowFrames >= 3 && auto.hold <= 0 && (autoScale > 0.5 || autoDrop < 3)) {
       // (A step left over half the points each way; else the next of what else costs most, held longer, for its shaders to be made.)
       Object.assign(auto, { slow: 0, slowFrames: 0, fast: 0, hold: autoScale > 0.5 ? 1200 : 3000 });
       if (autoScale > 0.5) autoTo(Math.max(0.5, autoScale * 0.85)); else dropTo(autoDrop + 1);
@@ -8406,6 +8409,8 @@ async function start() {
     },
     // (What was drawn in the last frame.)
     drawn: () => ({ triangles: renderer.info.render.triangles, calls: renderer.info.render.drawCalls }),
+    // (What is drawn, by name, and how much of it casts shadows: for finding where the frame's draws go.)
+    scene: () => ({ scene, camera }),
     // (A run by its slice's name, or `groomed`; `world` for the first run, as the page named it before it had two.)
     setLand: (k: LandKind) => setLand(k === 'world' ? runs[0].id : k),
     // (The view from `d` metres to the left of the skier across the run, `up` over it and `back` up the run, carried along with it:

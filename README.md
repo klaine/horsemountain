@@ -246,7 +246,7 @@ rider, the horse alone, or a person on skis, an adventurer with a sword on its b
 cave), or *Free*, turned by hand; `C`, `B`, `S`, `A`, `F`, as they are pressed and not as they repeat held; watching begins in *Cinema* and
 riding from behind, and each keeps the one it was last left in, on foot in the cave too (where the view is always isometric); and its distance; from behind on a phone held upright, twice as far
 off to begin with) and *Picture* (the snow detailed or plain, the minimap shown or
-hidden, how finely the picture is drawn, *Auto* going on, past half as finely, to drawing without the blur and then with softer shadows
+hidden, how finely the picture is drawn, *Auto* going on, past half as finely, to drawing without the blur, then with softer shadows, and then (on a computer, with the game's own trees) with the trees painted from nearer
 while frames still come slowly, and kept for next time; the blur). Escape or `H` opens and closes it. `M` opens the map of the runs (riding, the ride held while it is open; the dungeon under the run ridden marked at its mouth, an arch,
 and its plan as far as it has been seen drawn in ink in a box of its own in a corner, walls inked, rooms paper, halls hatched, stairs
 ruled, a red dot where you stand in it). `R` switches between watching and riding; `Space` pauses, the demo or the ride (*Paused* in the middle of the picture, clicked or tapped to go on; riding with arms, it attacks).
