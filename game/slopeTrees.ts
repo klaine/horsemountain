@@ -265,14 +265,30 @@ function woodMesh(builder: MeshBuilder, material: Material, sky: Colour): Mesh {
  * distances, a thousand and more trees grown simply about the eye and some three hundred whole, doubled what a frame cost.
  */
 treeLevels.uNear.value.set(75, 105);
-treeLevels.uFar.value.set(230, 290);
+/** From where to where the trees grown simply give way to the painted ones: as the walk has it, and nearer (`paintNearer`). */
+const PAINTED_FROM = { full: [230, 290], near: [150, 185] } as const;
+treeLevels.uFar.value.set(...PAINTED_FROM.full);
 /**
  * How near a block must lie to be grown whole, how far and how near to be grown simply (grown a little past where each way is seen,
  * as the walk grows them: `WHOLE`, `SIMPLE_FROM`, `MID` in its `main.ts`); how long a block just grown takes to come in; and how much
  * of each frame growing may take, in milliseconds.
  */
 const BEYOND = 6, RISE = 600, BUDGET = 3;
-const WHOLE = treeLevels.uNear.value.y + treeLevels.uSoft.value + BEYOND, SIMPLE_FROM = treeLevels.uNear.value.x - treeLevels.uSoft.value - BEYOND, MID = treeLevels.uFar.value.y + treeLevels.uSoft.value + BEYOND;
+const WHOLE = treeLevels.uNear.value.y + treeLevels.uSoft.value + BEYOND, SIMPLE_FROM = treeLevels.uNear.value.x - treeLevels.uSoft.value - BEYOND;
+let MID = treeLevels.uFar.value.y + treeLevels.uSoft.value + BEYOND;
+/**
+ * The trees painted nearer (`on`) or as far as they were: a step *Auto* takes on a computer whose frames still come slowly with the blur
+ * and the finer shadows gone (`slope.ts`). The trees grown simply had been half of a frame in a thick wood, and not for their points
+ * drawn (as many at half the points each way) but for their shapes, the ring of them from 160 to 300 metres the most of it; nor did
+ * painting them from nearer by the shader alone save any, the blocks still grown and passed through it. So the blocks are grown to
+ * where the painted ones take over, and that is brought in to 150 to 185 metres: a little darker and flatter there, and a quarter of the
+ * frame or so given back.
+ */
+export function paintNearer(on: boolean): void {
+  const [from, to] = on ? PAINTED_FROM.near : PAINTED_FROM.full;
+  treeLevels.uFar.value.set(from, to);
+  MID = treeLevels.uFar.value.y + treeLevels.uSoft.value + BEYOND;
+}
 
 /** The woods of the land about a run; its textures `texSize` across. */
 export function sliceWoods(g: WoodsGround, texSize: number): Woods {

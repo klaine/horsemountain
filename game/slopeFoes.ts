@@ -9,9 +9,10 @@
  */
 import {
   type AnimationAction, AnimationMixer, type AnimationClip, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, Group, LoopOnce,
-  Matrix3, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, type Object3D, SkinnedMesh, SphereGeometry, Vector3,
+  Euler, Matrix3, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, type Object3D, SkinnedMesh, SphereGeometry, Vector3,
 } from 'three';
 import { clone as cloneRigged } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { fbm3, hash1 } from '../src/core/rng';
 import type { FigureLibrary } from '../src/figures/library';
 import { dressAdventurer, type Look } from '../src/figures/outfit';
@@ -420,11 +421,15 @@ function hang(body: Object3D, pieces: [BufferGeometry, Matrix4, MeshStandardMate
   const sk = skinned.skeleton, i = sk.bones.findIndex((b) => b.name === 'Head');
   if (i < 0) return;
   const bone = sk.bones[i], inverse = sk.boneInverses[i], rest = new Vector3().setFromMatrixPosition(inverse.clone().invert());
-  for (const [g, at, m = paint] of pieces) {
-    const mesh = new Mesh(g, m);
+  // (The pieces of one paint made one shape, each laid where it sits about the joint: a horde has a score of heads, and each piece had
+  // been a draw of its own, every frame, for some thirty points apiece.)
+  const byPaint = new Map<MeshStandardMaterial, BufferGeometry[]>();
+  for (const [g, at, m = paint] of pieces) byPaint.set(m, [...(byPaint.get(m) ?? []), g.clone().applyMatrix4(at)]);
+  for (const [m, gs] of byPaint) {
+    const mesh = new Mesh(gs.length > 1 ? mergeGeometries(gs) : gs[0], m);
     mesh.castShadow = true;
     mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy(inverse.clone().multiply(new Matrix4().makeTranslation(rest.x, rest.y, rest.z).multiply(at)));
+    mesh.matrix.copy(inverse.clone().multiply(new Matrix4().makeTranslation(rest.x, rest.y, rest.z)));
     mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
     bone.add(mesh);
   }
@@ -464,6 +469,10 @@ const WOLF = (() => {
   };
 })();
 
+/** The wolves' fur, one paint coloured by its points (each coat's colours, `WOLF.coats`); and each part's shape, by coat, made once. */
+const WOLF_FUR = new MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
+const WOLF_SHAPES = new Map<string, BufferGeometry>();
+
 /** How high a wolf's body is carried, running, over its paws; how high it lies on its side, fallen. */
 const WOLF_HIGH = 0.74, WOLF_LOW = 0.22;
 /** Its legs: where each is hung from the body, its rest angles at the hip and the knee, and how far into the stride it is (a gallop's). */
@@ -490,33 +499,41 @@ class Wolf implements Gait {
   private side = 1;
 
   constructor(size: number, coat: number) {
-    const c = WOLF.coats[Math.min(2, Math.floor(coat * 3))];
-    const add = (to: Group, g: BufferGeometry, m: MeshStandardMaterial | MeshBasicMaterial, x = 0, y = 0, z = 0) => {
-      const mesh = new Mesh(g, m);
-      mesh.position.set(x, y, z);
-      mesh.castShadow = true; mesh.receiveShadow = true;
-      this.meshes.push(mesh);
-      to.add(mesh);
-      return mesh;
+    const n = Math.min(2, Math.floor(coat * 3)), c = WOLF.coats[n];
+    // (Each part that moves as one, its pieces of fur made one shape, coloured by its points: a pack of three had been some eighty draws
+    // a frame, and as many again in the sun's shadows. The coats' paints differ only in colour; the nose and the eyes keep their own.)
+    const pieces = new Map<Group, { g: BufferGeometry; colour: number; at: Matrix4 }[]>();
+    const add = (to: Group, g: BufferGeometry, m: MeshStandardMaterial | MeshBasicMaterial, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
+      const at = new Matrix4().makeRotationFromEuler(new Euler(rx, ry, rz)).setPosition(x, y, z);
+      if (m === WOLF.nose || m === WOLF.eye) {
+        const mesh = new Mesh(g, m);
+        mesh.matrixAutoUpdate = false; mesh.matrix.copy(at);
+        mesh.castShadow = m === WOLF.nose; mesh.receiveShadow = true;
+        this.meshes.push(mesh);
+        to.add(mesh);
+        return;
+      }
+      pieces.set(to, [...(pieces.get(to) ?? []), { g, colour: (m as MeshStandardMaterial).color.getHex(), at }]);
     };
     add(this.body, WOLF.chest, c.fur, 0, 0.01, 0.2);
     add(this.body, WOLF.hind, c.fur, 0, 0.0, -0.24);
     add(this.body, WOLF.ruff, c.dark, 0, 0.05, 0.32);
     add(this.body, WOLF.belly, c.pale, 0, -0.13, 0.02);
-    add(this.body, WOLF.neck, c.dark, 0, 0.12, 0.47).rotation.x = -0.5;
+    add(this.body, WOLF.neck, c.dark, 0, 0.12, 0.47, -0.5);
     this.head.position.set(0, 0.18, 0.6);
     add(this.head, WOLF.skull, c.fur);
     add(this.head, WOLF.snout, c.fur, 0, -0.03, 0.15);
-    add(this.head, WOLF.jaw, c.pale, 0, -0.075, 0.12).rotation.x = 0.25;
+    add(this.head, WOLF.jaw, c.pale, 0, -0.075, 0.12, 0.25);
     add(this.head, WOLF.tip, WOLF.nose, 0, -0.02, 0.255);
     for (const s of [1, -1]) {
-      add(this.head, WOLF.ear, c.dark, 0.06 * s, 0.08, -0.03).rotation.set(-0.2, 0, -0.3 * s);
+      add(this.head, WOLF.ear, c.dark, 0.06 * s, 0.08, -0.03, -0.2, 0, -0.3 * s);
       add(this.head, WOLF.eyeBall, WOLF.eye, 0.05 * s, 0.03, 0.095);
     }
     this.body.add(this.head);
     this.tail.position.set(0, 0.06, -0.5);
     add(this.tail, WOLF.tail, c.fur);
     this.body.add(this.tail);
+    const parts: [Group, string][] = [[this.body, 'body'], [this.head, 'head'], [this.tail, 'tail']];
     for (const l of LEGS) {
       const hip = new Group(), knee = new Group();
       hip.position.set(l.at[0], l.at[1], l.at[2]);
@@ -527,6 +544,24 @@ class Wolf implements Gait {
       hip.add(knee);
       this.body.add(hip);
       this.legs.push({ hip, knee, fore: l.fore, off: l.off });
+      parts.push([hip, l.fore ? 'thighFore' : 'thighHind'], [knee, 'knee']);
+    }
+    for (const [group, name] of parts) {
+      const key = `${n}:${name}`;
+      let g = WOLF_SHAPES.get(key);
+      if (!g) {
+        g = mergeGeometries(pieces.get(group)!.map(({ g, colour, at }) => {
+          const one = g.clone().applyMatrix4(at), rgb = new Color(colour), count = one.getAttribute('position').count, cs = new Float32Array(count * 3);
+          for (let i = 0; i < count; i++) cs.set([rgb.r, rgb.g, rgb.b], i * 3);
+          one.setAttribute('color', new BufferAttribute(cs, 3));
+          return one;
+        }));
+        WOLF_SHAPES.set(key, g);
+      }
+      const mesh = new Mesh(g, WOLF_FUR);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      this.meshes.push(mesh);
+      group.add(mesh);
     }
     this.body.position.y = WOLF_HIGH;
     this.model.add(this.body);
