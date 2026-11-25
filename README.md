@@ -5,7 +5,7 @@ A horse and its rider skiing down a mountain in winter: watched, or ridden. Play
 
 It opens on its title over the showcase, and then on the map of the runs: an old map in ink of the mountains about them, as the
 world's map is drawn in klaine/dungeons, the hachures heavier the steeper, woods as little trees, rivers, lakes, roads, villages and
-the great peaks, and over it, as a ski resort's map has them, the eight runs in the inks of their grades (blue, red, black, each with
+the great peaks, and over it, as a ski resort's map has them, the nine runs in the inks of their grades (blue, red, black, each with
 a mark of its own), numbered and named, a flag at each top, under a cartouche with the range's name and a compass rose. Beside it,
 *Watch the showcase*, *Watch the demo run* or *Watch the orc hunt*; or a run, clicked on the map or in the list, opens its card: its grade, how long it is,
 how far it falls, how steep it is on the whole and at its steepest, its profile from top to foot (the pointer over it says how far
@@ -235,11 +235,12 @@ what you are doing, with *Resume*, *Restart run* (riding) and *Map of the runs*;
 last chosen kept: *Play* (the demos or riding, the orcs and weapons, off piste, steering, the way back, the runs), *Pack*, *Skier & view*
 (the skier, the skis, the camera, slow motion) and *Settings* (the minimap, the info, the snow, resolution and blur, the keys). In
 more detail: *Play* (watch the demo or ride; watching, pause, its speed and its timeline, which names its parts and can be dragged along;
-riding is held while the menu is open), *Slope* (*Map of the runs*, the map the game opens on, or `M`; eight runs down the mountain: *Silent Warden* from beside its highest summit along a crest; *Pale
+riding is held while the menu is open), *Slope* (*Map of the runs*, the map the game opens on, or `M`; nine runs down the mountain: *Silent Warden* from beside its highest summit along a crest; *Pale
 Crown*, longer, down a spur into the wooded foothills above a bay; *Ashbridge*, short and steep, along the foot of the range
 under its rock walls to a lake in a glen; *Carndale*, long and gentle, down a wooded spur in the west to a lake; *Warden's Spur*, from
-the summit down its south spur; *Lake Wall*, from a knoll at the head of a long spur, down its broad back and then steeply, with big kickers, to the lake Ashbridge comes to; *Balestead*, down a crest inside
-the range; *Arford*, long, gentle and broad, to the shore; or a groomed slope
+the summit down its south spur; *Lake Wall*, from a knoll at the head of a long spur, down its broad back and then steeply, with big kickers, across above the lake to where Ashbridge ends; *Balestead*, down a crest inside
+the range; *Ashbridge Bend*, from Ashbridge's top, away round the spur to the south and back under it to the same lake; *Lake Wall
+East*, from Lake Wall's top down the far side of its spur and round under it to the same lake; or a groomed slope
 going on for ever: one run is held at a time, the one left let go of), *Skier* (the horse with its
 rider, the horse alone, or a person on skis, an adventurer with a sword on its back; the horse's skis, two long or four short),
 *Camera* (*Cinema*, *Behind*, *Beside*, *Iso* (isometric: high, looking down across the slope at forty-five degrees, as on foot in the
@@ -338,9 +339,10 @@ run's line, its profile and what it is like, from its slice. The game draws the 
   klaine/dungeons again, name the clip in the program, and run it).
 - `figures/`: the figures, by Quaternius, CC0 (see `figures/LICENSE.txt`): `clips.glb` (the mannequin and the clips it plays), and
   `superhero-male.glb` (the body the adventurer is dressed on).
-- `slopes/w2.json`, `slopes/w2-3.json` and six more (`w2-8`, `w2-10`, `w2-2`, `w2-14`, `w2-17`, `w2-25`): the slices of the mountain:
-  eight runs found in a generated world, by their place among those its search kept (`npm run skirun`; *Lake Wall* carried further up its
-  spur than the search began it, `RAISED` there), and the land about each, a metre apart
+- `slopes/w2.json`, `slopes/w2-3.json` and seven more (`w2-8`, `w2-10`, `w2-2`, `w2-14`, `w2-17`, `w2-25`, `w2-40`): the slices of the mountain:
+  nine runs found in a generated world, by their place among those its search kept, or laid by hand (`npm run skirun`; *Lake Wall* carried further up its
+  spur than the search began it, `RAISED` there; its foot, and the whole of *Ashbridge Bend*, laid by hand to end where *Ashbridge*
+  does, and *Lake Wall East* from Lake Wall's top, `LAID`), and the land about each, a metre apart
   near the run (each fetched only when it is skied, about a megabyte, some 0.6 to 0.7 of it as it comes); `slopes/w2-map.json`, the
   map of them (fetched as the page opens).
 

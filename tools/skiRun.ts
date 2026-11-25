@@ -14,8 +14,8 @@
  * of the stretch of the world about them, on a lattice of `--cell` metres (sixteen), and each run's line and what it is like, from its
  * slice (made for it, and written only if it is named on its own too).
  *
- * A run named in `RAISED` is carried further up its mountain than the search began it, to the point given there; it is listed,
- * written and mapped so.
+ * A run named in `RAISED` is carried further up its mountain than the search began it, to the point given there; one named in `LAID`
+ * has its line laid, or the rest of it, through points given there, to where another run ends. Each is listed, written and mapped so.
  *
  *   npx tsx tools/skiRun.ts [world seed, w2] [which runs kept to write: 1 3 ...] [--picture <folder>] [--map 1,3,8,10] [--cell 16]
  *
@@ -27,7 +27,7 @@ import { world } from '../src/core/world';
 import { findSkiRun, RUN, skiableLand, sliceOfRun, smoothed, squash, type SkiRun } from '../src/core/skiRun';
 import { writeSlice, type SkiSlice } from '../src/core/skiSlice';
 import { landOfWorld } from '../src/core/worldLand';
-import { HeightField } from '../src/core/terrain';
+import { HeightField, leastPath } from '../src/core/terrain';
 import { type MapRun, writeRunMap } from '../src/core/runMap';
 import type { River, WorldWay } from '../src/core/world';
 
@@ -99,7 +99,12 @@ function raise(run: SkiRun, [tx, tz]: [number, number]): SkiRun {
     x += Math.cos(a) * RUN.step; z += Math.sin(a) * RUN.step;
     up.push([x, z]);
   }
-  const points = [...up.reverse(), ...run.points], hs = points.map(([px, pz]) => h(px, pz));
+  return measured([...up.reverse(), ...run.points]);
+}
+
+/** A line measured as the search measures a run: how far and how steeply it falls, how much of it keeps to a crest. */
+function measured(points: [number, number][]): SkiRun {
+  const { h } = searchLand(), hs = points.map(([px, pz]) => h(px, pz));
   const length = (points.length - 1) * RUN.step, drop = hs[0] - hs[hs.length - 1];
   // (As the search measures a run: how much of it keeps to a crest, its steepest over the look ahead, its steepness on the whole.)
   const crestAt = (px: number, pz: number, b: number) => {
@@ -113,10 +118,103 @@ function raise(run: SkiRun, [tx, tz]: [number, number]): SkiRun {
   return { step: RUN.step, points, heights: hs, drop, length, score: drop + 2 * hs[0] + 0.25 * length + 0.6 * crest, steepest, mean: deg(Math.atan(drop / length)), crest };
 }
 
-/** The runs kept, those named in `RAISED` carried up. */
-const kept = found.kept.map((r, i) => {
+/**
+ * Runs laid by hand, wholly or from some way down: by the world and their place among the runs kept, the run whose line each keeps
+ * the first metres of (`after`: itself, to lay only the rest of it anew; another, to set off from that one's top), the points its
+ * line goes through, in turn, from there, and the run at whose foot it ends. (Asked: "route 3 and 6 to end in same location in
+ * Ashbridge? route 8 to bend around and also end there in Ashbridge? Route 8 would start from route 3 start, but diverge": the game's
+ * third, sixth and eighth runs, Ashbridge, Lake Wall and Arford, the eighth, fourteenth and twenty-fifth kept. Ashbridge comes down
+ * to the head of the lake under the range; Lake Wall had come down to its far shore, 150 metres off across the water, and so is
+ * kept to where it was about to drop to it, then laid across the slope above the lake to Ashbridge's foot. The twenty-fifth, which
+ * had gone down to the shore above Arford, sets off down Ashbridge's first hundred metres, leaves it to the south, round the spur
+ * the old one came down, and comes back east under Ashbridge to the same foot: turned east above the head of the gully, where it had
+ * been laid through it first, and the demo run stood still on its level floor. Then, asked: "could we add an alternative path also
+ * on the right side forking from run 6 (sharing same start)", along a line drawn on the map, "37 degrees for momentarily is fine",
+ * "you can add bends if it helps": the fortieth, none the search kept (it keeps thirty-two), sets off down Lake Wall's first two
+ * hundred metres, leaves it to the east, down the far side of its spur and round under it to the west, to the same foot. `steep`,
+ * how steep a line laid may be at most, degrees, where it is more than the search's `RUN.steep`; and then over land the search would
+ * not ski, though only where it must.)
+ */
+const LAID: Record<string, Record<number, { after: { run: number; metres: number }; through: [number, number][]; to: { run: number }; steep?: number }>> = {
+  w2: {
+    14: { after: { run: 14, metres: 1360 }, through: [], to: { run: 8 } },
+    25: { after: { run: 8, metres: 100 }, through: [[272, -1143]], to: { run: 8 } },
+    40: { after: { run: 14, metres: 200 }, through: [[1454, -2014], [1320, -1771], [1340, -1600]], to: { run: 8 }, steep: 40 },
+  },
+};
+
+/**
+ * A line laid from `from`, setting off `heading`, through each of `stops` in turn. First the way of least effort over the search's
+ * land (`leastPath`, on the world's lattice): only where a path can be skied (or, `steep` given, dearer where it cannot), never
+ * climbing, never steeper than can be skied (or `steep`), and dear where it is flatter than glides well, steeper than the search aims
+ * for, or tilted across more than a path may be. Then followed a step at a time, turning toward a point some way along it no more
+ * sharply than the tightest curve, as the search's own lines turn, each step the way nearest that which does not climb. (The way
+ * alone went in steps of the lattice, eight metres, and turned in eighths of a circle; and followed so, cut over the bumps between
+ * its turns, climbing three metres at a time.)
+ */
+function lay(from: [number, number], heading: number, stops: [number, number][], steep = RUN.steep): [number, number][] {
+  const { h, band } = searchLand(), f = w.field, rad = (d: number) => (d * Math.PI) / 180;
+  const cost = (a: number, b: number) => {
+    const wild = !band[b];
+    if (wild && steep <= RUN.steep) return Infinity;
+    const ax = f.x0 + (a % f.nx) * f.cell, az = f.z0 + Math.floor(a / f.nx) * f.cell, bx = f.x0 + (b % f.nx) * f.cell, bz = f.z0 + Math.floor(b / f.nx) * f.cell;
+    const len = Math.hypot(bx - ax, bz - az), s = (h(ax, az) - h(bx, bz)) / len;
+    if (s < 0 || s > Math.tan(rad(steep))) return Infinity;
+    const ux = (bx - ax) / len, uz = (bz - az) / len, gx = (h(bx + 4, bz) - h(bx - 4, bz)) / 8, gz = (h(bx, bz + 4) - h(bx, bz - 4)) / 8;
+    const across = Math.abs(-uz * gx + ux * gz);
+    return (wild ? 3 : 1) * len * (1 + 6 * Math.max(0, Math.tan(rad(RUN.gentle + 3)) - s) + 2 * Math.max(0, s - Math.tan(rad(RUN.aim))) + 4 * Math.max(0, across - Math.tan(rad(RUN.across))));
+  };
+  const guide: [number, number][] = [from];
+  for (const stop of stops) {
+    const leg = leastPath(f.x0, f.z0, f.cell, f.nx, f.nz, guide[guide.length - 1], stop, cost);
+    if (!leg) throw new Error(`run laid through ${stops.join(' ')}: no way down to ${stop}`);
+    guide.push(...leg.slice(1), stop);
+  }
+  const cum = [0];
+  for (let i = 1; i < guide.length; i++) cum.push(cum[i - 1] + Math.hypot(guide[i][0] - guide[i - 1][0], guide[i][1] - guide[i - 1][1]));
+  const along = (d: number): [number, number] => {
+    let i = 1;
+    while (i < guide.length - 1 && cum[i] < d) i++;
+    const t = Math.min(1, Math.max(0, (d - cum[i - 1]) / (cum[i] - cum[i - 1] || 1)));
+    return [guide[i - 1][0] + (guide[i][0] - guide[i - 1][0]) * t, guide[i - 1][1] + (guide[i][1] - guide[i - 1][1]) * t];
+  };
+  const end = guide[guide.length - 1], turnMost = RUN.step / RUN.bend;
+  let [x, z] = from, a = heading, d = 0;
+  const out: [number, number][] = [[x, z]];
+  while (Math.hypot(end[0] - x, end[1] - z) > RUN.step) {
+    if (out.length * RUN.step > RUN.longest) throw new Error(`run laid through ${stops.join(' ')}: lost on the way`);
+    // (Where along the way it is: the nearest of it a little ahead of where it was; and toward the way some thirty metres on.)
+    let near = Infinity;
+    for (let k = d; k < Math.min(cum[cum.length - 1], d + 40); k += 2) { const [qx, qz] = along(k), e = Math.hypot(qx - x, qz - z); if (e < near) { near = e; d = k; } }
+    const [tx, tz] = along(d + 28), want = Math.atan2(tz - z, tx - x), turn = Math.max(-turnMost, Math.min(turnMost, Math.atan2(Math.sin(want - a), Math.cos(want - a))));
+    const here = h(x, z);
+    let pick = a, climbs = Infinity, miss = Infinity;
+    for (let t = -turnMost; t <= turnMost + 1e-9; t += turnMost / 4) {
+      const b = a + t, up = Math.max(0, h(x + Math.cos(b) * RUN.step, z + Math.sin(b) * RUN.step) - here - 0.05), off = Math.abs(t - turn);
+      if (up < climbs - 1e-9 || (Math.abs(up - climbs) <= 1e-9 && off < miss)) { climbs = up; miss = off; pick = b; }
+    }
+    a = pick;
+    x += Math.cos(a) * RUN.step; z += Math.sin(a) * RUN.step;
+    out.push([x, z]);
+  }
+  return out;
+}
+
+/** The runs kept, those named in `RAISED` carried up, and then those in `LAID` laid (from the runs as carried up). */
+const raised = found.kept.map((r, i) => {
   const top = RAISED[seed]?.[i + 1];
   return top ? raise(r, top) : r;
+});
+// (Laid runs numbered past those the search keeps are runs of their own: the list goes on to them, with none between.)
+const laidPast = Object.keys(LAID[seed] ?? {}).map(Number).filter((n) => n > raised.length);
+const kept: (SkiRun | undefined)[] = Array.from({ length: Math.max(raised.length, ...laidPast) }, (_, i) => raised[i]).map((r, i) => {
+  const o = LAID[seed]?.[i + 1];
+  if (!o) return r;
+  const from = raised[o.after.run - 1], to = raised[o.to.run - 1];
+  if (!from || !to) throw new Error(`run ${i + 1} laid from or to a run not kept`);
+  const first = from.points.slice(0, Math.round(o.after.metres / RUN.step) + 1), [p, q] = [first[first.length - 1], first[first.length - 2]];
+  const rest = lay(p, Math.atan2(p[1] - q[1], p[0] - q[0]), [...o.through, to.points[to.points.length - 1]], o.steep);
+  return measured([...first, ...rest.slice(1)]);
 });
 
 /** The nearest of a list to a point, and how far, kilometres. */
@@ -124,8 +222,9 @@ const nearest = <T extends { x: number; z: number }>(list: T[], [x, z]: [number,
   list.reduce<{ it: T | null; d: number }>((best, it) => { const d = Math.hypot(it.x - x, it.z - z); return d < best.d ? { it, d } : best; }, { it: null, d: Infinity });
 const peaks = w.peaks.map((q, k) => ({ ...q, name: w.peakNames[k] ?? '' }));
 kept.forEach((r, i) => {
+  if (!r) return;
   const [a, b] = [r.points[0], r.points[r.points.length - 1]], peak = nearest(peaks, a), town = nearest(w.towns, b);
-  const more = r === found.kept[i] ? '' : ` (carried ${r.length - found.kept[i].length} m further up than the search began it)`;
+  const more = LAID[seed]?.[i + 1] ? ` (laid by hand: \`LAID\`)` : r === found.kept[i] ? '' : ` (carried ${r.length - found.kept[i]!.length} m further up than the search began it)`;
   console.log(`  ${String(i + 1).padStart(2)}. from ${a.map((v) => v.toFixed(0))} at ${r.heights[0].toFixed(0)} m to ${b.map((v) => v.toFixed(0))} at ${r.heights[r.heights.length - 1].toFixed(0)} m: ${r.length} m long, falling ${r.drop.toFixed(0)} m, ${r.mean.toFixed(1)} degrees on the whole, ${r.steepest.toFixed(1)} at most over ${RUN.ahead} m, ${r.crest} m along a crest; ${(peak.d / 1000).toFixed(1)} km from ${peak.it?.name}, its foot ${(town.d / 1000).toFixed(1)} km from ${town.it?.name} (${town.it?.kind})${more}`);
 });
 
@@ -152,6 +251,12 @@ for (const pick of picks) {
   const broad = slice.run.piste.map(([r, l]) => l - r);
   console.log(`  run ${pick}: slice made in ${((performance.now() - t) / 1000).toFixed(1)} s: ${inSlice.toLocaleString()} points of snow at a metre, its path ${Math.min(...broad).toFixed(0)} to ${Math.max(...broad).toFixed(0)} m broad; below ${slice.peak}`);
   console.log(`    written to ${out}, ${(text.length / 1e6).toFixed(2)} MB`);
+  // (How much its line climbs anywhere over twenty metres, in the slice's own snow: the land a line is laid over is the search's, at
+  // eight metres and smoothed, and a hump of two or three metres under a line laid by hand, too small for it, stopped the demo run.)
+  const hs = slice.run.heights, per = Math.round(20 / slice.run.step);
+  let climb = 0, climbAt = 0;
+  for (let k = per; k < hs.length; k++) if (hs[k] - hs[k - per] > climb) { climb = hs[k] - hs[k - per]; climbAt = k * slice.run.step; }
+  if (climb > 0.3) console.log(`    its line climbs ${climb.toFixed(1)} m over twenty, ${climbAt} m down`);
   if (folder) picture(`${folder}/${seed}-${pick}-run.png`, run.points[Math.floor(run.points.length / 2)], 2500, 5, run);
 }
 if (folder) picture(`${folder}/${seed}-runs.png`, [0, 0], Math.max(w.plan.hx, w.plan.hz), 8);
@@ -238,11 +343,11 @@ function picture(file: string, [mx, mz]: [number, number], half: number, px: num
   };
   const colours = [[230, 30, 30], [255, 140, 0], [255, 230, 0], [0, 200, 0], [0, 220, 220], [40, 80, 255], [200, 0, 255], [255, 255, 255], [0, 0, 0], [255, 120, 200]];
   if (chosen) {
-    kept.filter((k) => k !== chosen).forEach((k) => k.points.forEach(([x, z]) => dot(x, z, [255, 200, 0])));
+    kept.filter((k): k is SkiRun => !!k && k !== chosen).forEach((k) => k.points.forEach(([x, z]) => dot(x, z, [255, 200, 0])));
     chosen.points.forEach(([x, z]) => dot(x, z, [230, 30, 30]));
   } else {
-    kept.slice(10).forEach((k) => k.points.forEach(([x, z]) => dot(x, z, [120, 60, 30], 0)));
-    kept.slice(0, 10).forEach((k, i) => k.points.forEach(([x, z]) => dot(x, z, colours[i])));
+    kept.slice(10).forEach((k) => k?.points.forEach(([x, z]) => dot(x, z, [120, 60, 30], 0)));
+    kept.slice(0, 10).forEach((k, i) => k?.points.forEach(([x, z]) => dot(x, z, colours[i])));
   }
   for (const q of [...w.places.map((p) => ({ ...p, r: RUN.place })), ...w.towns.map((t) => ({ ...t, r: RUN.town }))]) for (let a = 0; a < 200; a++) dot(q.x + Math.cos(a / 32) * q.r, q.z + Math.sin(a / 32) * q.r, [255, 0, 255], 0);
   for (const q of w.peaks) dot(q.x, q.z, [0, 0, 0], 4);

@@ -31,6 +31,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng, valueNoise2 } from '../src/core/rng';
 import { type PropKind, Props, type Stuff } from './slopeProps';
 import { type Grid, gridAt, type SkiSlice } from '../src/core/skiSlice';
+import { kickerReachable } from './slopeLand';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const smooth = (t: number) => { const u = clamp(t, 0, 1); return u * u * (3 - 2 * u); };
@@ -157,6 +158,7 @@ export function sliceGround(slice: SkiSlice) {
     length: F.length, edges: F.edges,
     kickable: (s: number, left: number, kick: number) => {
       if (s + kick + 40 > F.length - 30) return false;
+      if (!kickerReachable(F.at, F.height, s, kick)) return false;
       const fallAfter = (h(s + kick + 4, left) - h(s + kick + 30, left)) / 26, fallOn = (h(s, left) - h(s + kick, left)) / kick, tilt = Math.abs(h(s + kick / 2, left - 3) - h(s + kick / 2, left + 3)) / 6;
       return fallAfter > Math.tan((13 * Math.PI) / 180) && fallOn < Math.tan((30 * Math.PI) / 180) && fallOn > Math.tan((5 * Math.PI) / 180) && tilt < 0.2;
     },
