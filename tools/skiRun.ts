@@ -233,8 +233,72 @@ const sliceAlone = (run: SkiRun) => {
   // (The world's land keeps the tiles a slice makes, and the country about the next, read from them where they reach it, came out a
   // little different from the same run's slice written by itself.)
   landOfWorld(w).tiles.clear();
-  return sliceOfRun(w, run);
+  const pick = kept.indexOf(run) + 1, slice = sliceOfRun(w, run), bench = TERRACED[seed]?.[pick];
+  return bench ? terrace(slice, bench, forksOf(pick).map((o) => kept[o - 1]!.points)) : slice;
 };
+
+/**
+ * Runs terraced (asked: "Can the lakewall east new route be somehow bit more landscaped/terraced so that it is not in so sideways
+ * angled orientation often"): Lake Wall East, laid by hand across the far side of its spur, along a hillside that falls away across it
+ * some twenty degrees as often as not, and forty in places, where the search's own runs tilt five. By the world and the run's place
+ * among those kept: from how far down it (`from`, metres: past where it parts from the run it sets off down, so that the snow the two
+ * share is the same in both their slices), how much across the bench may tilt at most (`most`, degrees), how far out either side of
+ * the line the bench reaches at least (`half`, metres), and over how far beyond it its banks come back to the land (`bank`).
+ */
+const TERRACED: Record<string, Record<number, { from: number; most: number; half: number; bank: number }>> = { w2: { 40: { from: 215, most: 6, half: 11, bank: 14 } } };
+/**
+ * A run's snow cut and filled into a bench along it, as a road is cut along a hillside: across the line, level but for the land's own
+ * lean, as much as `most` (eased along the run over sixteen metres either way); out to `half` either side of the line, and beyond, over
+ * `bank` metres, back to the snow as it lay, a cut bank above it and a filled one below; eased in over forty metres from `from`. Along
+ * the line nothing is changed: each point across the bench is at the line's own height there, but for the lean. The piste then as broad
+ * as the bench at least, where it had been held narrow by how steep the land beside the line was. None where a run that parts from it
+ * runs beside it, within thirty metres, easing in to sixty. And nothing changed toward a run that
+ * parts from it (`others`, their lines): eased back to the snow as it lay by the time it is as near the other's line as its own, where
+ * the slices of the two, each with the land of both (`forked`), take the other's snow; else there a step had stood between them.
+ */
+function terrace(slice: SkiSlice, o: { from: number; most: number; half: number; bank: number }, others: [number, number][][] = []): SkiSlice {
+  const { points: P, heights: Hs, step, piste } = slice.run, g = slice.snow, d = g.data, natural = Float32Array.from(d), n = P.length;
+  const H = (x: number, z: number) => gridAt({ ...g, data: natural }, x, z);
+  // (The left of the line at each point, as the piste's edges have it: positive to the left.)
+  const left = P.map((_, k) => { const [ax, az] = P[Math.max(0, k - 1)], [bx, bz] = P[Math.min(n - 1, k + 1)], l = Math.hypot(bx - ax, bz - az) || 1; return [(bz - az) / l, -(bx - ax) / l] as [number, number]; });
+  const lean = P.map(([px, pz], k) => { const [lx, lz] = left[k], a = 6, v = (H(px + lx * a, pz + lz * a) - H(px - lx * a, pz - lz * a)) / (2 * a); return Number.isNaN(v) ? 0 : v; });
+  const most = Math.tan((o.most * Math.PI) / 180), span = Math.round(16 / step);
+  const tilt = lean.map((_, k) => { const w = lean.slice(Math.max(0, k - span), k + span + 1), m = w.reduce((a, b) => a + b, 0) / w.length; return Math.max(-most, Math.min(most, m)); });
+  // (Only where the run is out on its own (asked, of the shared stretches: "Not on the shares sections"): none while another run that
+  // parts from it is within thirty metres of its line, all of it from sixty; and from `from` on.)
+  const ease = (u: number) => { const v = Math.max(0, Math.min(1, u)); return v * v * (3 - 2 * v); };
+  const apart = P.map(([px, pz]) => (others.length ? Math.min(...others.map((l) => offLine(l, px, pz))) : Infinity));
+  const alone = apart.map((_, k) => Math.min(...apart.slice(Math.max(0, k - span), k + span + 1)));
+  const on = (k: number) => { const i = Math.max(0, Math.min(n - 1, Math.round(k))); return ease((k * step - o.from) / 40) * ease((alone[i] - 30) / 30); };
+  // Each point of the snow at a metre near the line: the nearest of the line to it (as a fraction of the way along its points), and
+  // how far to the left of it it is.
+  const R = o.half + o.bank + 2, best = new Float32Array(d.length).fill(Infinity), at = new Float32Array(d.length), off = new Float32Array(d.length);
+  for (let k = 0; k < n - 1; k++) {
+    if (on(k + 1) <= 0) continue;
+    const [ax, az] = P[k], [bx, bz] = P[k + 1], dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+    const i0 = Math.max(0, Math.floor(Math.min(ax, bx) - R - g.x0)), i1 = Math.min(g.nx - 1, Math.ceil(Math.max(ax, bx) + R - g.x0));
+    const j0 = Math.max(0, Math.floor(Math.min(az, bz) - R - g.z0)), j1 = Math.min(g.nz - 1, Math.ceil(Math.max(az, bz) + R - g.z0));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const c = j * g.nx + i;
+      if (Number.isNaN(d[c])) continue;
+      const x = g.x0 + i, z = g.z0 + j, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2)), qx = ax + dx * t, qz = az + dz * t, e = Math.hypot(x - qx, z - qz);
+      if (e >= best[c]) continue;
+      const lx = left[k][0] + (left[k + 1][0] - left[k][0]) * t, lz = left[k][1] + (left[k + 1][1] - left[k][1]) * t;
+      best[c] = e; at[c] = k + t; off[c] = (x - qx) * lx + (z - qz) * lz;
+    }
+  }
+  for (let c = 0; c < d.length; c++) {
+    if (!(best[c] <= R)) continue;
+    const k0 = Math.min(n - 2, Math.floor(at[c])), t = at[c] - k0, w = on(at[c]);
+    if (w <= 0) continue;
+    const centre = Hs[k0] + (Hs[k0 + 1] - Hs[k0]) * t, lean_ = tilt[k0] + (tilt[k0 + 1] - tilt[k0]) * t, a = Math.abs(off[c]);
+    let keep = a <= o.half ? 1 : 1 - ease((a - o.half) / o.bank);
+    if (keep > 0 && others.length) { const x = g.x0 + (c % g.nx), z = g.z0 + Math.floor(c / g.nx); keep *= ease((Math.min(...others.map((l) => offLine(l, x, z))) - best[c] - 1) / 12); }
+    d[c] = natural[c] + (centre + lean_ * off[c] - natural[c]) * keep * w;
+  }
+  const broad = piste.map(([r, l], k) => [Math.min(r, -o.half * on(k)), Math.max(l, o.half * on(k))] as [number, number]);
+  return { ...slice, run: { ...slice.run, piste: broad } };
+}
 /** A run's name in the game, as its slice is named. */
 const idOf = (pick: number) => (pick === 1 ? seed : `${seed}-${pick}`);
 

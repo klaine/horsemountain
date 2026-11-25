@@ -403,7 +403,9 @@ run's line, its profile and what it is like, from its slice. The game draws the 
 - `slopes/w2.json`, `slopes/w2-3.json` and seven more (`w2-8`, `w2-10`, `w2-2`, `w2-14`, `w2-17`, `w2-25`, `w2-40`): the slices of the mountain:
   nine runs found in a generated world, by their place among those its search kept, or laid by hand (`npm run skirun`; *Lake Wall* carried further up its
   spur than the search began it, `RAISED` there; its foot, and the whole of *Ashbridge Bend*, laid by hand to end where *Ashbridge*
-  does, and *Lake Wall East* from Lake Wall's top, `LAID`), and the land about each, a metre apart
+  does, and *Lake Wall East* from Lake Wall's top, `LAID`; Lake Wall East's stretch out on its own across the far side of the spur
+  terraced, `TERRACED`: its snow cut and filled into a bench along a hillside it had crossed tilted twenty to forty-five degrees, six
+  now, banks above and below it, none of it where it runs beside Lake Wall), and the land about each, a metre apart
   near the run (each fetched only when it is skied, about a megabyte, some 0.6 to 0.7 of it as it comes); `slopes/w2-map.json`, the
   map of them (fetched as the page opens).
 

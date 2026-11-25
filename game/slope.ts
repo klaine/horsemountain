@@ -7257,7 +7257,14 @@ async function start() {
   let bladeJolt = 0, shownCharge = -1;
   /** What the free view is held looking at, for a picture of what is not the skier (`__slope.lookAt`); none, the skier. */
   let heldLook: Vector3 | null = null;
-  let across = 0;
+  /**
+   * Where the view follows, in the world: kept pace with exactly along the way down (`waysDown`), eased only across it, so that turns
+   * swing the skier across the picture. In the world, not as so far down the way ridden and so far across it, which on a run that parts
+   * are numbers of another line once the skier crosses to the other way, and the view had lurched there and eased back (asked: "On a
+   * forked slope there seems to be some jerky switching when crossing the slope boundaries like lakewall / lakewall east. There should
+   * be no transitions or jerks").
+   */
+  const followAt = new Vector3();
   /** Where the view is about: the skier's feet, or, gone limp, the snow under its hips. */
   // (Not swung round in a circle with a barrel roll's feet, the view following it swung about with them: `rollShift`.)
   const focus = () => { if (!crash) return rider.position.clone().sub(rollShift); const p = fallenAt(); return p.setY(ground(p.x, p.z)); };
@@ -7912,7 +7919,7 @@ async function start() {
   };
   /**
    * What the views are given, kept sane (asked, of the eye gone to no number riding, "the eye went to no number: begun again (eye bad,
-   * rider ok, view behind, blur 0.5)"): the view's own easing (`across`, `ahead`, `travel`, `eyeOff`, `lookOff`, `isoTurn`) eases on from
+   * rider ok, view behind, blur 0.5)"): the view's own easing (`followAt`, `ahead`, `travel`, `eyeOff`, `lookOff`, `isoTurn`) eases on from
    * itself, and one step given no number had it so for good. So a step's numbers gone bad are taken as the last good ones, said once a
    * while (`noteProblem`), and the easing gone bad anyway is begun again from behind the skier.
    */
@@ -7923,11 +7930,38 @@ async function start() {
     if (performance.now() - viewSaidAt > 5000) { viewSaidAt = performance.now(); noteProblem(`the view was given no number (${bad.join(', ')}; ${pictureState()})`); }
     return { ...now, ...(goodNow ? { down: goodNow.down, left: goodNow.left, way: goodNow.way, speed: goodNow.speed } : { down: 0, left: 0, way: 0, speed: 0 }) };
   };
+  /**
+   * The way down at a point on a run that parts: each way's own, as much as the point is on it (a way whose piste it is out past by ten
+   * metres, half as much; by thirty, a tenth), so that it turns smoothly from one to the other across the ground between them. On a run
+   * of one way, its own (`f`, its frame here).
+   */
+  const waysDown = (x: number, z: number, f: { dx: number; dz: number }): { dx: number; dz: number } => {
+    if (!land.ways || land.ways.length < 2 || !land.setWay) return f;
+    const was = land.way!();
+    let sx = 0, sz = 0;
+    for (let w = 0; w < land.ways.length; w++) {
+      land.setWay(w);
+      const g = land.frame(x, z), [lo, hi] = land.edges(g.s), out = Math.max(0, g.left - hi, lo - g.left), k = 1 / (1 + (out / 10) ** 2);
+      sx += g.dx * k; sz += g.dz * k;
+    }
+    land.setWay(was);
+    const l = Math.hypot(sx, sz);
+    return l > 1e-6 ? { dx: sx / l, dz: sz / l } : f;
+  };
   const placeView = (given: Now, dt: number) => {
     const now = saneNow(given);
     const at = focus(), f = land.at(now.down, 0);
-    across += ((mode === 'ride' ? 1 : 0.35) * now.left - across) * (placed ? ease(dt, 3) : 1);
-    const p = land.at(now.down, across), follow = new Vector3(p.x, at.y, p.z), down = runDir(f), aside = runLeft(f);
+    // (Riding, the skier; watching, a third of the way out from the run's line to it.)
+    const wantAt = mode === 'ride' ? at : (({ x, z }) => new Vector3(x, at.y, z))(land.at(now.down, 0.35 * now.left));
+    // (The run's way down here, on a run that parts both ways' at once, each the more the nearer it is to being on it: so that from one
+    // way to the other the view turns as the skier crosses, not all at once as the way ridden changes.)
+    const downAt = waysDown(at.x, at.z, f), down = runDir(downAt), aside = runLeft(downAt);
+    if (!placed || !Number.isFinite(followAt.x) || !Number.isFinite(followAt.z)) followAt.copy(wantAt);
+    else {
+      const dx = wantAt.x - followAt.x, dz = wantAt.z - followAt.z, on = dx * down.x + dz * down.z, off = (dx * aside.x + dz * aside.z) * ease(dt, 3);
+      followAt.x += down.x * on + aside.x * off; followAt.z += down.z * on + aside.z * off;
+    }
+    const follow = new Vector3(followAt.x, at.y, followAt.z);
     ahead.lerp(mode === 'ride' ? down.clone().lerp(along(now.way, f), 0.65).normalize() : down, placed ? ease(dt, 2) : 1).setY(0).normalize();
     travel.lerp(along(now.way, f).setY(0).normalize(), placed ? ease(dt, 1.5) : 1).setY(0).normalize();
     // (Riding from behind, a little wider the faster it goes, up to eight degrees at a hundred kilometres an hour: the snow beside
@@ -7984,11 +8018,11 @@ async function start() {
     }
     // (The easing gone to no number all the same, from the snow under the eye, or what it looks at: begun again, behind the skier.)
     const fine = (v: Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
-    if (view !== 'cinema' && view !== 'free' && (!fine(camera.position) || !fine(eyeOff) || !fine(lookOff) || !fine(ahead) || !fine(travel) || !Number.isFinite(across)) && fine(at)) {
-      const what = [!fine(eyeOff) && 'eyeOff', !fine(lookOff) && 'lookOff', !fine(ahead) && 'ahead', !fine(travel) && 'travel', !Number.isFinite(across) && 'across', !fine(isoTurn) && 'isoTurn'].filter(Boolean).join(', ');
+    if (view !== 'cinema' && view !== 'free' && (!fine(camera.position) || !fine(eyeOff) || !fine(lookOff) || !fine(ahead) || !fine(travel) || !fine(followAt)) && fine(at)) {
+      const what = [!fine(eyeOff) && 'eyeOff', !fine(lookOff) && 'lookOff', !fine(ahead) && 'ahead', !fine(travel) && 'travel', !fine(followAt) && 'followAt', !fine(isoTurn) && 'isoTurn'].filter(Boolean).join(', ');
       if (performance.now() - viewSaidAt > 5000) { viewSaidAt = performance.now(); noteProblem(`the view's easing went to no number (${what || 'the eye'}; ${pictureState()})`); }
       const d0 = runDir(f).setY(0).normalize();
-      across = Number.isFinite(now.left) ? now.left : 0; ahead.copy(d0); travel.copy(d0); isoTurn.copy(d0);
+      followAt.copy(at); ahead.copy(d0); travel.copy(d0); isoTurn.copy(d0);
       eyeOff.set(0, 3.4, 0).addScaledVector(d0, -9); lookOff.set(0, 0.6, 0).addScaledVector(d0, 6);
       camera.position.copy(at).add(eyeOff); camera.lookAt(at.clone().add(lookOff));
     }
@@ -8210,7 +8244,7 @@ async function start() {
     camera.position.copy(eye);
     eyeOff.copy(eye).sub(at); lookOff.copy(look).sub(at);
     ahead.copy(downhill); travel.copy(downhill);
-    across = 0;
+    followAt.copy(at);
     lastRider.copy(at);
     camera.fov = fovNow = FOV; camera.updateProjectionMatrix();
     placed = view !== 'cinema';

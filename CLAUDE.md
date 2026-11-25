@@ -17,7 +17,7 @@ renderer, which falls back to WebGL 2 by itself; materials in three's shading la
 - `npm run skirun -- w2 [n ...]` finds the runs down the world, lists them, and writes the slices of the `n`th into `slopes/` (a run
   named in `RAISED` in `tools/skiRun.ts` carried further up than the search began it, as Lake Wall is; one in `LAID` laid, or the rest of it,
   through points given there to another run's foot, as Lake Wall's foot, the eighth run, Ashbridge Bend, and the ninth, Lake Wall East, are;
-  a number past the search's own, as Lake Wall East's 40, is a run of its own; two named together in `FORKS` part from one another,
+  a number past the search's own, as Lake Wall East's 40, is a run of its own; one in `TERRACED` has its snow cut and filled into a bench where it is out on its own, as Lake Wall East's is across the far side of its spur; two named together in `FORKS` part from one another,
   each written with the land of both and the other's line as a branch, `branches` in its slice, which the game rides as `Land.ways`:
   `__slope.ways()` and `onWay(w, down)`);
   `--map 1,3,8,10,2,14,17,25,40` writes the map of the runs the game offers (`slopes/w2-map.json`): remake it when a run is added.
