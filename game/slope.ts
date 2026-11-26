@@ -3506,7 +3506,10 @@ async function start() {
    * (Against its weight up the slope and the drag of a cart: some seventy kilometres an hour up the steeps, a hundred up the gentler.
    * Pushed half as hard again, with only the skis' drag, it went up at a hundred and eighty.)
    */
-  const cartThrust = () => (carting && !ride.ended ? 8 + 4 * Math.max(0, ask.y) - 4 * Math.max(0, -ask.y) : 0);
+  // (Its push dying away from 12 to 20 metres a second, 43 to 72 km/h: asked, an iPad's thumb being no fine steering, "it just shoots when
+  // I try to steer": pushed on as hard at any speed, it was up to a hundred kilometres an hour in some six seconds, and every nudge of the
+  // stick swung it across the whole piste, to the poles. Steeper going, where its weight holds it back, it settles lower still.)
+  const cartThrust = () => (carting && !ride.ended ? (8 + 4 * Math.max(0, ask.y) - 4 * Math.max(0, -ask.y)) * (1 - smooth((ride.speed - 12) / 8)) : 0);
   /** The cart a step on as it is driven: its flame as hard as it pushes, and smoke out of its nozzle, the more the harder. */
   const stepCart = (dt: number) => {
     if (!carting) return;
@@ -4009,7 +4012,7 @@ async function start() {
     // go, their tails sliding out, so that the turn comes round quicker than a carve can, flatter on the snow and less leant, scraping
     // and throwing snow and losing speed as it does.
     ride.skid += (smooth((Math.abs(ask.x) - SKID_FROM) / (0.97 - SKID_FROM)) * (1 - ride.brake) - ride.skid) * ease(dt, 5);
-    const turning = -carveOf(ask.x) * clamp(ride.speed / 9, 0.5, 1.2) * (1 - 0.35 * ride.tuck) * (1 - ride.brake) * (1 + 0.6 * ride.skid) * Math.max(0.5, 1 + g.turn);
+    const turning = -carveOf(ask.x) * clamp(ride.speed / 9, 0.5, 1.2) * (carting ? 12 / Math.max(12, ride.speed) : 1) * (1 - 0.35 * ride.tuck) * (1 - ride.brake) * (1 + 0.6 * ride.skid) * Math.max(0.5, 1 + g.turn);
     const pivot = Math.sign(turning) * SKID_TURN * ride.skid;
     // (Steered freely, all the way round, and back up the run the way it came (asked: "allow the player to steer freely, also to go
     // back uphill where they came from"): it was held to within some hundred and ten degrees of straight down the run.)
