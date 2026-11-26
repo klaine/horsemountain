@@ -999,6 +999,14 @@ interface Portal { x: number; z: number; half: number; y0: number; y1: number }
  * lights every cave shares (`shared`). And what the game asks of them: whether a point is within them (`spaceAt`), where one on foot is
  * along them, and how high the floor is there.
  */
+/**
+ * How far behind a wall's face a second layer of it lies (asked: "check that all walls and bridges etc have a bit of 3d depth /
+ * thickness to not be just 2d paper thin surfaces"): the walls were one sheet, and where the stone is cut away to see into a room from
+ * above, their top edge was a line, a wall of no thickness. With a second layer behind, drawn dark from behind as the first is, the cut
+ * between the two reads as the wall's thickness.
+ */
+const WALL_DEPTH = 0.8;
+
 export class Deeps {
   readonly group = new Group();
   /** Seen from above on foot: stone cut away over its own floor by `cutOver`, and all of a floor higher than `under`'s by two metres. */
@@ -1323,7 +1331,7 @@ export class Deeps {
    * the floor across it, where nothing falls away and no stair is laid (`layDecks`).
    */
   private layVaults(rock: Shape, floors: Shape) {
-    const P = this.plan, N0 = P.pts.length, ring: number[] = new Array(N0).fill(-1), axis: [number, number, number][] = new Array(N0);
+    const P = this.plan, N0 = P.pts.length, ring: number[] = new Array(N0).fill(-1), outer: number[] = new Array(N0).fill(-1), axis: [number, number, number][] = new Array(N0);
     const mouths = this.sideMouths();
     for (let k = 0; k < N0; k++) {
       if (P.open[k]) continue;
@@ -1364,6 +1372,8 @@ export class Deeps {
       rock.mixed = 0.35 * share[1] + share[2] + share[3];
       ring[k] = rock.count;
       axis[k] = [cx, base + H * 0.35, cz];
+      // (And a second ring of points behind it, `WALL_DEPTH` further out, for the wall's depth: see `WALL_DEPTH`.)
+      const outs: number[][] = [];
       for (let j = 0; j <= RING; j++) {
         let lat = 0, up = 0;
         CUTS.forEach((c, i) => { if (share[i] <= 0) return; const [a, b] = outlineAt(c, j / RING); lat += share[i] * a; up += share[i] * b; });
@@ -1371,7 +1381,11 @@ export class Deeps {
         const h = H * up, r = this.rough(k, j, big) * smooth * (1 + 0.6 * share[0]);
         const ox = lat / Math.max(W, 1e-3), oy = (up - 0.35) * 0.8, ol = Math.hypot(ox, oy) || 1;
         rock.point(cx + lx * (lat + (ox / ol) * r), base + h + (oy / ol) * r, cz + lz * (lat + (ox / ol) * r), 0, 0, 0, (j * W * 0.14) / 2.5, k / 2.5);
+        const rr = r + WALL_DEPTH;
+        outs.push([cx + lx * (lat + (ox / ol) * rr), base + h + (oy / ol) * rr, cz + lz * (lat + (ox / ol) * rr), (j * W * 0.14) / 2.5, k / 2.5]);
       }
+      outer[k] = rock.count;
+      for (const o of outs) rock.point(o[0], o[1], o[2], 0, 0, 0, o[3], o[4]);
       // The floor across it, where it is not a bridge's or a ledge's over a drop, nor a stair's.
       if (P.drop[k] < 0.5 && !STEPPED.has(this.kindAt[k])) {
         floors.floor = P.floor[k];
@@ -1401,6 +1415,8 @@ export class Deeps {
       // (Not where a side way goes out through this one's wall: its doorway.)
       if (mouths.some((m) => m.near(k) && m.holds(mx, my, mz))) continue;
       quad(rock, a, b, c, d, ox - mx, oy - my, oz - mz);
+      // (The same cut for the layer behind: a doorway is through both.)
+      if (outer[k - 1] >= 0 && outer[k] >= 0) quad(rock, outer[k - 1] + j, outer[k - 1] + j + 1, outer[k] + j, outer[k] + j + 1, ox - mx, oy - my, oz - mz);
     }
     // (Each side way's far end walled up: a wall across its last metre, from its middle out to its vault.)
     for (const l of this.lines.slice(1)) {
@@ -1475,11 +1491,18 @@ export class Deeps {
     const wall = (pt: (u: number, v: number) => Vector3, nu: number, nv: number, inward: (x: number, z: number) => [number, number], floorOf: (y: number) => number) => {
       const first = rock.count;
       for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) { const p = pt(i / nu, j / nv); rock.floor = floorOf(p.y); rock.point(p.x, p.y, p.z, 0, 0, 0, (i / nu) * nu * 0.6, p.y / 2.5); }
+      // (A second layer behind it, `WALL_DEPTH` out from the first, away from the middle of the chamber.)
+      const behind = rock.count - first;
+      for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+        const p = pt(i / nu, j / nv), [wx, wz] = inward(p.x, p.z), l = Math.hypot(wx, wz) || 1;
+        rock.floor = floorOf(p.y); rock.point(p.x - (wx / l) * WALL_DEPTH, p.y, p.z - (wz / l) * WALL_DEPTH, 0, 0, 0, (i / nu) * nu * 0.6, p.y / 2.5);
+      }
       for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
         const a = first + j * (nu + 1) + i, b = a + 1, c = a + nu + 1, d = c + 1, [mx, my, mz] = mid(rock, a, d);
         if (this.inPortal(mx, my, mz)) continue;
         const [wx, wz] = inward(mx, mz);
         quad(rock, a, b, c, d, wx, 0, wz);
+        quad(rock, a + behind, b + behind, c + behind, d + behind, wx, 0, wz);
       }
     };
     const cap = (cx: number, cz: number, edge: (u: number) => [number, number], y: number, up: boolean) => {
