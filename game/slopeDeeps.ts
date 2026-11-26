@@ -1259,6 +1259,10 @@ export class Deeps {
     const at = k - l.s0 <= 24 ? l.from : l.to !== undefined && l.s1 - 1 - k <= 24 ? l.to : -1;
     if (at < 0) return 0;
     const P = this.plan, [x, z] = P.pts[k], line = this.lines[this.lineOf[at]];
+    // (Leaving a tall chamber, a hall or a shaft: in it as far as its own wall has it, not as far as the breadth of its metres of the line
+    // reaches, which is wider than it is where the line is near its wall: judged so, a side way had no vault of its own for as long as
+    // that breadth reached, some metres outside the chamber, with no roof and no walls there.)
+    if (this.inSpace(P.pts[at][0], P.pts[at][1], 0) > 0) { const into = this.inSpace(x, z, 0); return into > 0 ? Math.max(into, 0.31) : Math.min(0, into); }
     let most = -Infinity;
     for (let j = Math.max(line.s0, at - 10); j <= Math.min(line.s1 - 2, at + 10); j++) {
       if (!this.joined(j)) continue;
