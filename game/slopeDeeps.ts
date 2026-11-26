@@ -1285,11 +1285,30 @@ export class Deeps {
     }
     return ends.map(({ at, k, out }) => {
       const [ddx, ddz] = this.dirAt(k), dx = ddx * out, dz = ddz * out, [ox, oz] = P.pts[k], half = P.wide[k] - 0.15, y0 = P.floor[k] - 0.6, y1 = P.floor[k] + P.roof[k] - 0.15;
+      // (The metres of the side way from where it leaves the one it comes out of to a few past its first metre out of its breadth, each as
+      // far either side as the way is broad: the opening follows the way itself. The wall it goes through is further out than the
+      // breadth the line is judged by where the rock bulges out or the chamber is broad, and a way leaving at a slant is long in that
+      // wall: an opening a few metres either side of its first metre out left stone across the way a few metres before it, which had to
+      // be walked "through".)
+      const l = this.lines[this.lineOf[k]], run: number[] = [];
+      const parent = this.lines[this.lineOf[at]];
+      for (let j = out > 0 ? l.s0 : k - 3; j <= (out > 0 ? k + 3 : l.s1 - 2); j++) {
+        if (j < l.s0 || j + 1 >= l.s1) continue;
+        // (Not where it is still in the middle of the way it leaves, whose roof is not to be opened over it.)
+        let clear = true;
+        for (let q = Math.max(parent.s0, at - 30); q <= Math.min(parent.s1 - 1, at + 30) && clear; q++) if (Math.hypot(P.pts[j][0] - P.pts[q][0], P.pts[j][1] - P.pts[q][1]) < 0.7 * P.wide[q]) clear = false;
+        if (clear) run.push(j);
+      }
       return {
-        near: (j: number) => Math.abs(j - at) <= 12 && this.lineOf[j] === this.lineOf[at],
+        near: (j: number) => Math.abs(j - at) <= 30 && this.lineOf[j] === this.lineOf[at],
         holds: (x: number, y: number, z: number) => {
           const along = (x - ox) * dx + (z - oz) * dz, lat = -(x - ox) * dz + (z - oz) * dx;
-          return along > -3 && along < 2.5 && Math.abs(lat) < half && y > y0 && y < y1;
+          if (along > -3 && along < 2.5 && Math.abs(lat) < half && y > y0 && y < y1) return true;
+          for (const j of run) {
+            const [ax, az] = P.pts[j], [bx, bz] = P.pts[j + 1], ex = bx - ax, ez = bz - az, L2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / L2));
+            if (Math.hypot(x - (ax + ex * t), z - (az + ez * t)) < P.wide[j] - 0.15 && y > P.floor[j] - 0.6 && y < P.floor[j] + P.roof[j] - 0.15) return true;
+          }
+          return false;
         },
       };
     });
