@@ -1308,7 +1308,7 @@ export class Deeps {
         holds: (x: number, y: number, z: number) => {
           const along = (x - ox) * dx + (z - oz) * dz, lat = -(x - ox) * dz + (z - oz) * dx;
           if (along > -3 && along < 2.5 && Math.abs(lat) < half && y > y0 && y < y1) return true;
-          for (const j of run) {
+          for (const j of (globalThis as { __noTube?: boolean }).__noTube ? [] : run) {
             const [ax, az] = P.pts[j], [bx, bz] = P.pts[j + 1], ex = bx - ax, ez = bz - az, L2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / L2));
             if (Math.hypot(x - (ax + ex * t), z - (az + ez * t)) < P.wide[j] - 0.15 && y > P.floor[j] - 0.6 && y < P.floor[j] + P.roof[j] - 0.15) return true;
           }
