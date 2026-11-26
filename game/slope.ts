@@ -7515,6 +7515,13 @@ async function start() {
   /** Whether one on foot walks as a person: the skier, or the rider got down off its horse (the horse alone walks as a horse). */
   const walks = () => who !== 'horse';
   /** Into the cave's camp, riding: braked to a stop, and the skis off. Out of it on foot: the skis on again, and away. */
+  /**
+   * The camp skis were put on in to go on down, not stopped in again until the skier has been thirty metres clear of it (asked: "after
+   * exiting a dungeon, for some reason i get switched back to isometric after a while even if I switch the camera back to Behind"):
+   * the way on down from it led back through it, and the skier was braked to a stop there and its skis taken off again, on foot and
+   * seen from above.
+   */
+  let leftCamp: Cave | null = null;
   const stepCamp = () => {
     const cave = caveNow();
     // (Driving the rocket cart back up the run into the camp: the cart left there, gone, the run the right way about again, and the
@@ -7535,6 +7542,7 @@ async function start() {
       return;
     }
     if (!cave || foot || mode !== 'ride' || air || crash || cat || carting || inside || flyingDemo || trip?.started) { stopping = shortOf = false; return; }
+    if (leftCamp) { const q = toCave(ride); if (leftCamp !== cave || !cave.inCamp(q.x, q.z, 30)) leftCamp = null; else { stopping = shortOf = false; return; } }
     // (Braking from as far back as it takes to stop in the camp, if the way it goes leads into it: not riding on past beside it.)
     const p = toCave(ride), was = stopping, go = along(ride.way, here), reach = 3 + ride.speed ** 2 / 14;
     // (Aimed a few metres inside its edge, and kept up once begun, near it: so that it stops in it, not short of it.)
@@ -7705,6 +7713,7 @@ async function start() {
   };
   const skisOn = () => {
     const f = foot!;
+    leftCamp = caveNow();
     leaveFoot();
     ride.x = f.x; ride.z = f.z;
     here = land.frame(f.x, f.z, ride.down);
@@ -7781,7 +7790,7 @@ async function start() {
     let nx: number, nz: number, floor: number;
     if (f.deep && deeps && ends) {
       // In the deeps (`slopeDeeps.ts`): along their line; a lift ridden; out through a door, into the dungeon there, the run's way its.
-      const lift = deeps.stepLifts(dt, { x: f.x - o.x, z: f.z - o.z, y: f.y - o.y });
+      const lift = deeps.stepLifts(dt, { x: f.x - o.x, z: f.z - o.z, y: f.y - o.y, s: f.deep.s });
       if (lift?.said) tell(lift.said, '', false, 2.5);
       const w = deeps.walk(f.x - o.x, f.z - o.z, f.x - o.x + f.dx * f.speed * dt, f.z - o.z + f.dz * f.speed * dt, f.y - o.y, f.deep.s, r);
       // (A door with no dungeon behind it (a picture's, `__slope.deeps`): a wall.)
@@ -9287,6 +9296,20 @@ async function start() {
     // to the eye as the page goes on. Again with another seed, the last let go of.)
     // (On foot, walked toward a point of the scene, as a tap on the snow or the floor walks there; and where on foot it is in the deeps.)
     walkTo: (x: number, z: number) => { footPad.to = new Vector3(x, 0, z); },
+    // (The deeps themselves and the scene's offset, for a script looking into how they are made.)
+    deepsMade: () => ({ deeps: (land as DeepsLand).deeps ?? null, at: land.group.position.clone() }),
+    // (A metre of the deeps' line, where it is in the scene: for a script to look at it, `lookAt`.)
+    deepPoint: (s: number) => { const D = (land as DeepsLand).deeps, o = land.group.position; if (!D) return null; const k = Math.max(0, Math.min(D.plan.pts.length - 1, Math.round(s))), [x, z] = D.plan.pts[k]; return { x: x + o.x, y: D.plan.floor[k] + o.y, z: z + o.z, walk: D.plan.walk[k], wide: D.plan.wide[k], roof: D.plan.roof[k], open: D.plan.open[k], kind: D.plan.pieces.find((q) => k >= q.s0 && k < q.s1)?.kind ?? 'way' }; },
+    // (Where the deeps' floor rises or falls most sharply from one metre to the next within a line, not at a lift: the steepest few.)
+    deepSteps: (most = 12) => {
+      const P = (land as DeepsLand).deeps?.plan;
+      if (!P) return null;
+      const lifts = new Set(P.lifts.map((l) => Math.min(l.top, l.foot))), out: { k: number; rise: number; line: number; piece: string }[] = [];
+      P.lines.forEach((l, i) => { for (let k = l.s0; k + 1 < l.s1; k++) if (!lifts.has(k)) out.push({ k, rise: +(P.floor[k + 1] - P.floor[k]).toFixed(2), line: i, piece: P.pieces.find((q) => k >= q.s0 && k < q.s1)?.kind ?? '' }); });
+      return out.sort((a, b) => Math.abs(b.rise) - Math.abs(a.rise)).slice(0, most);
+    },
+    // (The deeps' pieces along the line, where each begins and ends and how high its floor is at each end and at its lowest and highest.)
+    deepPieces: () => { const P = (land as DeepsLand).deeps?.plan; return P ? P.pieces.map((p) => { const e = Math.min(p.s1, P.floor.length - 1), f = P.floor.slice(p.s0, e + 1); return { kind: p.kind, name: p.name, s: [p.s0, p.s1], y: [+P.floor[p.s0].toFixed(1), +P.floor[e].toFixed(1)], lo: +Math.min(...f).toFixed(1), hi: +Math.max(...f).toFixed(1) }; }) : null; },
     deepAt: () => (foot?.deep ? { s: +foot.deep.s.toFixed(1), y: +foot.y.toFixed(1), piece: (land as DeepsLand).deeps?.pieceAt(foot.deep.s)?.name ?? '' } : null),
     // (On foot in the deeps `s` metres along them, from the cave of the land's way: as if come there through its door.)
     goDeeps: async (s = 0) => {

@@ -112,7 +112,12 @@ const SWITCHBACK = { leg: [16, 22], fall: [4, 5.5], apart: 4.2, walk: 1.5 } as c
 const GRAND = { grade: [0.4, 0.5], walk: [3, 4.5], wide: [5, 6.5], roof: [9, 12] } as const;
 const SCREE = { grade: [0.22, 0.3], walk: [2.5, 3.5], wide: [4.5, 6], roof: [6, 9] } as const;
 const LEDGE = { grade: [0.16, 0.22], walk: 1.3, wide: [12, 16], roof: [10, 14] } as const;
-const LIFT = { well: 2.4, walk: 1.6 } as const;
+/**
+ * A lift: its well's half breadth, the way onto it; how far along the way one on its top's floor or its foot's calls it, and how fast it
+ * comes empty and carries one (metres a second). (Empty it comes as fast as five times what it carries: called by one coming to it from
+ * the door eight metres off, the old lift a hundred and eighty metres deep had taken nearly two minutes to come up.)
+ */
+const LIFT = { well: 2.4, walk: 1.6, call: 150, empty: 8, carried: 1.6 } as const;
 /** How much rock is kept over the deeps' highest roof everywhere, metres; how far down the deeps lie under the lower door at the least. */
 const COVER = 4, UNDER = 12;
 /** A dungeon's corridor at its door, half as broad and as high (`CAVE.cell` / 2 and `CAVE.corridor` in `slopeDungeon.ts`). */
@@ -783,6 +788,8 @@ function abyss(T: Turtle, R: number, above: number, rng: Rng) {
   // it a quarter of the way, rising or falling some seven metres, and straight across its middle again, square to the first bridge,
   // over it or under it.
   const twice = rng.chance(ABYSS.twice);
+  // (Where its stretch of the line ends: past the second bridge's far wall, before the way back to the first bridge's level.)
+  let sEnd = T.s;
   if (twice) {
     const side = rng.chance(0.5) ? 1 : -1, dy = (rng.chance(0.5) ? 1 : -1) * span(rng, ABYSS.cross), s1 = T.s, yb = y + dy, wd = span(rng, PIECES.way.walk), wi = span(rng, PIECES.way.wide);
     const goal = h + (side * Math.PI) / 2, turn = () => { for (let k = 0; k < 6; k++) { put(); T.step((side * Math.PI) / 2 / 6); } };
@@ -804,8 +811,17 @@ function abyss(T: Turtle, R: number, above: number, rng: Rng) {
     const s2 = T.s;
     across(yb);
     T.piece('abyss', dy > 0 ? 'the High Bridge' : 'the Low Bridge', s2);
+    // And on from the far wall, back to the first bridge's level over as many metres as it was left over, as the way round did: the line
+    // had gone on at that level from the second bridge's last metre, rising or falling the seven metres between them in one (asked:
+    // "there's a huge drop from the tunnel to the bridge level, like all the drop comes suddenly, not over the course of the winding
+    // tunnel").
+    sEnd = T.s;
+    const s3 = T.s, back = 40, ph = rng.range(0, 6);
+    for (let k = 0; k < back; k++) { T.put(wd, wi, 3.8, { floor: lerp(yb, y, Math.min(1, (k + 1) / back)) }); T.step(Math.sin(k * 0.13 + ph) * 0.03); }
+    T.piece('way', '', s3);
+    lightPassage(T, s3, T.s);
   }
-  P.shafts.push({ x: cx, z: cz, r: R, y0: y - depth, y1: y + above, s0, s1: T.s, abyss: true, ...(twice ? { twice: true } : {}) });
+  P.shafts.push({ x: cx, z: cz, r: R, y0: y - depth, y1: y + above, s0, s1: sEnd, abyss: true, ...(twice ? { twice: true } : {}) });
   // (Round its wall, clear of where the way comes in and goes out: at the bridge's height, and lower down, the depth glowing.)
   for (let k = 0; k < 10; k++) {
     const a = h + ((k + 0.5) / 10) * Math.PI * 2;
@@ -900,7 +916,9 @@ function lay(a: DeepsDoor, b: DeepsDoor, rng: Rng, deep: number, ground: (x: num
   /** A passage from where the line is, turning towards `want` over its length, winding as it goes. */
   const way = (want: number, long: number) => {
     const s0 = T.s, wd = span(rng, PIECES.way.walk), wi = span(rng, PIECES.way.wide), rf = span(rng, PIECES.way.roof), wob = rng.range(0.02, 0.06), ph = rng.range(0, 6), y0 = T.y;
-    for (let i = 0; i < long; i++) { T.put(wd, wi, rf, { floor: y0 + Math.sin(i * 0.11 + ph) * 0.4 }); T.step(wrap(want - T.heading) / Math.max(4, long - i) + Math.sin(i * 0.2 + ph) * wob); }
+    // (Its floor rising and falling a little, back to the level at either end: the next piece begins at the level, and the passage had
+    // ended as much as four tenths of a metre off it, a step in one metre.)
+    for (let i = 0; i < long; i++) { const e = Math.min(1, i / 6, (long - 1 - i) / 6); T.put(wd, wi, rf, { floor: y0 + Math.sin(i * 0.11 + ph) * 0.4 * e }); T.step(wrap(want - T.heading) / Math.max(4, long - i) + Math.sin(i * 0.2 + ph) * wob); }
     T.piece('way', '', s0);
   };
   for (let n = 0; n < count; n++) {
@@ -919,7 +937,9 @@ function lay(a: DeepsDoor, b: DeepsDoor, rng: Rng, deep: number, ground: (x: num
     const bend = kind === 'fissure' ? rng.range(0.03, 0.06) : 0, ph = rng.range(0, 6), drop = kind === 'chasm' ? rng.range(28, 48) : 0;
     for (let i = 0; i < long; i++) {
       // (Into a chamber and out of it over a few metres, from the passage's measures to its own and back.)
-      const e = Math.min(1, i / 4, (long - 1 - i) / 4), lift = kind === 'fissure' ? Math.sin(i * 0.15 + ph) * 1.2 : 0;
+      // (A fissure's floor rising and falling, back to the level at its ends, where the passages either side are: as much as a metre and
+      // a fifth off it there, it had been a step up or down in one metre.)
+      const e = Math.min(1, i / 4, (long - 1 - i) / 4), lift = kind === 'fissure' ? Math.sin(i * 0.15 + ph) * 1.2 * e : 0;
       T.put(lerp(1.6, walk, kind === 'chasm' ? 1 : e), lerp(2.4, wide, e), lerp(3.8, roof, e), { floor: y + lift, drop: drop * Math.min(1, i / 3, (long - 1 - i) / 3) });
       T.step(kind === 'fissure' ? Math.sin(i * 0.17 + ph) * bend : 0);
     }
@@ -1061,7 +1081,10 @@ interface Portal { x: number; z: number; half: number; y0: number; y1: number }
  * How far behind a wall's face a second layer of it lies (asked: "check that all walls and bridges etc have a bit of 3d depth /
  * thickness to not be just 2d paper thin surfaces"): the walls were one sheet, and where the stone is cut away to see into a room from
  * above, their top edge was a line, a wall of no thickness. With a second layer behind, drawn dark from behind as the first is, the cut
- * between the two reads as the wall's thickness.
+ * between the two reads as the wall's thickness. The layer behind is the rock within the wall (`backs` in the `Deeps` constructor), dark
+ * from either side, and the gap between the two closed along the wall's foot and at its ends with the same: open, the cut was looked
+ * down through, between the two, to whatever lay below (asked: "there are plenty of tunnel surfaces with transparency on top (like the
+ * wall thickness here in screenshot, some wall ends etc)"), and the layer behind showed its face, lit, to the gap.
  */
 const WALL_DEPTH = 0.8;
 
@@ -1134,10 +1157,10 @@ export class Deeps {
     // (Where each flame burns, first: the stone is lit by them as it is laid.)
     for (const t of P.torches) this.flameAt.push(new Vector3(t.x, t.y + (t.kind === 'brazier' ? 0.25 : 0), t.z));
 
-    const rock = new Shape(), floors = new Shape(), walls = new Shape();
-    this.layVaults(rock, floors);
+    const rock = new Shape(), floors = new Shape(), walls = new Shape(), backs = new Shape();
+    this.layVaults(rock, floors, backs);
     this.layDecks(floors, walls);
-    this.laySpaces(rock, floors);
+    this.laySpaces(rock, floors, backs);
     this.layPosts(walls, rock);
     this.planDressing();
     for (const s of [rock, floors, walls]) this.bake(s);
@@ -1147,26 +1170,27 @@ export class Deeps {
      * light worked into it, and by the lantern and the fire. Seen from above, cut away over a height; a wall's back drawn dark, as the
      * rock behind its face, so that a wall seen from outside is a mass and not a sheet.
      */
-    const stone = (a: { map: N; normal: N }, b: { map: N; normal: N }, roughness: number, backed = false, both = false) => {
+    const stone = (a: { map: N; normal: N }, b: { map: N; normal: N }, roughness: number, backed = false, both = false, inRock = false) => {
       // (`both`: drawn from either side, not dark behind: a floor, whose quads fold over one another on the inside of a bend, the folded
       // ones facing down and, drawn from one side only, gone: black wedges cut into the floor there.)
       const m = new MeshStandardNodeMaterial({ roughness, metalness: 0, side: backed || both ? DoubleSide : undefined });
       const k = attribute('aMix', 'float') as N, albedo = mix(texture(a.map, uv()).rgb as N, texture(b.map, uv()).rgb as N, k);
       const dark = vec3(0.035, 0.031, 0.028);
-      m.colorNode = (backed ? select(frontFacing, albedo, dark) : albedo) as N;
+      m.colorNode = (inRock ? dark : backed ? select(frontFacing, albedo, dark) : albedo) as N;
       m.normalNode = normalMap(mix(texture(a.normal, uv()) as N, texture(b.normal, uv()) as N, k));
       const lit = this.hazed((albedo as N).mul((attribute('aLight', 'vec3') as N).add(this.bright)).mul(this.flicker));
-      m.emissiveNode = (backed ? select(frontFacing, lit, dark.mul(0.25)) : lit) as N;
+      m.emissiveNode = (inRock ? dark.mul(0.25) : backed ? select(frontFacing, lit, dark.mul(0.25)) : lit) as N;
       m.lightsNode = lights([this.shared.lantern, this.shared.fire]);
       const floor = attribute('aFloor', 'float') as N;
       // (Seen from above: gone over the height it is cut at over its own floor, and all of a floor above the one on foot's; a back, not
       // when the backs are not drawn.)
       const gone = positionWorld.y.greaterThan(floor.add(this.cutOver)).or(floor.greaterThan((this.under as N).add(2)));
-      m.opacityNode = select(backed ? gone.or(frontFacing.not().and((this.backs as N).lessThan(0.5))) : gone, float(0), float(1));
+      m.opacityNode = select(inRock ? gone.or((this.backs as N).lessThan(0.5)) : backed ? gone.or(frontFacing.not().and((this.backs as N).lessThan(0.5))) : gone, float(0), float(1));
       m.alphaTestNode = float(0.5);
       return m;
     };
-    for (const [s, m] of [[rock, stone(T.rock, T.wall, 0.95, true)], [floors, stone(T.rock, T.floor, 0.88, false, true)], [walls, stone(T.wall, T.wall, 0.9)]] as const) {
+    // (And the rock within the walls, `backs`: their layer behind and what closes the gap between the two, dark from either side.)
+    for (const [s, m] of [[rock, stone(T.rock, T.wall, 0.95, true)], [floors, stone(T.rock, T.floor, 0.88, false, true)], [walls, stone(T.wall, T.wall, 0.9)], [backs, stone(T.rock, T.rock, 0.95, true, false, true)]] as const) {
       const mesh = new Mesh(s.geometry(true), m);
       mesh.receiveShadow = true;
       this.group.add(mesh);
@@ -1251,10 +1275,28 @@ export class Deeps {
   }
   /** How far a point lies inside a shaft or a tall chamber (more than nothing, in it). */
   private inSpace(x: number, z: number, pad = 0): number { return intoSpace(this.plan, x, z, pad); }
+  /**
+   * How far within a space's wall as it is drawn a point `y` high is (less than nothing, outside): a vast cavern's by its wall bulging
+   * out, as much as four and a half metres past its round (`cavernWall`); any other's as `inSpace` has it. Judged by its round, as the
+   * plan is, a passage's vault went on into a cavern short of its wall and stood in it, walls in the open cavern, and the doorway into
+   * the passage was cut short of the wall, which stood across the way and was walked through (asked: "a wall that you can walk through
+   * again, should be an opening").
+   */
+  private wallInto(x: number, z: number, y: number, only?: object): number {
+    const P = this.plan;
+    let most = -Infinity;
+    for (const sh of P.shafts) {
+      if (only && sh !== only) continue;
+      if (sh.cavern) { const v = Math.max(0, Math.min(1, (y - sh.y0) / Math.max(1, sh.y1 - sh.y0))); most = Math.max(most, cavernWall(sh, Math.atan2(z - sh.z, x - sh.x), v) - Math.hypot(x - sh.x, z - sh.z)); }
+      else most = Math.max(most, intoSpace({ ...P, shafts: [sh], halls: [] }, x, z, 0));
+    }
+    for (const h of P.halls) if (!only || h === only) most = Math.max(most, intoSpace({ ...P, shafts: [], halls: [h] }, x, z, 0));
+    return most;
+  }
   /** Whether a point is within the deeps' open space: a vault about the line, a shaft, a tall chamber. */
   spaceAt(x: number, y: number, z: number): boolean {
     const P = this.plan;
-    for (const sh of P.shafts) if (y > sh.y0 - 0.2 && y < sh.y1 + 0.2 && (sh.square ? Math.max(...this.squareLocal(sh, x, z).map(Math.abs)) < sh.r : Math.hypot(x - sh.x, z - sh.z) < sh.r)) return true;
+    for (const sh of P.shafts) if (y > sh.y0 - 0.2 && y < sh.y1 + 0.2 && (sh.square ? Math.max(...this.squareLocal(sh, x, z).map(Math.abs)) < sh.r : Math.hypot(x - sh.x, z - sh.z) < (sh.cavern ? cavernWall(sh, Math.atan2(z - sh.z, x - sh.x), (y - sh.y0) / Math.max(1, sh.y1 - sh.y0)) : sh.r))) return true;
     if (P.halls.some((h) => y > h.y0 - 0.2 && y < h.y1 + 0.2) && this.inSpace(x, z) > 0) for (const h of P.halls) if (y > h.y0 - 0.2 && y < h.y1 + 0.2 && intoSpace({ ...P, shafts: [], halls: [h] }, x, z, 0) > 0) return true;
     for (const k of this.near(x, z)) {
       const [dx, dz] = this.dirAt(k), [px, pz] = P.pts[k], along = (x - px) * dx + (z - pz) * dz;
@@ -1277,7 +1319,7 @@ export class Deeps {
     // (Where any line goes from in a space to out of it, or back: its first metre out, the doorway there. A great chasm is crossed by
     // more than one.)
     for (const sp of spaces) {
-      const only = { ...P, shafts: P.shafts.filter((q) => q === sp), halls: P.halls.filter((q) => q === sp) }, inside = (k: number) => intoSpace(only, P.pts[k][0], P.pts[k][1], 0) > 0;
+      const inside = (k: number) => this.wallInto(P.pts[k][0], P.pts[k][1], P.floor[k], sp) > 0;
       for (let k = 0; k + 1 < P.pts.length; k++) {
         if (!this.joined(k)) continue;
         const a = inside(k), b = inside(k + 1);
@@ -1334,12 +1376,16 @@ export class Deeps {
     // (Leaving a tall chamber, a hall or a shaft: in it as far as its own wall has it, not as far as the breadth of its metres of the line
     // reaches, which is wider than it is where the line is near its wall: judged so, a side way had no vault of its own for as long as
     // that breadth reached, some metres outside the chamber, with no roof and no walls there.)
-    if (this.inSpace(P.pts[at][0], P.pts[at][1], 0) > 0) { const into = this.inSpace(x, z, 0); return into > 0 ? Math.max(into, 0.31) : Math.min(0, into); }
+    if (this.wallInto(P.pts[at][0], P.pts[at][1], P.floor[at]) > 0) { const into = this.wallInto(x, z, P.floor[k]); return into > 0 ? Math.max(into, 0.31) : Math.min(0, into); }
+    // (Within its wall as it bulges, a natural chamber's out by as much as half again its breadth, and the rock's roughness: judged by
+    // its breadth alone, a side way's vault began out in the open chamber, short of its wall, and stood in it, a block of masonry walked
+    // through (asked: "unfinished wall that player can walk through").)
     let most = -Infinity;
     for (let j = Math.max(line.s0, at - 10); j <= Math.min(line.s1 - 2, at + 10); j++) {
       if (!this.joined(j)) continue;
       const [ax, az] = P.pts[j], [bx, bz] = P.pts[j + 1], dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2));
-      most = Math.max(most, P.wide[j] - Math.hypot(x - (ax + dx * t), z - (az + dz * t)));
+      const px = ax + dx * t, pz = az + dz * t, L = Math.sqrt(L2), lat = ((x - px) * -dz + (z - pz) * dx) / L;
+      most = Math.max(most, P.wide[j] * (1 + this.bulge(j, lat < 0 ? -1 : 1)) + 0.3 * this.cuts[0][j] - Math.hypot(x - px, z - pz));
     }
     return most;
   }
@@ -1394,7 +1440,7 @@ export class Deeps {
    * section arched, as wide and high as the line has it there and its middle where it is, its foot as deep as the land falls away; and
    * the floor across it, where nothing falls away and no stair is laid (`layDecks`).
    */
-  private layVaults(rock: Shape, floors: Shape) {
+  private layVaults(rock: Shape, floors: Shape, backs: Shape) {
     const P = this.plan, N0 = P.pts.length, ring: number[] = new Array(N0).fill(-1), outer: number[] = new Array(N0).fill(-1), axis: [number, number, number][] = new Array(N0);
     const mouths = this.sideMouths();
     for (let k = 0; k < N0; k++) {
@@ -1417,7 +1463,7 @@ export class Deeps {
       }
       // (Into a shaft or a tall chamber the passage's vault goes on a metre and a half past its wall, through the doorway cut a little
       // smaller than it, so that no gap shows between them; further in, only its floor, out to where a stair or a ramp takes over.)
-      const into = this.inSpace(P.pts[k][0], P.pts[k][1]);
+      const into = this.wallInto(P.pts[k][0], P.pts[k][1], P.floor[k]);
       const [dx, dz] = this.dirAt(k), lx = -dz, lz = dx, [px, pz] = P.pts[k], cx = px + lx * P.shift[k], cz = pz + lz * P.shift[k];
       if (into > 1.5) {
         if (STEPPED.has(this.kindAt[k])) continue;
@@ -1459,7 +1505,13 @@ export class Deeps {
         const rr = r + WALL_DEPTH;
         outs.push([cx + lx * (lat + (ox / ol) * rr), base + h + (oy / ol) * rr, cz + lz * (lat + (ox / ol) * rr), round / 2.5, k / 2.5]);
       }
-      if (!(globalThis as { __noDepth?: boolean }).__noDepth) { outer[k] = rock.count; for (const o of outs) rock.point(o[0], o[1], o[2], 0, 0, 0, o[3], o[4]); }
+      // (The layer behind in the rock within the wall, and after it the face's own points again there, for what closes the gap.)
+      if (!(globalThis as { __noDepth?: boolean }).__noDepth) {
+        backs.floor = P.floor[k];
+        outer[k] = backs.count;
+        for (const o of outs) backs.point(o[0], o[1], o[2], 0, 0, 0, o[3], o[4]);
+        for (let j = 0; j <= RING; j++) { const q = ring[k] + j; backs.point(rock.pos[q * 3], rock.pos[q * 3 + 1], rock.pos[q * 3 + 2], 0, 0, 0, rock.uv[q * 2], rock.uv[q * 2 + 1]); }
+      }
       // The floor across it, where it is not a bridge's or a ledge's over a drop, nor a stair's.
       if (P.drop[k] < 0.5 && !STEPPED.has(this.kindAt[k])) {
         floors.floor = P.floor[k];
@@ -1490,7 +1542,17 @@ export class Deeps {
       if (mouths.some((m) => m.near(k) && m.holds(mx, my, mz))) continue;
       quad(rock, a, b, c, d, ox - mx, oy - my, oz - mz);
       // (The same cut for the layer behind: a doorway is through both.)
-      if (outer[k - 1] >= 0 && outer[k] >= 0) quad(rock, outer[k - 1] + j, outer[k - 1] + j + 1, outer[k] + j, outer[k] + j + 1, ox - mx, oy - my, oz - mz);
+      if (outer[k - 1] >= 0 && outer[k] >= 0) quad(backs, outer[k - 1] + j, outer[k - 1] + j + 1, outer[k] + j, outer[k] + j + 1, ox - mx, oy - my, oz - mz);
+    }
+    // (The gap between the face and the layer behind closed: along both feet of the wall from one metre to the next, and across all of it
+    // where the vault begins or ends, at a chamber's wall, a shaft's, a stair's foot or a way's walled-up end.)
+    const own = (k: number, j: number) => outer[k] + RING + 1 + j;
+    for (let k = 0; k < N0; k++) {
+      if (outer[k] < 0) continue;
+      const on = k > 0 && outer[k - 1] >= 0 && this.joined(k - 1), next = k + 1 < N0 && outer[k + 1] >= 0 && this.joined(k);
+      const [ox, oy, oz] = axis[k];
+      if (on) for (const j of [0, RING]) quad(backs, own(k - 1, j), outer[k - 1] + j, own(k, j), outer[k] + j, 0, 1, 0);
+      if (!on || !next) for (let j = 0; j < RING; j++) quad(backs, own(k, j), own(k, j + 1), outer[k] + j, outer[k] + j + 1, ox - backs.pos[own(k, j) * 3], oy - backs.pos[own(k, j) * 3 + 1], oz - backs.pos[own(k, j) * 3 + 2]);
     }
     // (Each side way's far end walled up: a wall across its last metre, from its middle out to its vault.)
     for (const l of this.lines.slice(1)) {
@@ -1542,7 +1604,11 @@ export class Deeps {
       const parts = stepped ? 3 : 1;
       for (let p = 0; p < parts; p++) {
         const A = at(k + p / parts), B = at(k + (p + 1) / parts), y = stepped ? Math.round(A.y / 0.18) * 0.18 : A.y, yB = stepped ? y : B.y;
-        floors.floor = P.floor[k];
+        // (The floor each stands over, for the view from above to cut away over it: the walls' too, the sides, underside and parapet of a
+        // bridge and a stair's risers, which had been laid over a floor of nothing and were cut away from above wherever the deeps were,
+        // the deck alone left, a paper-thin strip (asked: "the bridge doesn't seem to have the thickness it should have? just 2d paper
+        // thin like surface?").)
+        floors.floor = walls.floor = P.floor[k];
         const v = (o: typeof A, lat: number, yy: number) => new Vector3(o.x + o.lx * lat, yy, o.z + o.lz * lat);
         slab(floors, v(A, lo, y), v(A, hi, y), v(B, lo, yB), v(B, hi, yB), UP);
         // The riser down to the next tread, and the slab's underside and its open edges, where there is a drop or open space under it.
@@ -1571,7 +1637,7 @@ export class Deeps {
   }
 
   /** The shafts (round or square) and the tall chambers: their walls rough, a doorway wherever the line comes in or goes out; floor and roof. */
-  private laySpaces(rock: Shape, floors: Shape) {
+  private laySpaces(rock: Shape, floors: Shape, backs: Shape) {
     const P = this.plan;
     const wall = (pt: (u: number, v: number) => Vector3, nu: number, nv: number, inward: (x: number, z: number) => [number, number], floorOf: (y: number) => number) => {
       const first = rock.count;
@@ -1579,18 +1645,25 @@ export class Deeps {
       const around = [0];
       for (let i = 1; i <= nu; i++) { const p0 = pt((i - 1) / nu, 0), p1 = pt(i / nu, 0); around.push(around[i - 1] + Math.hypot(p1.x - p0.x, p1.z - p0.z)); }
       for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) { const p = pt(i / nu, j / nv); rock.floor = floorOf(p.y); rock.point(p.x, p.y, p.z, 0, 0, 0, around[i] / 2.5, p.y / 2.5); }
-      // (A second layer behind it, `WALL_DEPTH` out from the first, away from the middle of the chamber.)
-      const behind = rock.count - first;
+      // (A second layer behind it, `WALL_DEPTH` out from the first, away from the middle of the chamber: in the rock within the wall,
+      // `backs`, with the face's own top and foot again there, for what closes the gap between the two along them.)
+      const behind = backs.count, at = (j: number, i: number) => j * (nu + 1) + i;
       for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
         const p = pt(i / nu, j / nv), [wx, wz] = inward(p.x, p.z), l = Math.hypot(wx, wz) || 1;
-        rock.floor = floorOf(p.y); rock.point(p.x - (wx / l) * WALL_DEPTH, p.y, p.z - (wz / l) * WALL_DEPTH, 0, 0, 0, around[i] / 2.5, p.y / 2.5);
+        backs.floor = floorOf(p.y); backs.point(p.x - (wx / l) * WALL_DEPTH, p.y, p.z - (wz / l) * WALL_DEPTH, 0, 0, 0, around[i] / 2.5, p.y / 2.5);
       }
+      const edges = backs.count;
+      for (const j of [0, nv]) for (let i = 0; i <= nu; i++) { const q = first + at(j, i); backs.floor = rock.ground[q]; backs.point(rock.pos[q * 3], rock.pos[q * 3 + 1], rock.pos[q * 3 + 2], 0, 0, 0, rock.uv[q * 2], rock.uv[q * 2 + 1]); }
       for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
-        const a = first + j * (nu + 1) + i, b = a + 1, c = a + nu + 1, d = c + 1, [mx, my, mz] = mid(rock, a, d);
+        const a = at(j, i), b = a + 1, c = a + nu + 1, d = c + 1, [mx, my, mz] = mid(rock, first + a, first + d);
         if (this.inPortal(mx, my, mz)) continue;
         const [wx, wz] = inward(mx, mz);
-        quad(rock, a, b, c, d, wx, 0, wz);
-        quad(rock, a + behind, b + behind, c + behind, d + behind, wx, 0, wz);
+        quad(rock, first + a, first + b, first + c, first + d, wx, 0, wz);
+        quad(backs, behind + a, behind + b, behind + c, behind + d, wx, 0, wz);
+      }
+      for (const [e, j] of [[0, 0], [1, nv]] as const) for (let i = 0; i < nu; i++) {
+        const f = edges + e * (nu + 1) + i;
+        quad(backs, f, f + 1, behind + at(j, i), behind + at(j, i + 1), 0, j ? 1 : -1, 0);
       }
     };
     const cap = (cx: number, cz: number, edge: (u: number) => [number, number], y: number, up: boolean) => {
@@ -2260,8 +2333,11 @@ export class Deeps {
       g.rotation.y = -l.turn;
       g.userData.lift = l;
       this.group.add(g);
-      this.platforms.push({ mesh: g, at: 0 });
-      this.setLift(this.platforms.length - 1, 0);
+      // (Waiting at the end come to first from the first door, the run ridden's own cave's, where one comes into the deeps: the old lift
+      // a hundred and eighty metres deep, its head eight metres in from that door, had waited at its foot, and was half a minute coming.)
+      const at = l.top < l.foot ? 1 : 0;
+      this.platforms.push({ mesh: g, at });
+      this.setLift(this.platforms.length - 1, at);
     }
   }
   /** A lift's platform set `at` of the way up its well (0 at its foot, 1 at its top), its chains reaching up to the beam over the well. */
@@ -2351,7 +2427,10 @@ export class Deeps {
    */
   walk(x0: number, z0: number, x1: number, z1: number, y: number, s: number, r: number): { x: number; z: number; s: number; out?: number } {
     const P = this.plan;
-    if (this.carry) { const l = P.lifts[this.carry.i]; return { x: l.x, z: l.z, s }; }
+    // (On a lift that carries them, kept on it; not while it only comes to their floor, called from along the way.)
+    if (this.carry?.with) { const l = P.lifts[this.carry.i]; return { x: l.x, z: l.z, s }; }
+    // (Not onto its well while it is still coming: held at the edge, as one waiting for it.)
+    if (this.carry) { const l = P.lifts[this.carry.i]; if (Math.hypot(x1 - l.x, z1 - l.z) < LIFT.well + 0.4 && Math.hypot(x1 - l.x, z1 - l.z) < Math.hypot(x0 - l.x, z0 - l.z)) return { x: x0, z: z0, s }; }
     // (What may be walked is every stretch of the line about this far along it, at this height, and as far either side of it as may be
     // walked there, its ends rounded: so a corner, a stair's landing, is walked round, not caught on. Of the stretches the step lands in,
     // the one whose line it is nearest; landing in none, put back to the edge of the nearest.)
@@ -2361,7 +2440,15 @@ export class Deeps {
       const [ax, az] = P.pts[k], [bx, bz] = P.pts[k + 1], dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1, raw = ((x1 - ax) * dx + (z1 - az) * dz) / L2, t = Math.max(0, Math.min(1, raw));
       const fy = P.floor[k] + (P.floor[k + 1] - P.floor[k]) * t;
       if (Math.abs(y - fy) > 2.2) continue;
-      const px = ax + dx * t, pz = az + dz * t, d = Math.hypot(x1 - px, z1 - pz), room = Math.max(0.25, P.walk[k] + (P.walk[k + 1] - P.walk[k]) * t - r * 0.5);
+      const px = ax + dx * t, pz = az + dz * t, d = Math.hypot(x1 - px, z1 - pz);
+      // (Past either end of the stretch, its rounding no broader than the line is as far on as it reaches: at a chamber's end, where it
+      // narrows to a passage in a few metres, the last broad stretch's rounding had reached on over the narrowing, and the rock of the
+      // chamber's end wall was walked through (asked: "unfinished wall that player can walk through").)
+      let breadth = P.walk[k] + (P.walk[k + 1] - P.walk[k]) * t;
+      const past = (raw - 1) * Math.sqrt(L2), before = -raw * Math.sqrt(L2);
+      if (past > 0) for (let j = k + 2; j <= k + 1 + Math.ceil(past) && this.joined(j - 1); j++) breadth = Math.min(breadth, P.walk[j]);
+      if (before > 0) for (let j = k - 1; j >= k - Math.ceil(before) && this.joined(j); j--) breadth = Math.min(breadth, P.walk[j]);
+      const room = Math.max(0.25, breadth - r * 0.5);
       // (Of those it is in, the one whose line it is nearest: in a broad chamber it is in many, and taken as the one nearest where it was
       // along the line, it was never further along at all. The turns of a stair are told apart by their heights, above.)
       const score = d + 0.02 * (this.apart(k, s) + (this.lineAt(s) === this.lineOf[k] ? t : 0));
@@ -2390,14 +2477,16 @@ export class Deeps {
   private carry: { i: number; to: number; with: boolean } | null = null;
   private stood = 0;
   /**
-   * The lifts a moment on, `dt`, one on foot at `x`, `z`, `y` (none, `null`): a lift comes to the level of one standing by it, and,
-   * stood on for a moment, carries them to its other end. Gives back where the one carried now is (its floor, and how far along the line
-   * it will be once off), while it is carried; and what is said of it as it begins to move.
+   * The lifts a moment on, `dt`, one on foot at `x`, `z`, `y` and `s` along the line (none, `null`): a lift comes to the level of one
+   * coming to it, from `LIFT.call` metres along the way off (on its floor, and on the lift's side of it), and, stood on for a moment, carries them to its other end. Gives back where
+   * the one carried now is (its floor, and how far along the line it will be once off), while it is carried; and what is said of it as it
+   * begins to move. (Asked: "the lift to the depths should come towards the floor players is coming from already before player reaches
+   * the lift": it had been called only from within three metres of its well, and was waited for there.)
    */
-  stepLifts(dt: number, at: { x: number; z: number; y: number } | null): { y: number; s: number; said?: string } | null {
+  stepLifts(dt: number, at: { x: number; z: number; y: number; s?: number } | null): { y: number; s: number; said?: string } | null {
     const P = this.plan;
     if (this.carry) {
-      const c = this.carry, l = P.lifts[c.i], p = this.platforms[c.i], span = Math.max(1, l.y1 - l.y0), step = (1.6 * dt) / span;
+      const c = this.carry, l = P.lifts[c.i], p = this.platforms[c.i], span = Math.max(1, l.y1 - l.y0), step = ((c.with ? LIFT.carried : LIFT.empty) * dt) / span;
       const next = c.to > p.at ? Math.min(c.to, p.at + step) : Math.max(c.to, p.at - step);
       this.setLift(c.i, next);
       const y = l.y0 + (l.y1 - l.y0) * next, s = c.to ? l.top : l.foot;
@@ -2406,11 +2495,14 @@ export class Deeps {
     }
     if (!at) return null;
     for (let i = 0; i < P.lifts.length; i++) {
-      const l = P.lifts[i], d = Math.hypot(at.x - l.x, at.z - l.z);
-      if (d > 3) continue;
-      const level = Math.abs(at.y - l.y1) < Math.abs(at.y - l.y0) ? 1 : 0, p = this.platforms[i];
-      // (Not where one stands: called to it.)
+      const l = P.lifts[i], d = Math.hypot(at.x - l.x, at.z - l.z), level = Math.abs(at.y - l.y1) < Math.abs(at.y - l.y0) ? 1 : 0, p = this.platforms[i];
+      // (Coming to it along the way, on the floor of its top or its foot, or beside its well: not where one is, called to it.)
+      // (Its side: before its top, coming down the way; past its foot, coming back up it. A side way off there is counted by its distance
+      // along the lines, `apart`.)
+      const end = level ? l.top : l.foot, coming = at.s !== undefined && this.apart(at.s, end) < LIFT.call && Math.abs(at.y - (level ? l.y1 : l.y0)) < 3;
+      if (d > 3 && !coming) continue;
       if (Math.abs(p.at - level) > 1e-3) { this.carry = { i, to: level, with: false }; return null; }
+      if (d > 3) continue;
       if (d < 1.2) { this.stood += dt; if (this.stood > 0.6) { this.carry = { i, to: 1 - level, with: true }; return { y: at.y, s: level ? l.top : l.foot, said: level ? 'The lift goes down' : 'The lift goes up' }; } }
       else this.stood = 0;
     }
