@@ -18,8 +18,8 @@
  * and turned about. And in them, as the seed has it, torches and braziers, dens of foes and chests.
  */
 import {
-  AdditiveBlending, BoxGeometry, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DodecahedronGeometry, DoubleSide, Euler, Group,
-  IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, PlaneGeometry, type PointLight, Quaternion, type Texture, Vector3,
+  AdditiveBlending, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, ConeGeometry, CylinderGeometry, DodecahedronGeometry, DoubleSide, Euler, Group,
+  IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, PlaneGeometry, type PointLight, Quaternion, SphereGeometry, type Texture, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
 import { attribute, float, frontFacing, lights, mix, mx_fractal_noise_float, normalMap, positionWorld, select, sin, smoothstep as smoothNode, texture, time, uniform, uv, vec3 } from 'three/tsl';
@@ -954,6 +954,17 @@ const RING = 22;
 /** The cold in the dark between the lights, as the eye sees it. */
 const COLD = new Color(0.012, 0.02, 0.042);
 /**
+ * The deeps as a place of wonder (asked: "how could we have our depths to have more immersion like BG3 underworld ... a place of
+ * wonder"): the dark between the lights not black but coloured, teal in some reaches and violet in others, as the low noise of where a
+ * point is has it (`AMBIENT`); light rising from the floors of the chasms far below (`DEPTH_GLOW`); what lies far under the one on
+ * foot fading into a violet haze (`HAZE`); and the living things of the deep glowing of themselves, each place in a colour of its own
+ * (`GLOWS`).
+ */
+const AMBIENT = { teal: new Color(0.016, 0.042, 0.06), violet: new Color(0.042, 0.024, 0.07), scale: 0.016 };
+const DEPTH_GLOW = { color: new Color(0.25, 0.55, 1), abyss: { power: 1.3, reach: 48, fall: 14 }, chasm: { power: 0.9, reach: 16, fall: 5, every: 6 } };
+const HAZE = { color: [0.035, 0.04, 0.1] as const, from: 1.5, to: 24, most: 0.8 };
+const GLOWS = [new Color(0.2, 0.9, 1), new Color(0.75, 0.42, 1), new Color(1, 0.55, 0.22), new Color(0.45, 1, 0.55)];
+/**
  * How a passage is cut (asked: "shapes of the corridors, mix of materials"): its cross-section, from one foot of its wall over to the
  * other, across from -1 to 1 and up from 0 to 1 (`natural` is the rough arch, its own). Hewn: straight walls, the corners cut off, the
  * roof flat; vaulted: straight walls to over half its height and an arch over them, of masonry; a room: tall straight walls, a flat roof.
@@ -1039,9 +1050,9 @@ export class Deeps {
   /** Every pair of metres joined: one to the next along a line, and each side way's first to the metre it leaves from (for the maps). */
   readonly links: [number, number][] = [];
   /** The crystals' light (where, what colour, how strong and how far): worked into the stone with the torches'. */
-  private readonly glows: { at: Vector3; color: Color; power: number; reach: number }[] = [];
+  private readonly glows: { at: Vector3; color: Color; power: number; reach: number; fall?: number }[] = [];
   /** What is strewn and stands about (`planDressing`), placed before the light is worked into the stone and made after. */
-  private dressing: { kind: 'rubble' | 'mite' | 'puddle' | 'crystal' | 'post' | 'beam'; m: Matrix4; at: Vector3; floor: number; tint?: Color }[] = [];
+  private dressing: { kind: 'rubble' | 'mite' | 'puddle' | 'crystal' | 'post' | 'beam' | 'stalk' | 'cap' | 'gill'; m: Matrix4; at: Vector3; floor: number; tint?: Color }[] = [];
   /** The passages propped with timbers (by their first metre): old workings, with their rails and carts. */
   private readonly propped = new Set<number>();
   /** The embers over the braziers, the dust in the air about the one on foot, the mist in the deeps of the chasms. */
@@ -1095,7 +1106,7 @@ export class Deeps {
       const dark = vec3(0.035, 0.031, 0.028);
       m.colorNode = (backed ? select(frontFacing, albedo, dark) : albedo) as N;
       m.normalNode = normalMap(mix(texture(a.normal, uv()) as N, texture(b.normal, uv()) as N, k));
-      const lit = (albedo as N).mul((attribute('aLight', 'vec3') as N).add(this.bright)).mul(this.flicker);
+      const lit = this.hazed((albedo as N).mul((attribute('aLight', 'vec3') as N).add(this.bright)).mul(this.flicker));
       m.emissiveNode = (backed ? select(frontFacing, lit, dark.mul(0.25)) : lit) as N;
       m.lightsNode = lights([this.shared.lantern, this.shared.fire]);
       const floor = attribute('aFloor', 'float') as N;
@@ -1628,6 +1639,30 @@ export class Deeps {
       }
       this.glows.push({ at: at.clone().add(new Vector3(0, 0.5, 0)).addScaledVector(out, 0.4), color: hue, power: 0.9, reach: 7 });
     };
+    /**
+     * Mushrooms of the deep, glowing (asked: a place of wonder): a cluster of one to three, the first the tallest, each a pale stalk, a
+     * dark cap and gills under it that shine in `hue`, lighting the stone about them as the crystals do. Kept under the height the
+     * view from above cuts the stone at (`CUT`), and their caps off the way where they are low enough to be walked into. `small`: a
+     * clump of little ones at a wall's foot.
+     */
+    const shrooms = (base: Vector3, floor: number, hue: Color, r: Rng, away: number, small = false) => {
+      const n = r.int(1, small ? 4 : 3);
+      for (let i = 0; i < n; i++) {
+        const p = base.clone().add(new Vector3(r.range(-0.45, 0.45) * (i ? 1 : 0), 0, r.range(-0.45, 0.45) * (i ? 1 : 0)));
+        let h = small ? r.range(0.1, 0.32) : r.range(1.1, 2.6) * (i ? r.range(0.45, 0.8) : 1), capR = small ? h * r.range(0.6, 0.9) : Math.min(1.5, h * r.range(0.35, 0.55) + 0.1);
+        const capH = capR * r.range(0.35, 0.55);
+        h = Math.min(h, 2.85 - capH);
+        // (A cap low enough to walk into kept off the way.)
+        if (!small && h - capH < 2.1) capR = Math.min(capR, Math.max(0.25, away + 0.15));
+        const q = new Quaternion().setFromEuler(new Euler(r.range(-0.12, 0.12), r.range(0, 6), r.range(-0.12, 0.12))), stalk = small ? h * 0.18 : r.range(0.06, 0.1) * h + 0.05;
+        this.dressing.push({ kind: 'stalk', m: new Matrix4().compose(p, q, new Vector3(stalk, h, stalk)), at: p, floor, tint: hue });
+        const top = p.clone().add(new Vector3(0, h - capH * 0.15, 0).applyQuaternion(q));
+        this.dressing.push({ kind: 'cap', m: new Matrix4().compose(top, q, new Vector3(capR, capH, capR)), at: top, floor, tint: hue });
+        this.dressing.push({ kind: 'gill', m: new Matrix4().compose(top.clone().add(new Vector3(0, -0.01, 0)), q, new Vector3(capR * 0.95, 1, capR * 0.95)), at: top, floor, tint: hue });
+        if (i === 0) this.glows.push(small ? { at: top.clone(), color: hue, power: 0.35, reach: 2.6, fall: 0.8 } : { at: top.clone().add(new Vector3(0, -capH * 0.4, 0)), color: hue, power: 0.45 + 0.25 * h, reach: 4 + 1.6 * h, fall: 1.1 + 0.45 * h });
+      }
+    };
+    const hueOf = (k: number) => { const piece = this.pieceAt(k); return R.fork(`hue ${piece?.s0 ?? 0}`).pick(GLOWS); };
     // (Through the hewn passages that are propped: every so often a pair of posts and a beam over them.)
     const propped = this.propped;
     for (const q of P.pieces) if (q.kind === 'way' && R.fork(`props ${q.s0}`).chance(0.55)) propped.add(q.s0);
@@ -1660,6 +1695,15 @@ export class Deeps {
           crystal(at(lat), y, new Vector3(-lx * side, 0, -lz * side), r.fork('crystal'));
         }
       }
+      // The mushrooms of the deep, glowing, by the walls of the caverns and now and then of a natural passage; a garden of them where
+      // a room is named for them. A little clump at a natural wall's foot, here and there.
+      const garden = this.pieceAt(k)?.name === 'the Fungus Garden';
+      for (const side of [-1, 1]) {
+        const W = Wof(side), room = W - walk;
+        const big = garden ? 0.35 : kind === 'grotto' ? 0.13 : kind === 'collapse' ? 0.09 : kind === 'fissure' ? 0.05 : kind === 'way' ? 0.025 * nat : 0;
+        if (room >= 0.9 && r.chance(big)) { const away = r.range(0.35, room - 0.55); shrooms(at(side * (walk + away), r.range(-0.4, 0.4)), y, hueOf(k), r.fork(`shroom ${side}`), away); }
+        else if (room >= 0.4 && r.chance(0.07 * nat + (garden ? 0.3 : 0))) shrooms(at(side * (W - 0.3), r.range(-0.4, 0.4)), y, hueOf(k), r.fork(`clump ${side}`), 0, true);
+      }
       // A pebble in the way, where it is natural; water lying in a hollow.
       if (r.chance(0.25 * nat)) { const s = r.range(0.04, 0.1), p = at(r.range(-walk, walk) * 0.8, r.range(-0.5, 0.5)); p.y += s * 0.3; put('rubble', p, y, new Euler(r.range(0, 6), r.range(0, 6), 0), new Vector3(s, s * 0.7, s)); }
       if (r.chance((kind === 'grotto' ? 0.07 : kind === 'way' ? 0.035 : 0) * nat)) put('puddle', at(r.range(-walk, walk) * 0.6).setY(y + 0.03), y, new Euler(0, r.range(0, 6), 0), new Vector3(r.range(0.35, 0.9), 1, r.range(0.22, 0.6)));
@@ -1679,7 +1723,24 @@ export class Deeps {
         const a = r.range(0, Math.PI * 2), y = sh.y0 + r.range(1, (sh.y1 - sh.y0) * 0.45), out = new Vector3(-Math.cos(a), 0, -Math.sin(a));
         crystal(new Vector3(sh.x + Math.cos(a) * (sh.r - 0.3), y, sh.z + Math.sin(a) * (sh.r - 0.3)), y, out, r.fork(`c ${i}`));
       }
+      // (And light rising from its floor far below, cold, up its walls and onto the bridge.)
+      this.glows.push({ at: new Vector3(sh.x, sh.y0 + 2, sh.z), color: DEPTH_GLOW.color, ...DEPTH_GLOW.abyss });
     }
+    // Along the floor of each chasm crossed on a bridge or a ledge, the same light, every few metres.
+    for (const q of P.pieces.filter((x) => x.kind === 'chasm' || x.kind === 'ledge')) for (let k = q.s0; k < q.s1; k += DEPTH_GLOW.chasm.every) {
+      if (P.drop[k] < 3) continue;
+      const [cx, cz] = P.pts[k];
+      this.glows.push({ at: new Vector3(cx, P.floor[k] - P.drop[k] + 0.8, cz), color: DEPTH_GLOW.color, power: DEPTH_GLOW.chasm.power, reach: DEPTH_GLOW.chasm.reach, fall: DEPTH_GLOW.chasm.fall });
+    }
+  }
+
+  /**
+   * What is drawn at a point, faded into the deep's violet haze the further it lies under the one on foot (`under`): a chasm's floor
+   * and what stands far down it seen through the dark between. None when the deeps are drawn whole, from outside (`under` far up).
+   */
+  private hazed(c: N): N {
+    const below = (this.under as N).sub(positionWorld.y), on = select((this.under as N).lessThan(1e4), float(1), float(0));
+    return mix(c, vec3(...HAZE.color), smoothNode(HAZE.from, HAZE.to, below).mul(HAZE.most).mul(on));
   }
 
   /**
@@ -1692,7 +1753,7 @@ export class Deeps {
     shape.setAttribute('aThing', new InstancedBufferAttribute(light, 3));
     shape.setAttribute('aBase', new InstancedBufferAttribute(base, 1));
     const plain = paint ? (texture(paint, uv()).rgb as N).mul(m.color) : vec3(m.color.r, m.color.g, m.color.b), albedo = tinted ? (plain as N).mul(attribute('color', 'vec3')) : plain;
-    m.emissiveNode = (albedo as N).mul(attribute('aThing', 'vec3')).mul(this.flicker).add(glow ?? vec3(0, 0, 0));
+    m.emissiveNode = this.hazed((albedo as N).mul(attribute('aThing', 'vec3')).mul(this.flicker).add(glow ?? vec3(0, 0, 0)));
     m.lightsNode = lights([this.shared.lantern, this.shared.fire]);
     const floor = attribute('aBase', 'float') as N;
     m.opacityNode = select(positionWorld.y.greaterThan(floor.add(this.cutOver)).or(floor.greaterThan((this.under as N).add(2))), float(0), float(1));
@@ -1718,6 +1779,15 @@ export class Deeps {
     const wood = new MeshStandardNodeMaterial({ color: 0x8a6a4a, roughness: 0.9 });
     this.many(new BoxGeometry(1, 1, 1), wood, of('post'), T.wood.map);
     this.many(new BoxGeometry(1, 1, 1), new MeshStandardNodeMaterial({ color: 0x7a5a3c, roughness: 0.9 }), of('beam'), T.wood.map);
+    // (The mushrooms, a set of each colour: pale stalks with a little of their light in them, dark caps lit at the rim, and gills shining
+    // under them, brighter and dimmer slowly.)
+    for (const hue of GLOWS) {
+      const mine = (k: string) => of(k).filter((d) => d.tint === hue), c = vec3(hue.r, hue.g, hue.b);
+      if (!mine('stalk').length) continue;
+      this.many(new CylinderGeometry(0.6, 1, 1, 9, 1).translate(0, 0.5, 0), new MeshStandardNodeMaterial({ color: 0xd8d0c4, roughness: 0.8 }), mine('stalk'), undefined, false, c.mul(0.12), false);
+      this.many(new SphereGeometry(1, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2), new MeshStandardNodeMaterial({ color: 0x3b2c40, roughness: 0.6 }), mine('cap'), undefined, false, c.mul(0.22), false);
+      this.many(new CircleGeometry(1, 16).rotateX(Math.PI / 2), new MeshStandardNodeMaterial({ color: hue, roughness: 0.5 }), mine('gill'), undefined, false, c.mul(sin(time.mul(0.6)).mul(0.3).add(1.9)), false);
+    }
     // (The crystals glowing of themselves, as each's colour; brighter, slowly, and back.)
     const crystals = of('crystal');
     if (crystals.length) {
@@ -2031,7 +2101,7 @@ export class Deeps {
     }
     // Dust: some two hundred motes in the air about the one on foot, wrapped round as it goes.
     const dust = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending });
-    dust.colorNode = (texture(T.puff, uv()).a as N).mul(vec3(0.16, 0.13, 0.1));
+    dust.colorNode = (texture(T.puff, uv()).a as N).mul(vec3(0.07, 0.15, 0.2));
     this.motes = new InstancedMesh(new PlaneGeometry(1, 1), dust, 220);
     this.motes.frustumCulled = false;
     const r = new Rng(`deeps dust ${P.seed ?? P.pts.length}`);
@@ -2042,7 +2112,7 @@ export class Deeps {
       const m = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide });
       // (Wisps of it, drifting slowly over each other: noise in the world's own frame, its patches thin out to nothing.)
       const at = vec3((positionWorld.x as N).mul(0.11), (positionWorld.z as N).mul(0.11), time.mul(0.035)), n = mx_fractal_noise_float(at, 3, 2, 0.5, 1) as N;
-      m.colorNode = smoothNode(0.0, 0.55, n).mul(vec3(0.42, 0.48, 0.58).mul(opacity));
+      m.colorNode = smoothNode(0.0, 0.55, n).mul(vec3(0.32, 0.52, 0.9).mul(opacity * 1.2));
       return m;
     };
     for (const sh of P.shafts.filter((q) => q.abyss)) for (const [dy, o] of [[2.5, 0.35], [7, 0.2]] as const) {
@@ -2108,6 +2178,9 @@ export class Deeps {
   private lightAt(p: Vector3, n: Vector3, into: Color) {
     // (In the dark between the lights, not black but a deep cold blue: the rock seen as the eye comes used to the dark.)
     into.copy(DARK).add(COLD);
+    // (And the coloured dark: teal here, violet there, as the place is.)
+    const hue = valueNoise2(p.x * AMBIENT.scale, p.z * AMBIENT.scale, 31);
+    into.r += AMBIENT.teal.r + (AMBIENT.violet.r - AMBIENT.teal.r) * hue; into.g += AMBIENT.teal.g + (AMBIENT.violet.g - AMBIENT.teal.g) * hue; into.b += AMBIENT.teal.b + (AMBIENT.violet.b - AMBIENT.teal.b) * hue;
     const from = p.clone().addScaledVector(n, 0.3), q = new Vector3();
     for (let i = 0; i < this.flameAt.length; i++) {
       // (A brazier's fire burns brighter and further than a torch: the deeps' halls are far broader than a dungeon's rooms.)
@@ -2126,7 +2199,9 @@ export class Deeps {
       const d = g.at.distanceTo(p);
       if (d > g.reach) continue;
       const dir = g.at.clone().sub(p).divideScalar(Math.max(d, 1e-3)), face = Math.max(0, Math.min(1, n.dot(dir) * 0.8 + 0.2));
-      const k = g.power * face * smoothstep((g.reach - d) / 2) / (1 + (d / 1.6) ** 2);
+      // (One that reaches far, the light up from a chasm's floor, not through the rock into the passages about it, as a torch's.)
+      if (g.reach > 10) { let seen = true; for (let i = 1, m = Math.ceil(d / 1.5); i < m && seen; i++) { q.lerpVectors(from, g.at, i / m); seen = this.spaceAt(q.x, q.y, q.z); } if (!seen) continue; }
+      const k = g.power * face * smoothstep((g.reach - d) / 2) / (1 + (d / (g.fall ?? 1.6)) ** 2);
       into.r += g.color.r * k; into.g += g.color.g * k; into.b += g.color.b * k;
     }
     return into;
