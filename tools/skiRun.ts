@@ -21,14 +21,15 @@
  *
  * (With no runs named it only lists them, and writes nothing.)
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { world } from '../src/core/world';
 import { findSkiRun, RUN, skiableLand, sliceOfRun, smoothed, squash, type SkiRun } from '../src/core/skiRun';
-import { gridAt, type Grid, writeSlice, type SkiSlice } from '../src/core/skiSlice';
+import { gridAt, type Grid, readSlice, writeSlice, type SkiSlice } from '../src/core/skiSlice';
 import { landOfWorld } from '../src/core/worldLand';
 import { HeightField, leastPath } from '../src/core/terrain';
 import { type MapRun, writeRunMap } from '../src/core/runMap';
+import { VILLAGES } from '../game/slopeVillage';
 import type { River, WorldWay } from '../src/core/world';
 
 // (Each `--option` takes the word after it.)
@@ -344,12 +345,76 @@ function forked(main: SkiSlice, others: { id: string; slice: SkiSlice }[]) {
   return { ...main, snow, near, branches };
 }
 
+/**
+ * Runs that end where a village's runs do, and are skied into it from another side (`VILLAGES` in `game/slopeVillage.ts`): by the world
+ * and their place among the runs kept, the run whose slice holds the village's land, and how far down that run's lines (and its
+ * branches') the village begins. Each is written with that land, at a metre and at four, for as far about those lines from there on as
+ * the village reaches, so that the village stands on the same snow from either side. (Asked: "make the lake wall also part of the
+ * village ski area, now when i ride those down, the village is not there!": Lake Wall and Lake Wall East end where Ashbridge does, by
+ * the lake, and held only a strip of the village's land, the rest of it the country at sixteen metres.) Write that run's slice first.
+ */
+const VILLAGE_LAND: Record<string, Record<number, { from: number; land: number }>> = { w2: { 14: { land: 8, from: 300 }, 40: { land: 8, from: 300 } } };
+/** A slice's snow and land about its lines (its own and its branches') from `from` metres down them, `reach` either side; nothing beyond. */
+function landAbout(s: SkiSlice, from: number, reach: number): { snow: Grid; near: Grid; lines: [number, number][][] } {
+  const lines = [s.run, ...((s as SkiSlice & { branches?: { run: SkiSlice['run'] }[] }).branches ?? []).map((b) => b.run)].map((r) => r.points.slice(Math.floor(from / r.step)));
+  // (Marked out from the lines' points, a disc about each, rather than every point of the grid measured against every point of them.)
+  const keep = (g: Grid, more: number): Grid => {
+    const data = new Float32Array(g.nx * g.nz).fill(NaN), r = reach + more, n = Math.ceil(r / g.cell);
+    for (const l of lines) for (const [px, pz] of l) {
+      const ci = Math.round((px - g.x0) / g.cell), cj = Math.round((pz - g.z0) / g.cell);
+      for (let j = Math.max(0, cj - n); j <= Math.min(g.nz - 1, cj + n); j++) for (let i = Math.max(0, ci - n); i <= Math.min(g.nx - 1, ci + n); i++) {
+        if (Math.hypot(g.x0 + i * g.cell - px, g.z0 + j * g.cell - pz) <= r) data[j * g.nx + i] = g.data[j * g.nx + i];
+      }
+    }
+    return { ...g, data };
+  };
+  return { snow: keep(s.snow, 0), near: keep(s.near, 40), lines };
+}
+
+/**
+ * The land along a village's valley (`valley` in `VILLAGES`), at a metre as about a run's line: a slice laid along the valley's floor as
+ * if it were a run, for its snow and its land at four metres, grown into the slice of every run of the village (asked: "the intent that
+ * the village is down in the valley ending of both sides"). None for a run of no village with a valley.
+ */
+const valleys = new Map<string, SkiSlice>();
+function valleyLand(pick: number): { slice: SkiSlice; line: [number, number][] } | null {
+  const id = idOf(pick), entry = Object.entries(VILLAGES).find(([, v]) => v.valley && (v.ways.includes(id) || v.also?.includes(id)));
+  if (!entry) return null;
+  const [key, v] = entry, pts = v.valley!, line: [number, number][] = [];
+  // (Its points a step of four metres apart along it, as a run's are.)
+  for (let k = 0; k + 1 < pts.length; k++) { const [ax, az] = pts[k], [bx, bz] = pts[k + 1], n = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az) / 4)); for (let i = 0; i < n; i++) line.push([ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n]); }
+  line.push(pts[pts.length - 1]);
+  let slice = valleys.get(key);
+  if (!slice) {
+    landOfWorld(w).tiles.clear();
+    const length = (line.length - 1) * 4;
+    slice = sliceOfRun(w, { step: 4, points: line, drop: 0, length, mean: 0, steepest: 0 } as unknown as SkiRun);
+    valleys.set(key, slice);
+  }
+  return { slice, line };
+}
+
 for (const pick of picks) {
   const run = kept[pick - 1];
   if (!run) { console.log(`  no run ${pick} kept`); process.exitCode = 1; continue; }
   t = performance.now();
   const alone = sliceAlone(run), parts = forksOf(pick).map((o) => ({ id: idOf(o), slice: sliceAlone(kept[o - 1]!) }));
-  const slice = parts.length ? forked(alone, parts) : alone;
+  let slice = parts.length ? forked(alone, parts) : alone;
+  const village = VILLAGE_LAND[seed]?.[pick];
+  if (village) {
+    const other = readSlice(readFileSync(`slopes/${idOf(village.land)}.json`, 'utf8')), about = landAbout(other, village.from, other.half + 30);
+    const own = [slice.run.points, ...((slice as SkiSlice & { branches?: { run: SkiSlice['run'] }[] }).branches ?? []).map((b) => b.run.points)];
+    const nearerB = (x: number, z: number) => Math.min(...about.lines.map((l) => offLine(l, x, z))) < Math.min(...own.map((l) => offLine(l, x, z))) - 1;
+    slice = { ...slice, snow: grown(slice.snow, about.snow, nearerB), near: grown(slice.near, about.near, nearerB) };
+    console.log(`  run ${pick}: with the land of ${idOf(village.land)} about its village, from ${village.from} m down its lines`);
+  }
+  const valley = valleyLand(pick);
+  if (valley) {
+    const own = [slice.run.points, ...((slice as SkiSlice & { branches?: { run: SkiSlice['run'] }[] }).branches ?? []).map((b) => b.run.points)];
+    const nearerB = (x: number, z: number) => offLine(valley.line, x, z) < Math.min(...own.map((l) => offLine(l, x, z))) - 1;
+    slice = { ...slice, snow: grown(slice.snow, valley.slice.snow, nearerB), near: grown(slice.near, valley.slice.near, nearerB) };
+    console.log(`  run ${pick}: with the land along its village's valley`);
+  }
   if (parts.length) console.log(`  run ${pick}: forked, its branches ${(slice as ReturnType<typeof forked>).branches.map((b) => `${b.id} from ${b.from} m`).join(', ')}`);
   const text = writeSlice(slice), out = `slopes/${idOf(pick)}.json`;
   mkdirSync('slopes', { recursive: true });

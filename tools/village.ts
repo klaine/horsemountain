@@ -16,7 +16,9 @@ for (const [key, v] of Object.entries(VILLAGES)) {
   const id = v.ways[0], slice = readSlice(readFileSync(`slopes/${id}.json`, 'utf8'));
   if (slice.world !== world) continue;
   narrowPistes(slice, id);
-  const t0 = performance.now(), village = layVillage(slice, id);
+  // (The runs that come into it from another side, whose pistes, theirs and their branches', it keeps off too.)
+  const others = (v.also ?? []).map((o) => readSlice(readFileSync(`slopes/${o}.json`, 'utf8')));
+  const t0 = performance.now(), village = layVillage(slice, id, others);
   if (!village) { console.log(`${v.name}: too few houses fit; nothing written`); continue; }
   const file = `slopes/${villageFile(world, id)}`, kinds = new Map<string, number>();
   for (const h of village.houses) kinds.set(h.style, (kinds.get(h.style) ?? 0) + 1);

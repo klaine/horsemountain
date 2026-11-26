@@ -25,8 +25,11 @@ renderer, which falls back to WebGL 2 by itself; materials in three's shading la
   land, which is the way ridden; and the two are one place, `area` in the game's list of runs, with one best score and time);
   `--map 1,3,8,10,2,14,17,25,40` writes the map of the runs the game offers (`slopes/w2-map.json`): remake it when a run is added.
 - `npm run village -- w2` lays out the village where a run's two ways part and meet again (`VILLAGES` in `game/slopeVillage.ts`: Ashbridge's,
-  on the spur between Ashbridge and Ashbridge Bend and down to the lake at their foot) and writes it beside the slices (`slopes/w2-ashbridge.json`),
-  the same for both runs; remake it when either run is written again. The game narrows both pistes through it as it reads a slice, finds the caves
+  its heart along a street up the valley from the foot where Ashbridge, Ashbridge Bend, Lake Wall and Lake Wall East all end, by the lake, and
+  rows along Ashbridge's two pistes on the spur between them) and writes it beside the slices (`slopes/w2-ashbridge.json`), the same for all four;
+  each of their slices carries the valley's land at a metre, and Lake Wall's the spur's too (`valleyLand` and `VILLAGE_LAND` in `tools/skiRun.ts`: write
+  8 and 25 before 14 and 40, then remake the village). Remake it when any of them is written again. The game narrows the pistes through it and
+  about its foot as it reads a slice, finds the caves
   and the forgotten slope's way clear of it, levels each house's ground in the slice, and builds its timber and wooden houses and its church with
   dungeons' builders. A skier is kept out of its houses, and is off the piste but not out of bounds in it.
 - Comments say why, in plain prose; random choices go through `Rng.fork(label)`.

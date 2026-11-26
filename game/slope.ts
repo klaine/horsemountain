@@ -800,7 +800,7 @@ async function start() {
       // slices, where `npm run village` wrote it, and the pistes narrowed through it, before anything is found on the run; the caves and
       // the forgotten slope's way found clear of it. `?village=0`: none, the runs as they were before it.)
       const vFile = query.get('village') === '0' ? null : villageFile(slice.world, kind), village = vFile ? await villageOf(vFile) : null;
-      if (village) narrowPistes(slice, kind);
+      if (village) narrowPistes(slice, kind, village);
       const clear = village ? villageClear(village, slice.run.points[0][0], slice.run.points[0][1]) : undefined;
       took('village read');
       await loading.part(0.32, 'Finding a place for the cave');
@@ -828,7 +828,7 @@ async function start() {
       } catch (e) { console.error('the forgotten slope', e); trail = null; }
       took('forgotten slope');
       // (The village's ground levelled in the slice, before its land is made from it.)
-      if (village) levelVillage(slice, kind, village);
+      if (village) levelVillage(slice, village);
       took('village levelled');
       await loading.part(0.42, `Laying the snow ${whereOf(kind)}`);
       made = await sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined, (k) => loading.part(0.42 + 0.36 * k));

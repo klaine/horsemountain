@@ -42,8 +42,17 @@ import type { Branch } from './slopeLand';
  * The villages, each where two runs that part (`FORKS` in `tools/skiRun.ts`) are one area (`area` in the game's list of runs): its
  * name, and the runs it lies between, by their slices' names; the first the way whose left the spur is on is found, not given.
  */
-export const VILLAGES: Record<string, { name: string; ways: [string, string] }> = {
-  ashbridge: { name: 'Ashbridge', ways: ['w2-8', 'w2-25'] },
+export const VILLAGES: Record<string, { name: string; ways: [string, string]; also?: string[]; valley?: Pt[] }> = {
+  // (And Lake Wall and Lake Wall East, which end where Ashbridge does, by the lake, and are skied into the village from the other side
+  // (asked: "make the lake wall also part of the village ski area"; "the intent that the village is down in the valley ending of both
+  // sides"): their slices carry its land (`VILLAGE_LAND` in `tools/skiRun.ts`), and their pistes are narrowed about the foot.)
+  // (`valley`: the floor of the valley up from the foot, where all four runs end, traced once up its lowest ground: the village's heart,
+  // its street along it, the land along it laid at a metre in all four runs' slices (`VALLEY_LAND` in `tools/skiRun.ts`). Some
+  // fifty metres broad within six of its floor, rising nine metres over the first eighty and then all but level for two hundred.)
+  ashbridge: {
+    name: 'Ashbridge', ways: ['w2-8', 'w2-25'], also: ['w2-14', 'w2-40'],
+    valley: [[662, -1213.6], [658.1, -1233.2], [654.2, -1252.8], [645.4, -1270.6], [635.1, -1287.8], [627.5, -1306.2], [621.1, -1325.1], [614.7, -1344.1], [608.2, -1363], [602.1, -1382], [601.5, -1402], [601.9, -1422], [601.6, -1442], [591.5, -1458.8], [578.3, -1473.6]],
+  },
 };
 
 /** A house of the village, as the builders take it, and the height of its floor (the ground before its door, levelled). */
@@ -55,11 +64,13 @@ export interface Village {
   houses: VillageHouse[];
   /** The lanes grown across the spur, in the world's coordinates. */
   lanes: Pt[][];
+  /** Where the runs it lies between meet again, and those that come into it from another side end: the village's foot, by the lake. */
+  foot: Pt;
 }
 
 /** The file a run's village is kept in, beside the slices (`slopes/`), if the run is one of a village's: `w2-ashbridge.json`. */
 export function villageFile(world: string, id: string): string | null {
-  const key = Object.keys(VILLAGES).find((k) => VILLAGES[k].ways.includes(id));
+  const key = Object.keys(VILLAGES).find((k) => VILLAGES[k].ways.includes(id) || VILLAGES[k].also?.includes(id));
   return key ? `${world}-${key}.json` : null;
 }
 
@@ -68,12 +79,12 @@ const round = (v: number) => Math.round(v * 10) / 10;
 
 /**
  * Measures: how far the two ways must be apart for the spur between them to be settled; how far about the point where they meet again
- * the village reaches, and over how far it thins out to nothing beyond that; how far a house keeps off a piste's edge (further than the
+ * the village reaches, and over how far it thins out to nothing beyond that; how far either side of its valley's street; how far a house keeps off a piste's edge (further than the
  * yetis' arena reaches past it, `PIPE.wider` in `slopeArena.ts`, so that one laid beside the village does not go into a house), a lane off it,
  * a bank of levelled ground off it; how far beyond a house, and a lane, a cave or the forgotten slope's way keeps; how many metres of
  * fall across a house's ground it may stand on (its footing takes the rest); the lattice the village's ground is read on.
  */
-const V = { apart: 30, foot: 80, footFade: 45, offPiste: 4, laneOff: 1.5, bankOff: 1, clear: 10, laneClear: 5, fall: 5, cell: 2 };
+const V = { apart: 30, foot: 80, footFade: 45, valley: 32, offPiste: 4, laneOff: 1.5, bankOff: 1, clear: 10, laneClear: 5, fall: 5, cell: 2 };
 /**
  * How far from its line each piste reaches at most on the village's side of it, through the village; and on its other side about the
  * foot, where the village reaches round the pistes' ends. (The pistes were laid as broad as the land allowed, up to forty-six metres
@@ -194,7 +205,9 @@ function spurOf(slice: SkiSlice, id: string) {
  * its land is made with them so, their poles, their grooming and what is built on them keeping to them. Each the same from either run's
  * slice, which carry the same two lines. Gives back whether the slice is of a village's runs.
  */
-export function narrowPistes(slice: SkiSlice, id: string): boolean {
+export function narrowPistes(slice: SkiSlice, id: string, v?: Pick<Village, 'foot'>): boolean {
+  // (A run that comes into the village from another side: its pistes, its own and its branch's, narrowed either side about the foot.)
+  if (v && Object.values(VILLAGES).some((q) => q.also?.includes(id))) { for (const run of linesOf(slice)) narrowFoot(run, v.foot); return true; }
   const at = spurOf(slice, id);
   if (!at) return false;
   const { A, B, runA, runB, handA, handB, iA, iB, foot } = at;
@@ -213,15 +226,28 @@ export function narrowPistes(slice: SkiSlice, id: string): boolean {
   return true;
 }
 
+/** A slice's lines: its own run's and its branches'. */
+const linesOf = (slice: SkiSlice): SkiSlice['run'][] => [slice.run, ...((slice as SkiSlice & { branches?: Branch[] }).branches ?? []).map((b) => b.run)];
+/** A run that comes into the village from another side: its piste narrowed either side about the village's foot, as its own runs' are. */
+function narrowFoot(run: SkiSlice['run'], foot: Pt) {
+  run.points.forEach(([x, z], k) => {
+    const w = 1 - smooth01((Math.hypot(x - foot[0], z - foot[1]) - V.foot) / 30), e = run.piste[k];
+    for (const side of [0, 1]) e[side] = Math.sign(e[side]) * (Math.abs(e[side]) + (Math.min(Math.abs(e[side]), NARROW.outer) - Math.abs(e[side])) * w);
+  });
+}
+
 /**
  * The village where the two runs a slice carries part and meet again, laid out on the slice's land, its pistes narrowed through it
  * (`narrowPistes`, first), in the world's coordinates (`tools/village.ts`, once; the game reads what it wrote). Nothing where the slice
  * is of no village's runs, or where too few houses fit.
  */
-export function layVillage(slice: SkiSlice, id: string): Village | null {
+export function layVillage(slice: SkiSlice, id: string, others: SkiSlice[] = []): Village | null {
   const at = spurOf(slice, id);
   if (!at) return null;
   const { key, plan, A, B, iA, iB, handA, handB, spur, foot } = at;
+  // (The pistes of the runs that come into it from another side, narrowed about its foot as they will be: kept off as its own are.)
+  const more = others.flatMap((o) => linesOf(o)).map((run) => { narrowFoot(run, foot); return lineOf(run); });
+  const outside = (x: number, z: number) => Math.min(A.outside(x, z), B.outside(x, z), ...more.map((l) => l.outside(x, z)));
   const rng = new Rng(`${slice.world} ${key} village`);
 
   // The land as both runs have it: the snow at a metre, and below it what lies on the country (a lake, frozen).
@@ -235,7 +261,9 @@ export function layVillage(slice: SkiSlice, id: string): Village | null {
 
   // What is asked of the land over and over as the lanes grow and the houses are dealt, read once onto a lattice of two metres over the
   // village's box: how far off either piste a point is, how thickly settled it is, and whether a lane may cross it.
-  const all = [...spur, ...[0, 1, 2, 3].map((k): Pt => [foot[0] + Math.cos(k * Math.PI / 2) * (V.foot + V.footFade), foot[1] + Math.sin(k * Math.PI / 2) * (V.foot + V.footFade)])];
+  // (And the valley up from the foot, where the village's street runs: its heart, with the foot, where all its runs end.)
+  const valley = plan.valley ?? [];
+  const all = [...spur, ...valley.flatMap(([x, z]): Pt[] => [[x - V.valley - 20, z - V.valley - 20], [x + V.valley + 20, z + V.valley + 20]]), ...[0, 1, 2, 3].map((k): Pt => [foot[0] + Math.cos(k * Math.PI / 2) * (V.foot + V.footFade), foot[1] + Math.sin(k * Math.PI / 2) * (V.foot + V.footFade)])];
   const bx0 = Math.min(...all.map((p) => p[0])) - 20, bz0 = Math.min(...all.map((p) => p[1])) - 20, bx1 = Math.max(...all.map((p) => p[0])) + 20, bz1 = Math.max(...all.map((p) => p[1])) + 20;
   const gnx = Math.ceil((bx1 - bx0) / V.cell) + 1, gnz = Math.ceil((bz1 - bz0) / V.cell) + 1;
   // (How far off the pistes a point is is read as it is first asked: most of the box is never asked.)
@@ -243,19 +271,21 @@ export function layVillage(slice: SkiSlice, id: string): Village | null {
   const cellOf = (x: number, z: number) => { const i = Math.round((x - bx0) / V.cell), j = Math.round((z - bz0) / V.cell); return i < 0 || j < 0 || i >= gnx || j >= gnz ? -1 : j * gnx + i; };
   const offAt = (x: number, z: number) => {
     const k = cellOf(x, z);
-    if (k < 0) return Math.min(A.outside(x, z), B.outside(x, z));
-    if (Number.isNaN(offPiste[k])) offPiste[k] = Math.min(A.outside(bx0 + (k % gnx) * V.cell, bz0 + Math.floor(k / gnx) * V.cell), B.outside(bx0 + (k % gnx) * V.cell, bz0 + Math.floor(k / gnx) * V.cell));
+    if (k < 0) return outside(x, z);
+    if (Number.isNaN(offPiste[k])) offPiste[k] = outside(bx0 + (k % gnx) * V.cell, bz0 + Math.floor(k / gnx) * V.cell);
     return offPiste[k];
   };
   for (let j = 0; j < gnz; j++) for (let i = 0; i < gnx; i++) {
     const x = bx0 + i * V.cell, z = bz0 + j * V.cell, k = j * gnx + i;
-    const fromFoot = Math.hypot(x - foot[0], z - foot[1]), inSpur = inRing(spur, x, z);
-    const region = Math.max(inSpur ? 1 : 0, 1 - smooth01((fromFoot - V.foot) / V.footFade));
+    const fromFoot = Math.hypot(x - foot[0], z - foot[1]), inSpur = inRing(spur, x, z), fromValley = valley.length ? offLine(valley, x, z) : Infinity;
+    const heart = Math.max(1 - smooth01((fromFoot - V.foot) / V.footFade), 1 - smooth01((fromValley - V.valley) / 15));
+    const region = Math.max(inSpur ? 1 : 0, heart);
     if (region <= 0 || !onSnow(x, z) || wet(x, z)) continue;
     const off = offAt(x, z);
     // (Thinner on steep ground, where a house wants a deep footing; thicker near the pistes it is skied into from and near the foot.)
     const e = 2, g = Math.hypot(height(x + e, z) - height(x - e, z), height(x, z + e) - height(x, z - e)) / (2 * e);
-    const steep = 1 - smooth01((g - 0.5) / 0.35), skiIn = 0.6 + 0.4 * (1 - smooth01(Math.max(0, off) / 45)), low = 0.75 + 0.25 * (1 - smooth01(fromFoot / 160));
+    // (Thickest in the heart, the valley and the foot; on the spur, along the pistes, thinner.)
+    const steep = 1 - smooth01((g - 0.5) / 0.35), skiIn = 0.6 + 0.4 * (1 - smooth01(Math.max(0, off) / 45)), low = 0.7 + 0.3 * heart;
     settled[k] = region * steep * skiIn * low;
     crossable[k] = off > V.laneOff && steep > 0.05 ? 1 : 0;
   }
@@ -298,6 +328,8 @@ export function layVillage(slice: SkiSlice, id: string): Village | null {
     { points: edgeLine(B, handB, iB), clear: 2.2, setback: 3.4, span: [0, Infinity] as [number, number] },
     { points: edgeLine(A, -handA, footFrom(A)), clear: 2.2, setback: 3.4, span: [0, Infinity] as [number, number] },
     { points: edgeLine(B, -handB, footFrom(B)), clear: 2.2, setback: 3.4, span: [0, Infinity] as [number, number] },
+    // (The street up the valley from the foot, houses either side of it.)
+    { points: valley, clear: 3, setback: 4, span: [0, Infinity] as [number, number] },
   ].filter((g) => g.points.length > 2);
   const gq = rng.fork('grown');
   const land: GrowLand = {
@@ -308,17 +340,18 @@ export function layVillage(slice: SkiSlice, id: string): Village | null {
   const grow: GrowOptions = { step: 3, block: gq.range(16, 22), rigid: gq.range(0.06, 0.16), laneClear: 1.6, laneSetback: 2.6, longest: gq.range(50, 80), most: gq.int(10, 15), trail: [6, 14], houses: 90, apart: 9 };
   const ways = growWays(given, land, grow, gq.fork('ways'));
   const lanes = ways.slice(given.length).filter((w) => w.kind !== 'trail').map((w) => w.points);
-  // The church: a small one of stone (`dealChapel`, as dungeons deals a village's), its long side to a lane, as near the middle of
-  // the spur as it fits. (Along a lane, which keeps to the lie of the land, and not a piste, which falls down it: along a piste the
+  // The church: a small one of stone (`dealChapel`, as dungeons deals a village's), its long side to the valley's street or a lane, as
+  // near the heart of the village as it fits. (Along a lane, which keeps to the lie of the land, and not a piste, which falls down it: along a piste the
   // church, some fourteen metres long, fell six and more, and it was never built.) (Its own stream.)
   {
     const cq = rng.fork('church'), { W, D, H, chapel } = dealChapel(cq);
-    const mid = spur.reduce((a, p) => [a[0] + p[0] / spur.length, a[1] + p[1] / spur.length], [0, 0]);
+    // (In the heart, on the valley's street some hundred metres up from the foot, where there is one; else the middle of the spur.)
+    const mid = valley.length > 5 ? valley[5] : spur.reduce((a, p) => [a[0] + p[0] / spur.length, a[1] + p[1] / spur.length], [0, 0]);
     const tries: { x: number; z: number; th: number; d: number }[] = [];
-    for (const lane of lanes) for (let k = 0; k + 1 < lane.length; k++) {
+    for (const lane of [valley, ...lanes]) for (let k = 0; k + 1 < lane.length; k++) {
       const [ax, az] = lane[k], [bx, bz] = lane[k + 1], l = Math.hypot(bx - ax, bz - az) || 1, dx = (bx - ax) / l, dz = (bz - az) / l;
       for (const side of [-1, 1]) {
-        const nx = -dz * side, nz = dx * side, off = grow.laneSetback + 1 + D / 2, x = (ax + bx) / 2 + nx * off, z = (az + bz) / 2 + nz * off;
+        const nx = -dz * side, nz = dx * side, off = (lane === valley ? 4 : grow.laneSetback) + 1 + D / 2, x = (ax + bx) / 2 + nx * off, z = (az + bz) / 2 + nz * off;
         tries.push({ x, z, th: Math.atan2(-nz, -nx), d: Math.hypot(x - mid[0], z - mid[1]) });
       }
     }
@@ -327,7 +360,7 @@ export function layVillage(slice: SkiSlice, id: string): Village | null {
       const b: Building = { style: 'chapel', w: W, d: D, storeys: 1, heights: [H], bays: 1, colour: [0.9, 0.88, 0.82], x: round(t.x), z: round(t.z), faces: Math.cos(t.th) < 0 ? 'w' : 'e', turn: Math.round(t.th * 1000) / 1000, chapel: { end: 1, ...chapel } };
       const rects = footprintOf(b), u0 = Math.min(...rects.map((r) => r.u0)), u1 = Math.max(...rects.map((r) => r.u1)), v1 = Math.max(...rects.map((r) => r.v1));
       const ring = [[u0 - 0.6, -0.6], [u1 + 0.6, -0.6], [u1 + 0.6, v1 + 0.6], [u0 - 0.6, v1 + 0.6]].map(([u, v]) => turnedPoint(b, u, v));
-      if (!clearOfWays(lanes.map((points) => ({ points })), b.x, b.z, Math.max(...rects.map((r) => r.u1 - r.u0)), v1, t.th, grow.laneClear)) continue;
+      if (!clearOfWays([valley, ...lanes].filter((l) => l.length > 1).map((points) => ({ points })), b.x, b.z, Math.max(...rects.map((r) => r.u1 - r.u0)), v1, t.th, grow.laneClear)) continue;
       const y = sits(b, ring);
       if (y === null) continue;
       houses.push({ ...b, y });
@@ -356,7 +389,8 @@ export function layVillage(slice: SkiSlice, id: string): Village | null {
     return place({ ...lot.house, x: round(lot.x), z: round(lot.z), faces: Math.cos(lot.turn) < 0 ? 'w' : 'e', turn: Math.round(lot.turn * 1000) / 1000 } as Building);
   });
   if (houses.filter((h) => h.style !== 'chapel').length < 6) return null;
-  return { name: plan.name, houses, lanes: lanes.map((l) => l.map(([x, z]): Pt => [round(x), round(z)])) };
+  // (The valley's street among the lanes, for its ground cut level across as theirs is, and for being in the village.)
+  return { name: plan.name, houses, lanes: [...(valley.length ? [valley] : []), ...lanes].map((l) => l.map(([x, z]): Pt => [round(x), round(z)])), foot: [round(foot[0]), round(foot[1])] };
 }
 
 /**
@@ -366,15 +400,13 @@ export function layVillage(slice: SkiSlice, id: string): Village | null {
  * nor within a metre of one: the banks come back to the land before it. (In the snow at a metre and the land at four alike, so that
  * neither shows through the other.)
  */
-export function levelVillage(slice: SkiSlice, id: string, v: Village): void {
-  const at = spurOf(slice, id);
-  if (!at) return;
-  // (How far off the pistes a point is, read on a lattice of two metres as it is first asked.)
-  const { A, B } = at, offs = new Map<number, number>();
+export function levelVillage(slice: SkiSlice, v: Village): void {
+  // (How far off the slice's own pistes a point is, its run's and its branches': read on a lattice of two metres as it is first asked.)
+  const own = linesOf(slice).map(lineOf), offs = new Map<number, number>();
   const offPiste = (x: number, z: number) => {
     const i = Math.round(x / V.cell), j = Math.round(z / V.cell), k = i * 100003 + j;
     let o = offs.get(k);
-    if (o === undefined) offs.set(k, (o = Math.min(A.outside(i * V.cell, j * V.cell), B.outside(i * V.cell, j * V.cell))));
+    if (o === undefined) offs.set(k, (o = Math.min(...own.map((l) => l.outside(i * V.cell, j * V.cell)))));
     return o;
   };
   type Pad = { b: VillageHouse; reach: number };
@@ -393,7 +425,16 @@ export function levelVillage(slice: SkiSlice, id: string, v: Village): void {
   };
   // (Each lane and each house with the box about it, so that a point of the lattice asks only those near it.)
   const lanes = v.lanes.map((points) => ({ points, box: [Math.min(...points.map((q) => q[0])) - 5, Math.min(...points.map((q) => q[1])) - 5, Math.max(...points.map((q) => q[0])) + 5, Math.max(...points.map((q) => q[1])) + 5] }));
-  const near = (p: Pad, x: number, z: number) => Math.abs(x - p.b.x) < p.reach + Math.max(p.b.w, p.b.d) + 8 && Math.abs(z - p.b.z) < p.reach + Math.max(p.b.w, p.b.d) + 8;
+  // (And each house in the squares of sixteen metres its ground and bank reach into: the village is ninety houses and more, and each
+  // point of the lattice, asking every one, took two seconds laying a run.)
+  const SQ = 16, bySquare = new Map<number, Pad[]>(), squareOf = (i: number, j: number) => i * 100003 + j;
+  for (const p of pads) {
+    const r = p.reach + Math.max(p.b.w, p.b.d) + 2;
+    for (let i = Math.floor((p.b.x - r) / SQ); i <= Math.floor((p.b.x + r) / SQ); i++) for (let j = Math.floor((p.b.z - r) / SQ); j <= Math.floor((p.b.z + r) / SQ); j++) {
+      const l = bySquare.get(squareOf(i, j));
+      if (l) l.push(p); else bySquare.set(squareOf(i, j), [p]);
+    }
+  }
   const box = v.houses.reduce((a, b) => [Math.min(a[0], b.x - 30), Math.min(a[1], b.z - 30), Math.max(a[2], b.x + 30), Math.max(a[3], b.z + 30)], [Infinity, Infinity, -Infinity, -Infinity]);
   for (const p of v.lanes) for (const [x, z] of p) { box[0] = Math.min(box[0], x - 10); box[1] = Math.min(box[1], z - 10); box[2] = Math.max(box[2], x + 10); box[3] = Math.max(box[3], z + 10); }
   for (const g of [slice.snow, slice.near]) {
@@ -404,10 +445,7 @@ export function levelVillage(slice: SkiSlice, id: string, v: Village): void {
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const k = j * g.nx + i, x = g.x0 + i * g.cell, z = g.z0 + j * g.cell;
       if (Number.isNaN(was[k])) continue;
-      // (Off the pistes: nothing within a metre of one is changed, and the change comes in over the next two.)
-      const keep = smooth01((offPiste(x, z) - V.bankOff) / 2);
-      if (keep <= 0) continue;
-      let h = was[k];
+      let h = was[k], touched = false;
       // A lane's bench: level across at the lane's own height, its banks over three metres.
       for (const l of lanes) {
         if (x < l.box[0] || z < l.box[1] || x > l.box[2] || z > l.box[3]) continue;
@@ -417,16 +455,19 @@ export function levelVillage(slice: SkiSlice, id: string, v: Village): void {
           const d = Math.hypot(x - ax - dx * t, z - az - dz * t);
           if (d < best) { best = d; at = natural(ax + dx * t, az + dz * t); }
         }
-        if (best < 4.75) h = h + (at - h) * (1 - smooth01((best - 1.75) / 3));
+        if (best < 4.75) { h = h + (at - h) * (1 - smooth01((best - 1.75) / 3)); touched = true; }
       }
       // Each house's ground, level within its footprint and a metre about it, and its bank about that.
-      for (const p of pads) {
-        if (!near(p, x, z)) continue;
+      for (const p of bySquare.get(squareOf(Math.floor(x / SQ), Math.floor(z / SQ))) ?? []) {
         const o = outOf(p.b, x, z);
         if (o > p.reach) continue;
         h = o <= 0 ? p.b.y : h + (p.b.y - h) * (1 - smooth01(o / p.reach));
+        touched = true;
       }
-      g.data[k] = was[k] + (h - was[k]) * keep;
+      if (!touched) continue;
+      // (Off the pistes: nothing within a metre of one is changed, and the change comes in over the next two.)
+      const keep = smooth01((offPiste(x, z) - V.bankOff) / 2);
+      if (keep > 0) g.data[k] = was[k] + (h - was[k]) * keep;
     }
   }
 }
