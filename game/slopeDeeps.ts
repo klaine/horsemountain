@@ -960,7 +960,7 @@ const COLD = new Color(0.012, 0.02, 0.042);
  * foot fading into a violet haze (`HAZE`); and the living things of the deep glowing of themselves, each place in a colour of its own
  * (`GLOWS`).
  */
-const AMBIENT = { teal: new Color(0.016, 0.042, 0.06), violet: new Color(0.042, 0.024, 0.07), scale: 0.016 };
+const AMBIENT = { teal: new Color(0.026, 0.07, 0.1), violet: new Color(0.07, 0.04, 0.115), scale: 0.016 };
 const DEPTH_GLOW = { color: new Color(0.25, 0.55, 1), abyss: { power: 1.3, reach: 48, fall: 14 }, chasm: { power: 0.9, reach: 16, fall: 5, every: 6 } };
 const HAZE = { color: [0.035, 0.04, 0.1] as const, from: 1.5, to: 24, most: 0.8 };
 const GLOWS = [new Color(0.2, 0.9, 1), new Color(0.75, 0.42, 1), new Color(1, 0.55, 0.22), new Color(0.45, 1, 0.55)];
@@ -1662,7 +1662,8 @@ export class Deeps {
         if (i === 0) this.glows.push(small ? { at: top.clone(), color: hue, power: 0.35, reach: 2.6, fall: 0.8 } : { at: top.clone().add(new Vector3(0, -capH * 0.4, 0)), color: hue, power: 0.45 + 0.25 * h, reach: 4 + 1.6 * h, fall: 1.1 + 0.45 * h });
       }
     };
-    const hueOf = (k: number) => { const piece = this.pieceAt(k); return R.fork(`hue ${piece?.s0 ?? 0}`).pick(GLOWS); };
+    // (Each place in a colour of its own; its little clumps in another, for the two to stand out against each other.)
+    const hueOf = (k: number, second = false) => { const piece = this.pieceAt(k), first = R.fork(`hue ${piece?.s0 ?? 0}`).pick(GLOWS); return second ? R.fork(`hue2 ${piece?.s0 ?? 0}`).pick(GLOWS.filter((g) => g !== first)) : first; };
     // (Through the hewn passages that are propped: every so often a pair of posts and a beam over them.)
     const propped = this.propped;
     for (const q of P.pieces) if (q.kind === 'way' && R.fork(`props ${q.s0}`).chance(0.55)) propped.add(q.s0);
@@ -1690,7 +1691,7 @@ export class Deeps {
           if (Math.abs(lat) > walk + 0.3) for (let i = r.int(1, 3); i > 0; i--) { const hh = h * r.range(0.4, 1), w = r.range(0.09, 0.2) * (0.6 + hh / 2); put('mite', at(lat + r.range(-0.3, 0.3), r.range(-0.5, 0.5)), y, new Euler(r.range(-0.1, 0.1), r.range(0, 6), r.range(-0.1, 0.1)), new Vector3(w, hh, w)); }
         }
         // Crystals in the grottos and the clefts, by the wall.
-        if (r.chance(kind === 'grotto' ? 0.08 : kind === 'fissure' ? 0.05 : 0)) {
+        if (r.chance(kind === 'grotto' ? 0.14 : kind === 'fissure' ? 0.07 : kind === 'collapse' ? 0.05 : 0)) {
           const lat = side * (W - 0.35);
           crystal(at(lat), y, new Vector3(-lx * side, 0, -lz * side), r.fork('crystal'));
         }
@@ -1700,9 +1701,9 @@ export class Deeps {
       const garden = this.pieceAt(k)?.name === 'the Fungus Garden';
       for (const side of [-1, 1]) {
         const W = Wof(side), room = W - walk;
-        const big = garden ? 0.35 : kind === 'grotto' ? 0.13 : kind === 'collapse' ? 0.09 : kind === 'fissure' ? 0.05 : kind === 'way' ? 0.025 * nat : 0;
+        const big = garden ? 0.4 : kind === 'grotto' ? 0.3 : kind === 'collapse' ? 0.2 : kind === 'fissure' ? 0.1 : kind === 'way' ? 0.05 * nat : 0;
         if (room >= 0.9 && r.chance(big)) { const away = r.range(0.35, room - 0.55); shrooms(at(side * (walk + away), r.range(-0.4, 0.4)), y, hueOf(k), r.fork(`shroom ${side}`), away); }
-        else if (room >= 0.4 && r.chance(0.07 * nat + (garden ? 0.3 : 0))) shrooms(at(side * (W - 0.3), r.range(-0.4, 0.4)), y, hueOf(k), r.fork(`clump ${side}`), 0, true);
+        else if (room >= 0.4 && r.chance(0.12 * nat + (garden ? 0.3 : 0))) shrooms(at(side * (W - 0.3), r.range(-0.4, 0.4)), y, hueOf(k, true), r.fork(`clump ${side}`), 0, true);
       }
       // A pebble in the way, where it is natural; water lying in a hollow.
       if (r.chance(0.25 * nat)) { const s = r.range(0.04, 0.1), p = at(r.range(-walk, walk) * 0.8, r.range(-0.5, 0.5)); p.y += s * 0.3; put('rubble', p, y, new Euler(r.range(0, 6), r.range(0, 6), 0), new Vector3(s, s * 0.7, s)); }
