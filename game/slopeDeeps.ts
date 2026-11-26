@@ -1427,9 +1427,9 @@ export class Deeps {
     };
     const slab = (s: Shape, a: Vector3, b: Vector3, c: Vector3, d: Vector3, n: Vector3) => { const i = s.count; for (const p of [a, b, c, d]) s.point(p.x, p.y, p.z, n.x, n.y, n.z, p.x / 2.5 + p.y / 5, p.z / 2.5); quad(s, i, i + 1, i + 2, i + 3, n.x, n.y, n.z); };
     for (let k = 0; k < N0 - 1; k++) {
-      // (A bridge or a ledge begins a metre early, in the last metre of the vault's own floor: that floor stops at its last row and the deck
+      // (A bridge, a ledge or a stair begins a metre early, in the last metre of the vault's own floor: that floor stops at its last row and the deck
       // had begun only at the next, so that a metre of nothing lay between them, a gap seen on an iPad crossing into the Chasm.)
-      const stepped = STEPPED.has(this.kindAt[k]), over = P.drop[k] >= 0.5 || P.drop[k + 1] >= 0.5, open = P.open[k];
+      const stepped = STEPPED.has(this.kindAt[k]) || STEPPED.has(this.kindAt[k + 1]), over = P.drop[k] >= 0.5 || P.drop[k + 1] >= 0.5, open = P.open[k] || P.open[k + 1];
       if (!this.joined(k) || lifted.has(k) || lifted.has(k + 1) || (!stepped && !over && !open)) continue;
       const W = stepped && !open ? P.wide[k] : P.walk[k] + 0.3, side = Math.sign(P.shift[k]);
       // (A ledge reaches from the wall it runs along to its open edge; a bridge and a stair in a shaft, as far either side as is walked.)
