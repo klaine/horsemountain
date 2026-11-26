@@ -5882,16 +5882,17 @@ async function start() {
    * On a run that parts, the way ridden and the run along each other way, for the foes coming up it (`HordeGround.other`): each seen
    * through the land set to that way for as long as it is asked, and where the skier lies against it reckoned once a frame.
    */
-  const hordeWays = (): { way?: number; other?: (w: number) => HordeWay } => {
+  const hordeWays = (): { way?: number; ways?: number; other?: (w: number) => HordeWay } => {
     if (!land.ways || land.ways.length < 2) return {};
     const seen = new Map<number, HordeWay>();
     return {
       way: ridden(),
+      ways: land.ways.length,
       other: (w) => {
         let o = seen.get(w);
         if (!o) {
           const on = wayOf(w), f = on.frame(rider.position.x, rider.position.z);
-          o = { at: on.at, edges: on.edges, down: f.s, left: f.left };
+          o = { at: on.at, edges: on.edges, length: on.length, down: f.s, left: f.left };
           seen.set(w, o);
         }
         return o;
@@ -9428,7 +9429,7 @@ async function start() {
     // (Only one kind of foe comes, for a script trying it (`slopeFoes.ts`); `null`, every kind again; and from how far ahead.)
     foes: (only: FoeKind['name'] | null, ahead?: [number, number]) => { horde.only = only; if (ahead) horde.ahead = ahead; horde.clear(); },
     // (With the arms: how many foes are about, how many have been brought down, and where those coming are, on the picture too.)
-    orcs: () => ({ about: horde.about, downed: horde.downed, kinds: horde.kinds(), coming: horde.where().map((p) => { const s = p.clone().setY(p.y + 0.4).project(camera); return { at: p.toArray().map((v) => +v.toFixed(1)), screen: [+s.x.toFixed(3), +s.y.toFixed(3)] }; }) }),
+    orcs: () => ({ about: horde.about, downed: horde.downed, kinds: horde.kinds(), ways: horde.ways(), coming: horde.where().map((p) => { const s = p.clone().setY(p.y + 0.4).project(camera); return { at: p.toArray().map((v) => +v.toFixed(1)), screen: [+s.x.toFixed(3), +s.y.toFixed(3)] }; }) }),
     // (The game's own trees on the land about the run, where it has them: where each stands, what it is, how tall.)
     trees: () => (land.group.getObjectByName('woods')?.userData.trees ?? []) as { x: number; z: number; kind: string; tall: number }[],
     // (How long each stage of opening took, in milliseconds.)

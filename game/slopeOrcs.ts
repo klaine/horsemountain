@@ -31,10 +31,12 @@ export interface HordeGround {
    * (east) still have some kind of split that causes enemies to appear and disappear when crossing the invisible boundary").
    */
   way?: number;
+  /** How many ways the run has (`other` is asked of each but `way`). */
+  ways?: number;
   other?(w: number): HordeWay;
 }
 /** The run along one of its ways not ridden, and where the skier is against it (`HordeGround.other`). */
-export interface HordeWay { at: HordeGround['at']; edges: HordeGround['edges']; down: number; left: number }
+export interface HordeWay { at: HordeGround['at']; edges: HordeGround['edges']; length: number; down: number; left: number }
 /** Where the skier is: in the scene, along the run and across it, and how fast it goes; and how near a body must come to be run down. */
 export interface Quarry { at: Vector3; down: number; left: number; v: Vector3; reach: number }
 /**
@@ -59,6 +61,11 @@ export interface Den {
 const MOST = 26, AHEAD: [number, number] = [120, 230];
 /** How far from the skier one coming up a way of the run it is not on sinks away (`HordeGround.other`): further than any comes from, and too far to be made out. */
 const SINKS = 260;
+/**
+ * How far beyond the edge of a way not ridden the skier may be for a horde to come up that way rather than the one ridden, and how
+ * often one does then: near where a run parts, where either way is in sight of the other.
+ */
+const NEAR = 60, ACROSS = 0.5;
 /** How hard the skier strikes what it runs down: enough to bring down any but the great ones and the dead. */
 const RUN_DOWN = 3;
 
@@ -101,6 +108,8 @@ export class Horde {
   private readonly rng = new Rng('orcs');
   /** (The great ones' names drawn apart: drawn from `rng`, every horde after the first yeti came somewhere else.) */
   private readonly naming = this.rng.fork('titles');
+  /** (Which way a horde comes up, where a run parts, drawn apart too: hordes on a run of one way come as they always did.) */
+  private readonly parting = this.rng.fork('parting');
   /** In a den: how long it has been gone through, and when a great one last came there. */
   private denClock = 0;
   private greatAt = -Infinity;
@@ -197,10 +206,26 @@ export class Horde {
       if (s0 < g.length - 40) {
         let pick = this.rng.range(0, ready.reduce((n, k) => n + k.chance, 0)), kind = ready[0];
         for (const k of ready) { if (pick < k.chance) { kind = k; break; } pick -= k.chance; }
-        const waiting = free(kind), [lo, hi] = g.edges(s0), mid = this.rng.range(lo + 3, hi - 3), n = Math.min(waiting.length, room, this.rng.int(...kind.pack));
+        // Near where the run parts, up either way: the way not ridden is in sight there, and only ever empty, with every horde coming
+        // up the one ridden, it was a run of its own and not one place (asked: foes "near the fork", the two ways "one connected area").
+        // A great one comes up the way ridden only, where its ring is laid. (Up the other, as far ahead along it as the skier is along
+        // its own, and only where it is near enough to be seen: further, it would sink away again as soon as it had come.)
+        let way = g.way ?? 0, on: HordeWay | null = null, at0 = s0;
+        if (!kind.titles && g.other && (g.ways ?? 1) > 1) {
+          const near: { w: number; o: HordeWay; s: number }[] = [];
+          for (let w = 0; w < g.ways!; w++) {
+            if (w === way) continue;
+            const o = g.other(w), [lo, hi] = o.edges(Math.max(0, Math.min(o.length, o.down))), s = o.down + (s0 - q.down);
+            if (o.down < 0 || o.down > o.length || Math.max(lo - o.left, o.left - hi) > NEAR || s >= o.length - 40) continue;
+            const p = o.at(s, (lo + hi) / 2);
+            if (Math.hypot(p.x - q.at.x, p.z - q.at.z) < SINKS - 40) near.push({ w, o, s });
+          }
+          if (near.length && this.parting.chance(ACROSS)) { const c = near[this.parting.int(0, near.length - 1)]; way = c.w; on = c.o; at0 = c.s; }
+        }
+        const waiting = free(kind), [lo, hi] = (on ?? g).edges(at0), mid = this.rng.range(lo + 3, hi - 3), n = Math.min(waiting.length, room, this.rng.int(...kind.pack));
         for (let k = 0; k < n; k++) {
-          const b = waiting[k], s = s0 + this.rng.range(-kind.spread, kind.spread), left = mid + this.rng.range(-0.8, 0.8) * kind.spread;
-          Object.assign(b, { s, left, way: g.way ?? 0, sunk: 0, state: 'come', since: 0, pace: this.rng.range(...kind.pace), hp: kind.hp, reel: 0, bumped: 0, met: false, comes: b.comes + 1, kneeling: false });
+          const b = waiting[k], s = at0 + this.rng.range(-kind.spread, kind.spread), left = mid + this.rng.range(-0.8, 0.8) * kind.spread;
+          Object.assign(b, { s, left, way, sunk: 0, state: 'come', since: 0, pace: this.rng.range(...kind.pace), hp: kind.hp, reel: 0, bumped: 0, met: false, comes: b.comes + 1, kneeling: false });
           if (kind.titles) b.title = this.naming.pick(kind.titles);
           b.gait.go(b.pace, this.rng.next());
           b.gait.model.visible = true;
@@ -468,6 +493,8 @@ export class Horde {
   /** Where each still coming stands, for a script that drives the page; and what it is. */
   where(): Vector3[] { return this.foes.filter((b) => b.state === 'come').map((b) => b.p.clone()); }
   kinds(): FoeName[] { return this.foes.filter((b) => b.state === 'come').map((b) => b.kind.name); }
+  /** Which way of a run that parts each coming keeps to, as `where` lists them. */
+  ways(): number[] { return this.foes.filter((b) => b.state === 'come').map((b) => b.way); }
   /**
    * The great ones the skier has come to (within `MEET` metres, or struck), still coming, or fallen a moment ago; nearest first, two at
    * the most.
