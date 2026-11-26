@@ -1727,7 +1727,7 @@ export class Deeps {
         const top = p.clone().add(new Vector3(0, h - capH * 0.15, 0).applyQuaternion(q));
         this.dressing.push({ kind: 'cap', m: new Matrix4().compose(top, q, new Vector3(capR, capH, capR)), at: top, floor, tint: hue });
         this.dressing.push({ kind: 'gill', m: new Matrix4().compose(top.clone().add(new Vector3(0, -0.01, 0)), q, new Vector3(capR * 0.95, 1, capR * 0.95)), at: top, floor, tint: hue });
-        if (i === 0) this.glows.push(small ? { at: top.clone(), color: hue, power: 0.35, reach: 2.6, fall: 0.8 } : giant ? { at: top.clone().add(new Vector3(0, -capH * 0.4, 0)), color: hue, power: 0.75 + 0.15 * h, reach: 7 + 2 * h, fall: 1.6 + 0.6 * h } : { at: top.clone().add(new Vector3(0, -capH * 0.4, 0)), color: hue, power: 0.45 + 0.25 * h, reach: 4 + 1.6 * h, fall: 1.1 + 0.45 * h });
+        if (i === 0) this.glows.push(small ? { at: top.clone(), color: hue, power: 0.35, reach: 2.6, fall: 0.8 } : giant ? { at: top.clone().add(new Vector3(0, -capH * 0.6, 0)), color: hue, power: 0.4 + 0.08 * h, reach: 5 + 1.5 * h, fall: 1.1 + 0.35 * h } : { at: top.clone().add(new Vector3(0, -capH * 0.4, 0)), color: hue, power: 0.45 + 0.25 * h, reach: 4 + 1.6 * h, fall: 1.1 + 0.45 * h });
       }
     };
     // (Each place in a colour of its own; its little clumps in another, for the two to stand out against each other.)
@@ -1830,8 +1830,8 @@ export class Deeps {
       let water = Infinity;
       for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; water = Math.min(water, ground(px + Math.cos(a) * pr, pz + Math.sin(a) * pr)); }
       this.morePools.push({ x: px, z: pz, rx: pr, rz: pr * 0.85, turn: r.range(0, 3), y: water - 0.25, glow: [tone.r * 0.3, tone.g * 0.3, tone.b * 0.3] });
-      this.glows.push({ at: new Vector3(px, water + 0.6, pz), color: tone, power: 1.2, reach: 15, fall: 4 });
-      this.glows.push({ at: new Vector3(sh.x, sh.y0 + 3, sh.z), color: tone, power: 0.7, reach: sh.r * 1.6, fall: sh.r * 0.45 });
+      this.glows.push({ at: new Vector3(px, water + 0.6, pz), color: tone, power: 0.9, reach: 12, fall: 3 });
+      this.glows.push({ at: new Vector3(sh.x, sh.y0 + 3, sh.z), color: tone, power: 0.22, reach: sh.r * 1.6, fall: sh.r * 0.4 });
     }
   }
 
@@ -1885,8 +1885,8 @@ export class Deeps {
     for (const hue of GLOWS) {
       const mine = (k: string) => of(k).filter((d) => d.tint === hue), c = vec3(hue.r, hue.g, hue.b);
       if (!mine('stalk').length) continue;
-      this.many(new CylinderGeometry(0.6, 1, 1, 9, 1).translate(0, 0.5, 0), new MeshStandardNodeMaterial({ color: 0xd8d0c4, roughness: 0.8 }), mine('stalk'), undefined, false, c.mul(0.12), false);
-      this.many(new SphereGeometry(1, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2), new MeshStandardNodeMaterial({ color: 0x3b2c40, roughness: 0.6 }), mine('cap'), undefined, false, c.mul(0.22), false);
+      this.many(new CylinderGeometry(0.6, 1, 1, 9, 1).translate(0, 0.5, 0), new MeshStandardNodeMaterial({ color: 0x8c857c, roughness: 0.8 }), mine('stalk'), undefined, false, c.mul(0.1), false);
+      this.many(new SphereGeometry(1, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2), new MeshStandardNodeMaterial({ color: 0x1c1622, roughness: 0.6 }), mine('cap'), undefined, false, c.mul(sin(time.mul(0.5)).mul(0.12).add(0.62)), false);
       this.many(new CircleGeometry(1, 16).rotateX(Math.PI / 2), new MeshStandardNodeMaterial({ color: hue, roughness: 0.5 }), mine('gill'), undefined, false, c.mul(sin(time.mul(0.6)).mul(0.3).add(1.9)), false);
     }
     // (The crystals glowing of themselves, as each's colour; brighter, slowly, and back.)
