@@ -1619,6 +1619,12 @@ async function start() {
    */
   let foot: { deep?: { s: number; piece: number }; x: number; y: number; z: number; heading: number; speed: number; dx: number; dz: number; turn: number; phase: number; room: number; told: boolean } | null = null;
   let stopping = false;
+  /**
+   * Whether the camp's braking has let go, the ride brought to a stop at the camp's edge, short of where the skis come off (asked: "I
+   * got stuck on the side of the camp entrance mounted on horse, tilted sideways with 0 speed and couldn't exit either way"): kept up
+   * until it rides on into the camp or away from it.
+   */
+  let shortOf = false;
   let flyingDemo = false;
   /**
    * What the player wears, found in the dungeons' chests and on the great ones felled (`slopeLoot.ts`), and what it all comes to
@@ -7350,12 +7356,20 @@ async function start() {
       }
       return;
     }
-    if (!cave || foot || mode !== 'ride' || air || crash || cat || carting || inside || flyingDemo || trip?.started) { stopping = false; return; }
+    if (!cave || foot || mode !== 'ride' || air || crash || cat || carting || inside || flyingDemo || trip?.started) { stopping = shortOf = false; return; }
     // (Braking from as far back as it takes to stop in the camp, if the way it goes leads into it: not riding on past beside it.)
     const p = toCave(ride), was = stopping, go = along(ride.way, here), reach = 3 + ride.speed ** 2 / 14;
     // (Aimed a few metres inside its edge, and kept up once begun, near it: so that it stops in it, not short of it.)
     stopping = cave.inCamp(p.x, p.z) || (was && cave.inCamp(p.x, p.z, 3));
     for (let d = 1; d <= reach && !stopping; d += 1) stopping = cave.inCamp(p.x + go.x * d, p.z + go.z * d, -3);
+    // (Braking held on within three metres of the camp's edge, but the skis off only within a metre of it: stopped between the two, as
+    // beside the mouth, it was held there, braked, and no way of going on in or out. There the braking lets go, and holds again only once
+    // it is in the camp itself, to stop there: until then it rides as it likes, in or away.)
+    const slowed = ride.speed < 0.3 && !cave.inCamp(p.x, p.z, 0.8);
+    if (shortOf || (stopping && slowed)) {
+      shortOf = !cave.inCamp(p.x, p.z) && cave.inCamp(p.x, p.z, 6);
+      stopping = cave.inCamp(p.x, p.z);
+    }
     if (stopping && !was) tell('The camp', 'skis off here, and on foot into the cave', false, 2.5);
     if (stopping && ride.speed < 1.4 && cave.inCamp(p.x, p.z, 0.8) && (!walks() || walkerNow())) skisOff();
   };
@@ -8992,7 +9006,8 @@ async function start() {
     airtime: (i: number, speed: number) => { const all = Array.from({ length: 60 }, (_, n) => kickerOf(n)).filter((k): k is Kicker => !!k && k.s < land.length); return airtimeOff(all[i] ?? all[0], speed); },
     // (Where the skier's hips are in the picture: -1 to 1 across and up it, 0 its middle.)
     onScreen: () => { const p = focus().addScaledVector(UP, 0.9).project(camera); return [+p.x.toFixed(2), +p.y.toFixed(2)]; },
-    step: (seconds: number) => { let at: Now | null = null; for (let i = 0; i < Math.round(seconds * 120); i++) { askRide(); at = stepRide(1 / 120); } if (at && !air && !crash) layRide(at); placed = false; return { ...ride }; },
+    // (`camp`: the cave's camp let brake the ride and take the skis off as it goes, as the frames do, until it does.)
+    step: (seconds: number, camp = false) => { let at: Now | null = null; for (let i = 0; i < Math.round(seconds * 120) && !(camp && foot); i++) { askRide(); at = stepRide(1 / 120); if (camp) stepCamp(); } if (at && !air && !crash) layRide(at); placed = false; return { ...ride }; },
     // (Riding: what is happening in the air or on the ground, the kickers, and to put the skier anywhere going anyhow.)
     state: () => ({ air: air && { ...air }, crash: crash && { why: crash.why, still: stillFor(), rest: atRest(), at: fallenAt().toArray(), bodies: crash.dolls.map((d) => d.doll.middle().toArray()) }, told: { ...told } }),
     // (The `i`th kicker that stands, counting from the top; and where the skier is put, by how far down the run and across it.)
@@ -9307,7 +9322,7 @@ async function start() {
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
     // the gate, before the chest, or in room `back` (by its number); or, `chest`, a step from the chest, to open it; or, `tunnel`, `back`
     // metres in from the mouth.)
-    goCave: (where: 'ride' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'chest' | 'tunnel' = 'camp', back = 50) => {
+    goCave: (where: 'ride' | 'edge' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'chest' | 'tunnel' = 'camp', back = 50, t = -1.2, speed = 1) => {
       const c = caveNow();
       if (!c) return false;
       if (mode !== 'ride') setMode('ride');
@@ -9315,6 +9330,15 @@ async function start() {
       // (`cart`: stopped `back` metres down the run from the camp, its end the rocket cart, to be driven back up into it.)
       if (where === 'cart') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s + back, f.left); placeKickers(ride.down); Object.assign(ride, { way: 0, speed: 0, ended: true }); ending = 'cart'; return true; }
       if (where === 'ride') { leaveFoot(); const f = land.frame(c.site.camp.x + o.x, c.site.camp.z + o.z); putAt(f.s - back, f.left); placeKickers(ride.down); ride.way = 0; ride.speed = 8; placed = false; return true; }
+      // (`edge`: riding at the camp's edge, braking into it, at `back` metres across from the way in and `t` along it (less than nothing,
+      // before the mouth), going `speed` toward the camp's middle: where one may come to a stop short of it.)
+      if (where === 'edge') {
+        leaveFoot();
+        const from = sitePoint(c.site, t, back), f = land.frame(from.x + o.x, from.z + o.z), go = new Vector3(c.site.camp.x - from.x, 0, c.site.camp.z - from.z).normalize();
+        putAt(f.s, f.left); placeKickers(ride.down); here = land.frame(ride.x, ride.z);
+        ride.way = Math.atan2(go.dot(runLeft(here)), go.dot(runDir(here))); ride.facing = skier.facing * ride.way; ride.speed = speed; stopping = true; placed = false;
+        return true;
+      }
       const sp = where === 'chest' ? { x: c.chest.at.x + 1.2, z: c.chest.at.z, heading: -Math.PI / 2 } : where === 'tunnel' ? { ...sitePoint(c.site, back, 0), heading: Math.atan2(c.site.ax, c.site.az) } : c.spot(where, back);
       if (!foot) { const f = land.frame(sp.x + o.x, sp.z + o.z); putAt(f.s, f.left); ride.speed = 0; skisOff(); }
       Object.assign(foot!, { x: sp.x + o.x, z: sp.z + o.z, y: c.floorUnder(sp.x, sp.z) ?? land.height(sp.x + o.x, sp.z + o.z), heading: sp.heading, speed: 0, room: -1 });
