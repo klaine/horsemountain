@@ -1327,7 +1327,9 @@ export class Deeps {
       // floor only from a metre within that one's wall, a hair lower, so the two floors meet with no gap.)
       const inParent = this.inParent(k);
       if (inParent > 0.3) {
-        if (inParent < 1.3) {
+        // (Its floor laid all the way in, not only the last metre or so: the way's own floor ends at its wall, and where the rock bulges
+        // out or the chamber is broad the wall is further out than the breadth `inParent` judges by, so that nothing lay between them.)
+        {
           const [dx, dz] = this.dirAt(k), lx = -dz, lz = dx, [px, pz] = P.pts[k], W = P.wide[k], first = floors.count;
           floors.floor = P.floor[k];
           // (As many points across as the vault's own floor rows, so that the next joins on to it.)
