@@ -32,7 +32,7 @@ export interface DeepsDoor { x: number; y: number; z: number; dx: number; dz: nu
 
 /** The ways down (and, turned about, up). */
 export type Descent = 'spiral' | 'square' | 'switchback' | 'grand' | 'scree' | 'ledge' | 'lift';
-export type Chamber = 'hall' | 'chasm' | 'fissure' | 'grotto' | 'collapse' | 'abyss' | 'landing';
+export type Chamber = 'hall' | 'chasm' | 'fissure' | 'grotto' | 'collapse' | 'abyss' | 'cavern' | 'landing';
 export type PieceKind = 'way' | Descent | Chamber;
 /** A stretch of the line, by what it is (and, a way down turned about, that it goes up); and its name, as it is said on foot. */
 export interface Piece { kind: PieceKind; up?: boolean; name: string; s0: number; s1: number }
@@ -53,13 +53,13 @@ export interface DeepsPlan {
    * The shafts the stairs wind down, and the lifts' wells: their middle, their radius to the wall (a square one's half its side, turned
    * `turn`), from how deep to how high, and their stretch of the line.
    */
-  shafts: { x: number; z: number; r: number; y0: number; y1: number; s0: number; s1: number; square?: { turn: number }; abyss?: boolean; twice?: boolean }[];
+  shafts: { x: number; z: number; r: number; y0: number; y1: number; s0: number; s1: number; square?: { turn: number }; abyss?: boolean; twice?: boolean; cavern?: boolean }[];
   /** The tall chambers ramps zigzag down: along a line (`axis`, its two ends), how far either side, from how deep to how high. */
   halls: { axis: [[number, number], [number, number]]; wide: number; y0: number; y1: number; s0: number; s1: number }[];
   /** The old lifts: where the platform rises and falls, from how deep to how high; the line's metre on it at its top, and at its foot. */
   lifts: { x: number; z: number; y0: number; y1: number; top: number; foot: number; turn: number }[];
   /** Pools, oval, their water's height. */
-  pools: { x: number; z: number; rx: number; rz: number; turn: number; y: number }[];
+  pools: { x: number; z: number; rx: number; rz: number; turn: number; y: number; glow?: [number, number, number] }[];
   torches: { x: number; y: number; z: number; kind: 'wall' | 'brazier' }[];
   /** Where foes wait, and how many; where a chest stands, facing the path. */
   dens: { x: number; z: number; s: number; size: number }[];
@@ -91,7 +91,15 @@ const PIECES = {
   collapse: { long: [20, 30], walk: [8, 10], wide: [10, 13], roof: [9, 12] },
   // (A great chasm: round, as broad as `long`, crossed straight over on a bridge that `walk` and `wide` are; `roof` how far above.)
   abyss: { long: [28, 36], walk: [1.2, 1.3], wide: [1.6, 1.8], roof: [12, 18] },
+  // (A vast cavern: round, as broad as `long`, its floor far down; crossed on a causeway of the rock as broad as `walk` and `wide`.)
+  cavern: { long: [36, 46], walk: [1.7, 2.1], wide: [2.3, 2.7], roof: [12, 16] },
 } as const;
+/**
+ * A vast cavern's measures (asked: "how could we have our depths to have more immersion like BG3 underworld ... a place of wonder"):
+ * how far its floor lies under the causeway across it; how far its wall bulges out past its round, in and out round it and up it; how far
+ * its floor rises toward its wall, and how rough it is.
+ */
+const CAVERN = { depth: [8, 13], bulge: 4.5, rim: 2.8, lumps: 1.8 } as const;
 /** A great chasm's depth under the way across it, and how far over another way crosses it, above or below. */
 const ABYSS = { depth: [30, 44], cross: [6, 8], chance: 0.85, twice: 0.5 } as const;
 /**
@@ -179,6 +187,7 @@ const NAMES: Record<Exclude<PieceKind, 'way'>, string[]> = {
   grotto: ['the Still Pool', 'the Dripping Grotto', 'the Black Water'],
   collapse: ['the Fallen Hall', 'the Broken Hall', 'the Rubble Deep'],
   abyss: ['the Crossing', 'the Great Chasm', 'the Hanging Bridges', 'the Deep Crossing'],
+  cavern: ['the Glimmering Hollow', 'the Fungal Deep', 'the Great Cavern', 'the Starlit Vault', 'the Drowned Garden', 'the Glowing Deep'],
   landing: ['the Guardroom', 'the Shrine of Steps', 'the Cistern', 'the Watch Post', 'the Resting Hall'],
 };
 
@@ -354,7 +363,7 @@ export function planDeeps(all: DeepsDoor[], ground: (x: number, z: number) => nu
     const doors = Math.min(a.y, b.y) - 3;
     plan.pts.forEach(([x, z], k) => { const top = plan.floor[k] + plan.roof[k]; if (plan.floor[k] < doors && top < doors) worst = Math.max(worst, top + COVER - ground(x, z)); });
     // (A great chasm's roof too, all round it.)
-    for (const sh of plan.shafts) if (sh.abyss) for (let i = 0; i <= 8; i++) { const a = (i / 8) * Math.PI * 2, r = i === 8 ? 0 : sh.r; worst = Math.max(worst, sh.y1 + COVER - ground(sh.x + Math.cos(a) * r, sh.z + Math.sin(a) * r)); }
+    for (const sh of plan.shafts) if (sh.abyss || sh.cavern) for (let i = 0; i <= 8; i++) { const a = (i / 8) * Math.PI * 2, r = i === 8 ? 0 : sh.r; worst = Math.max(worst, sh.y1 + COVER - ground(sh.x + Math.cos(a) * r, sh.z + Math.sin(a) * r)); }
     if (worst > 0 && under < UNDER + 90) { under = Math.min(UNDER + 90, under + worst + 2); continue; }
     const crossed = clashes(plan);
     if (crossed < fewest) { fewest = crossed; best = plan; }
@@ -805,6 +814,40 @@ function abyss(T: Turtle, R: number, above: number, rng: Rng) {
   }
 }
 
+/**
+ * A vast cavern: round, `R` from its middle to its wall, its floor some ten metres under the way, its roof `above` over it; the way
+ * across it on a causeway of the rock, winding a little, to a few metres past its far wall. What makes it is in `cavernWall`,
+ * `cavernGround` and the dressing (`planDressing`).
+ */
+function cavern(T: Turtle, R: number, above: number, rng: Rng) {
+  const P = T.P, s0 = T.s, y = T.y, h = T.heading, cx = T.x + Math.cos(h) * (R + 1), cz = T.z + Math.sin(h) * (R + 1), depth = span(rng, CAVERN.depth);
+  const m = { walk: span(rng, PIECES.cavern.walk), wide: span(rng, PIECES.cavern.wide) }, name = rng.pick(NAMES.cavern), ph = rng.range(0, 6), sway = rng.range(0.015, 0.03);
+  for (let i = 0, past = 0; past < 2 && i < 4 * R; i++) {
+    const d = Math.hypot(T.x - cx, T.z - cz), inside = d < R - 0.8;
+    if (i > R && d > R + 1) past++;
+    T.put(inside ? m.walk : 1.6, inside ? m.wide : 2.4, inside ? 3.4 : 3.8, { open: inside, drop: inside ? depth : 0, floor: y });
+    // (Winding a little over the depth, as a spine of rock left standing does, and straight again before the far wall.)
+    T.step(inside && d < R - 4 ? Math.sin(i * 0.13 + ph) * sway : 0);
+  }
+  T.piece('cavern', name, s0);
+  P.shafts.push({ x: cx, z: cz, r: R, y0: y - depth, y1: y + above, s0, s1: T.s, cavern: true });
+}
+/** How far a vast cavern's wall stands from its middle, `a` round it and `v` of the way up it: its round, bulging out by as much again as the rock has it, drawn in toward its roof. */
+const cavernWall = (sh: { x: number; z: number; r: number }, a: number, v: number) => {
+  const c = Math.cos(a), s = Math.sin(a), out = valueNoise2(sh.x * 0.1 + c * 1.7 + v * 2.2, sh.z * 0.1 + s * 1.7, 41) * 0.75 + valueNoise2(c * 4.5 + v * 6, s * 4.5, 43) * 0.25;
+  return sh.r + 0.4 + CAVERN.bulge * out - sh.r * 0.22 * Math.max(0, v - 0.55) / 0.45;
+};
+/** A vast cavern's floor at a point, `f` of the way out from its middle: rising toward its wall, lumpy, and sunk where its pool lies. */
+const cavernGround = (sh: { x: number; z: number; r: number; y0: number }, x: number, z: number, f: number) => {
+  const [px, pz, pr] = cavernPool(sh), d = Math.hypot(x - px, z - pz) / pr;
+  return sh.y0 + CAVERN.rim * Math.min(1, f) ** 2 + CAVERN.lumps * (valueNoise2(x * 0.11, z * 0.11, 45) - 0.5) + 0.5 * valueNoise2(x * 0.4, z * 0.4, 47) - 1.6 * Math.max(0, 1 - d) ** 1.5;
+};
+/** Where a vast cavern's pool lies, and how far across: off its middle, as its seat has it. */
+const cavernPool = (sh: { x: number; z: number; r: number }): [number, number, number] => {
+  const a = valueNoise2(sh.x * 0.37, sh.z * 0.37, 53) * Math.PI * 4;
+  return [sh.x + Math.cos(a) * sh.r * 0.42, sh.z + Math.sin(a) * sh.r * 0.42, sh.r * 0.24];
+};
+
 /** The line laid, the deeps' middle at `deep`. */
 function lay(a: DeepsDoor, b: DeepsDoor, rng: Rng, deep: number, ground: (x: number, z: number) => number): DeepsPlan {
   const T = new Turtle(a.x, a.z, Math.atan2(a.dz, a.dx), a.y), P = T.P;
@@ -848,8 +891,11 @@ function lay(a: DeepsDoor, b: DeepsDoor, rng: Rng, deep: number, ground: (x: num
 
   // The chambers, as many as the way to the way up has room for, each set off the way that keeps clearest of what is laid already, and
   // of those the nearest to between the way to the way up and as far as the seed swings it.
-  const kinds: Exclude<Chamber, 'landing'>[] = ['hall', 'chasm', 'fissure', 'grotto', 'collapse', 'abyss'];
+  const kinds: Exclude<Chamber, 'landing'>[] = ['hall', 'chasm', 'fissure', 'grotto', 'collapse', 'abyss', 'cavern'];
   const order = kinds.slice().sort(() => rng.next() - 0.5);
+  // (A vast cavern in every deeps, as early as the seed has it among the chambers there is room for: the place of wonder in them.)
+  const cav = order.indexOf('cavern'), at = rng.int(0, 1);
+  if (cav > at) { order.splice(cav, 1); order.splice(at, 0, 'cavern'); }
   const count = Math.max(2, Math.min(5, Math.round(Math.hypot(footX - T.x, footZ - T.z) / 45) + rng.int(1, 2)));
   /** A passage from where the line is, turning towards `want` over its length, winding as it goes. */
   const way = (want: number, long: number) => {
@@ -864,10 +910,11 @@ function lay(a: DeepsDoor, b: DeepsDoor, rng: Rng, deep: number, ground: (x: num
     const long = Math.round(span(rng, m.long)), walk = span(rng, m.walk), wide = Math.max(walk + 1, span(rng, m.wide)), roof = span(rng, m.roof);
     let want = bias, least = Infinity;
     // (A great chasm wants room all round it: as far either side as it is across.)
-    const room = kind === 'abyss' ? long / 2 + 2 : wide;
+    const room = kind === 'abyss' || kind === 'cavern' ? long / 2 + 2 : wide;
     for (let c = -6; c <= 6; c++) { const ang = bias + c * 0.25, score = blocked(ang, wayLong, wayLong + long, room, roof) * 100 + Math.abs(c); if (score < least) { least = score; want = ang; } }
     way(want, wayLong);
     if (kind === 'abyss') { abyss(T, long / 2, roof, rng.fork(`abyss ${n}`)); continue; }
+    if (kind === 'cavern') { cavern(T, long / 2, roof, rng.fork(`cavern ${n}`)); continue; }
     const s0 = T.s, y = T.y;
     const bend = kind === 'fissure' ? rng.range(0.03, 0.06) : 0, ph = rng.range(0, 6), drop = kind === 'chasm' ? rng.range(28, 48) : 0;
     for (let i = 0; i < long; i++) {
@@ -1055,6 +1102,8 @@ export class Deeps {
   private dressing: { kind: 'rubble' | 'mite' | 'puddle' | 'crystal' | 'post' | 'beam' | 'stalk' | 'cap' | 'gill'; m: Matrix4; at: Vector3; floor: number; tint?: Color }[] = [];
   /** The passages propped with timbers (by their first metre): old workings, with their rails and carts. */
   private readonly propped = new Set<number>();
+  /** Pools placed as the deeps are dressed (a vast cavern's), drawn with the plan's own. */
+  private readonly morePools: DeepsPlan['pools'] = [];
   /** The embers over the braziers, the dust in the air about the one on foot, the mist in the deeps of the chasms. */
   private embers: { mesh: InstancedMesh; from: Vector3[] } | null = null;
   private motes: InstancedMesh | null = null;
@@ -1485,6 +1534,9 @@ export class Deeps {
       const stepped = STEPPED.has(this.kindAt[k]) || STEPPED.has(this.kindAt[k + 1]), over = P.drop[k] >= 0.5 || P.drop[k + 1] >= 0.5, open = P.open[k] || P.open[k + 1];
       if (!this.joined(k) || lifted.has(k) || lifted.has(k + 1) || (!stepped && !over && !open)) continue;
       const W = stepped && !open ? P.wide[k] : P.walk[k] + 0.3, side = Math.sign(P.shift[k]);
+      // (Across a vast cavern, a causeway of the rock left standing: rock, no parapet, and deep under it.)
+      const natural = this.kindAt[k] === 'cavern' || this.kindAt[k + 1] === 'cavern';
+      floors.mixed = walls.mixed = natural ? 0 : 1;
       // (A ledge reaches from the wall it runs along to its open edge; a bridge and a stair in a shaft, as far either side as is walked.)
       const lo = over && side ? (side > 0 ? -(P.wide[k] - Math.abs(P.shift[k])) - 0.3 : -W) : -W, hi = over && side ? (side > 0 ? W : P.wide[k] - Math.abs(P.shift[k]) + 0.3) : W;
       const parts = stepped ? 3 : 1;
@@ -1499,14 +1551,14 @@ export class Deeps {
           // (Solid under it, as stone is: a flight of a stair a sloping mass a metre and a half deep under its treads, its underside
           // smooth and its sides closed from each tread's edge down to it; a bridge or a ledge a slab over a metre thick. Asked: "the
           // stairs have transparent sides, they should have some 3 dimensionality for immersiveness / slab depth".)
-          const deep = stepped ? 1.5 : 1.1, sa = A.y - deep, sb = B.y - deep;
+          const deep = stepped ? 1.5 : natural ? 2.6 : 1.1, sa = A.y - deep, sb = B.y - deep;
           slab(walls, v(A, lo, sa), v(B, lo, sb), v(A, hi, sa), v(B, hi, sb), UP.clone().negate());
           for (const e of [lo, hi]) {
             // (A parapet on an edge with nothing beyond it: not against a wall.)
             const againstWall = (over && side && ((side > 0 && e === lo) || (side < 0 && e === hi))) || (open && this.edgeAgainstWall(A, e));
             const out = new Vector3(A.lx, 0, A.lz).multiplyScalar(Math.sign(e));
             slab(walls, v(A, e, sa), v(B, e, sb), v(A, e, y), v(B, e, yB), out);
-            if (!againstWall) { const w = e - Math.sign(e) * 0.25; slab(walls, v(A, w, y), v(B, w, yB), v(A, w, y + 0.45), v(B, w, yB + 0.45), out.clone().negate()); slab(walls, v(A, e, y), v(B, e, yB), v(A, e, y + 0.45), v(B, e, yB + 0.45), out); slab(walls, v(A, w, y + 0.45), v(A, e, y + 0.45), v(B, w, yB + 0.45), v(B, e, yB + 0.45), UP); }
+            if (!againstWall && !natural) { const w = e - Math.sign(e) * 0.25; slab(walls, v(A, w, y), v(B, w, yB), v(A, w, y + 0.45), v(B, w, yB + 0.45), out.clone().negate()); slab(walls, v(A, e, y), v(B, e, yB), v(A, e, y + 0.45), v(B, e, yB + 0.45), out); slab(walls, v(A, w, y + 0.45), v(A, e, y + 0.45), v(B, w, yB + 0.45), v(B, e, yB + 0.45), UP); }
           }
         }
       }
@@ -1559,6 +1611,19 @@ export class Deeps {
         };
         wall((u, v) => { const [x, z] = corner(u), y = sh.y0 + (sh.y1 - sh.y0) * v, n = 0.12 * valueNoise2(u * 40, v * 9, 4); return new Vector3(x + n, y, z + n); }, 48, nv, (x, z) => [sh.x - x, sh.z - z], floorOf);
         cap(sh.x, sh.z, corner, sh.y0, true); cap(sh.x, sh.z, corner, sh.y1, false);
+      } else if (sh.cavern) {
+        // A vast cavern: its wall bulging out and in round it and drawn in toward its roof (`cavernWall`), cut away from above over the
+        // causeway as a passage's is, so that it is looked down into; its floor not flat but rising toward the wall, lumpy, a pool sunk
+        // in it (`cavernGround`).
+        const by = P.floor[sh.s0], at = (a: number, v: number) => cavernWall(sh, a, v);
+        wall((u, v) => { const a = u * 2 * Math.PI, rr = at(a, v), y = sh.y0 + (sh.y1 - sh.y0) * v; return new Vector3(sh.x + Math.cos(a) * rr, y, sh.z + Math.sin(a) * rr); }, 72, nv, (x, z) => [sh.x - x, sh.z - z], (y) => Math.min(y - 1.6, by));
+        const NR = 14, NA = 72, first = floors.count;
+        for (let i = 0; i <= NR; i++) for (let j = 0; j <= NA; j++) {
+          const a = (j / NA) * 2 * Math.PI, f = i / NR, rr = at(a, 0) * f, x = sh.x + Math.cos(a) * rr, z = sh.z + Math.sin(a) * rr, y = cavernGround(sh, x, z, f);
+          floors.floor = y; floors.point(x, y, z, 0, 1, 0, x / 3, z / 3);
+        }
+        for (let i = 0; i < NR; i++) for (let j = 0; j < NA; j++) { const a = first + i * (NA + 1) + j; quad(floors, a, a + 1, a + NA + 1, a + NA + 2, 0, 1, 0); }
+        cap(sh.x, sh.z, (u) => { const a = u * 2 * Math.PI, rr = at(a, 1); return [sh.x + Math.cos(a) * rr, sh.z + Math.sin(a) * rr]; }, sh.y1, false);
       } else {
         const ring = (u: number): [number, number] => { const a = u * 2 * Math.PI; return [sh.x + Math.cos(a) * sh.r, sh.z + Math.sin(a) * sh.r]; };
         wall((u, v) => { const a = u * 2 * Math.PI, rr = sh.r + 0.5 * valueNoise2(u * 18, v * 6, 11), y = sh.y0 + (sh.y1 - sh.y0) * v; return new Vector3(sh.x + Math.cos(a) * rr, y, sh.z + Math.sin(a) * rr); }, 56, nv, (x, z) => [sh.x - x, sh.z - z], floorOf);
@@ -1606,14 +1671,15 @@ export class Deeps {
 
   /** The pools: still water, dark, a little of the torchlight in it. */
   private layPools() {
-    for (const q of this.plan.pools) {
+    for (const q of [...this.plan.pools, ...this.morePools]) {
       const g = new BufferGeometry(), n = 32, pos = [q.x, q.y, q.z], idx: number[] = [];
       for (let i = 0; i <= n; i++) { const a = (i / n) * 2 * Math.PI, ex = Math.cos(a) * q.rx, ez = Math.sin(a) * q.rz; pos.push(q.x + ex * Math.cos(q.turn) - ez * Math.sin(q.turn), q.y, q.z + ex * Math.sin(q.turn) + ez * Math.cos(q.turn)); }
       for (let i = 1; i <= n; i++) idx.push(0, i + 1, i);
       g.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3)); g.setIndex(idx); g.computeVertexNormals();
       const water = new MeshStandardNodeMaterial({ color: 0x0a161e, roughness: 0.08, metalness: 0.4 });
       water.lightsNode = lights([this.shared.lantern, this.shared.fire]);
-      water.emissiveNode = vec3(0.03, 0.05, 0.07);
+      // (A vast cavern's pool glowing of itself, slowly brighter and dimmer.)
+      water.emissiveNode = q.glow ? vec3(...q.glow).mul(sin(time.mul(0.4)).mul(0.15).add(1)) : vec3(0.03, 0.05, 0.07);
       this.group.add(new Mesh(g, water));
     }
   }
@@ -1645,21 +1711,23 @@ export class Deeps {
      * view from above cuts the stone at (`CUT`), and their caps off the way where they are low enough to be walked into. `small`: a
      * clump of little ones at a wall's foot.
      */
-    const shrooms = (base: Vector3, floor: number, hue: Color, r: Rng, away: number, small = false) => {
+    const shrooms = (base: Vector3, floor: number, hue: Color, r: Rng, away: number, small = false, giant = 0) => {
       const n = r.int(1, small ? 4 : 3);
       for (let i = 0; i < n; i++) {
-        const p = base.clone().add(new Vector3(r.range(-0.45, 0.45) * (i ? 1 : 0), 0, r.range(-0.45, 0.45) * (i ? 1 : 0)));
-        let h = small ? r.range(0.1, 0.32) : r.range(1.1, 2.6) * (i ? r.range(0.45, 0.8) : 1), capR = small ? h * r.range(0.6, 0.9) : Math.min(1.5, h * r.range(0.35, 0.55) + 0.1);
+        const spread = giant ? 1.8 : 0.45, p = base.clone().add(new Vector3(r.range(-spread, spread) * (i ? 1 : 0), 0, r.range(-spread, spread) * (i ? 1 : 0)));
+        let h = small ? r.range(0.1, 0.32) : giant ? r.range(2.4, giant) * (i ? r.range(0.45, 0.8) : 1) : r.range(1.1, 2.6) * (i ? r.range(0.45, 0.8) : 1);
+        let capR = small ? h * r.range(0.6, 0.9) : giant ? Math.min(3.2, h * r.range(0.38, 0.52)) : Math.min(1.5, h * r.range(0.35, 0.55) + 0.1);
         const capH = capR * r.range(0.35, 0.55);
-        h = Math.min(h, 2.85 - capH);
+        // (Under the height the view from above cuts at; a vast cavern's, under the causeway over them.)
+        if (!giant) h = Math.min(h, 2.85 - capH);
         // (A cap low enough to walk into kept off the way.)
-        if (!small && h - capH < 2.1) capR = Math.min(capR, Math.max(0.25, away + 0.15));
+        if (!small && !giant && h - capH < 2.1) capR = Math.min(capR, Math.max(0.25, away + 0.15));
         const q = new Quaternion().setFromEuler(new Euler(r.range(-0.12, 0.12), r.range(0, 6), r.range(-0.12, 0.12))), stalk = small ? h * 0.18 : r.range(0.06, 0.1) * h + 0.05;
         this.dressing.push({ kind: 'stalk', m: new Matrix4().compose(p, q, new Vector3(stalk, h, stalk)), at: p, floor, tint: hue });
         const top = p.clone().add(new Vector3(0, h - capH * 0.15, 0).applyQuaternion(q));
         this.dressing.push({ kind: 'cap', m: new Matrix4().compose(top, q, new Vector3(capR, capH, capR)), at: top, floor, tint: hue });
         this.dressing.push({ kind: 'gill', m: new Matrix4().compose(top.clone().add(new Vector3(0, -0.01, 0)), q, new Vector3(capR * 0.95, 1, capR * 0.95)), at: top, floor, tint: hue });
-        if (i === 0) this.glows.push(small ? { at: top.clone(), color: hue, power: 0.35, reach: 2.6, fall: 0.8 } : { at: top.clone().add(new Vector3(0, -capH * 0.4, 0)), color: hue, power: 0.45 + 0.25 * h, reach: 4 + 1.6 * h, fall: 1.1 + 0.45 * h });
+        if (i === 0) this.glows.push(small ? { at: top.clone(), color: hue, power: 0.35, reach: 2.6, fall: 0.8 } : giant ? { at: top.clone().add(new Vector3(0, -capH * 0.4, 0)), color: hue, power: 0.75 + 0.15 * h, reach: 7 + 2 * h, fall: 1.6 + 0.6 * h } : { at: top.clone().add(new Vector3(0, -capH * 0.4, 0)), color: hue, power: 0.45 + 0.25 * h, reach: 4 + 1.6 * h, fall: 1.1 + 0.45 * h });
       }
     };
     // (Each place in a colour of its own; its little clumps in another, for the two to stand out against each other.)
@@ -1732,6 +1800,38 @@ export class Deeps {
       if (P.drop[k] < 3) continue;
       const [cx, cz] = P.pts[k];
       this.glows.push({ at: new Vector3(cx, P.floor[k] - P.drop[k] + 0.8, cz), color: DEPTH_GLOW.color, power: DEPTH_GLOW.chasm.power, reach: DEPTH_GLOW.chasm.reach, fall: DEPTH_GLOW.chasm.fall });
+    }
+    // Each vast cavern, its floor a garden of the deep: giant mushrooms glowing, in its own colour and now and then another; little clumps
+    // between them; stalagmites, and spires of rock up past the causeway; crystals on its wall; a pool glowing; and a broad light over the
+    // whole of its floor, so that it is seen from the causeway as a place of its own far below.
+    for (const sh of P.shafts.filter((q) => q.cavern)) {
+      const r = R.fork(`cavern ${sh.s0}`), by = P.floor[sh.s0], tone = r.pick(GLOWS), other = r.pick(GLOWS.filter((g) => g !== tone));
+      const ground = (x: number, z: number) => cavernGround(sh, x, z, Math.hypot(x - sh.x, z - sh.z) / sh.r);
+      const spot = (lo: number, hi: number): [number, number] => { const a = r.range(0, Math.PI * 2), f = Math.sqrt(r.range(lo * lo, hi * hi)); return [sh.x + Math.cos(a) * sh.r * f, sh.z + Math.sin(a) * sh.r * f]; };
+      const [px, pz, pr] = cavernPool(sh), dry = (x: number, z: number, m: number) => Math.hypot(x - px, z - pz) > pr + m;
+      const fromWay = (x: number, z: number) => { let d = Infinity; for (let k = sh.s0; k < sh.s1; k++) d = Math.min(d, Math.hypot(x - P.pts[k][0], z - P.pts[k][1])); return d; };
+      for (let i = r.int(16, 24); i > 0; i--) {
+        const [x, z] = spot(0.12, 0.88), y = ground(x, z);
+        if (dry(x, z, 1)) shrooms(new Vector3(x, y, z), by, r.chance(0.7) ? tone : other, r.fork(`giant ${i}`), 9, false, Math.max(2.6, Math.min(6.5, by - 1.4 - y)));
+      }
+      for (let i = r.int(26, 36); i > 0; i--) { const [x, z] = spot(0.1, 0.95); if (dry(x, z, 0.3)) shrooms(new Vector3(x, ground(x, z), z), by, r.chance(0.5) ? other : tone, r.fork(`clump ${i}`), 0, true); }
+      for (let i = r.int(14, 22); i > 0; i--) {
+        const [x, z] = spot(0.3, 0.97), hh = r.range(1.2, 4.5), w = r.range(0.25, 0.6) * (0.5 + hh / 4);
+        if (dry(x, z, 0.5)) put('mite', new Vector3(x, ground(x, z) - 0.2, z), by, new Euler(r.range(-0.08, 0.08), r.range(0, 6), r.range(-0.08, 0.08)), new Vector3(w, hh, w));
+      }
+      for (let i = r.int(2, 4); i > 0; i--) {
+        const [x, z] = spot(0.35, 0.82), w = r.range(1.1, 2);
+        if (dry(x, z, 1.5) && fromWay(x, z) > w + 3) { const y = ground(x, z); put('mite', new Vector3(x, y - 0.3, z), by, new Euler(0, r.range(0, 6), 0), new Vector3(w, by + 6 - y, w)); }
+      }
+      for (let i = 0; i < 8; i++) {
+        const a = r.range(0, Math.PI * 2), y = r.range(sh.y0 + 1.5, by - 1), rr = cavernWall(sh, a, (y - sh.y0) / (sh.y1 - sh.y0)) - 0.35;
+        crystal(new Vector3(sh.x + Math.cos(a) * rr, y, sh.z + Math.sin(a) * rr), y, new Vector3(-Math.cos(a), 0, -Math.sin(a)), r.fork(`crystal ${i}`));
+      }
+      let water = Infinity;
+      for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; water = Math.min(water, ground(px + Math.cos(a) * pr, pz + Math.sin(a) * pr)); }
+      this.morePools.push({ x: px, z: pz, rx: pr, rz: pr * 0.85, turn: r.range(0, 3), y: water - 0.25, glow: [tone.r * 0.3, tone.g * 0.3, tone.b * 0.3] });
+      this.glows.push({ at: new Vector3(px, water + 0.6, pz), color: tone, power: 1.2, reach: 15, fall: 4 });
+      this.glows.push({ at: new Vector3(sh.x, sh.y0 + 3, sh.z), color: tone, power: 0.7, reach: sh.r * 1.6, fall: sh.r * 0.45 });
     }
   }
 
