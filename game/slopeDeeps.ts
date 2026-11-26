@@ -1386,8 +1386,7 @@ export class Deeps {
         const rr = r + WALL_DEPTH;
         outs.push([cx + lx * (lat + (ox / ol) * rr), base + h + (oy / ol) * rr, cz + lz * (lat + (ox / ol) * rr), (j * W * 0.14) / 2.5, k / 2.5]);
       }
-      outer[k] = rock.count;
-      for (const o of outs) rock.point(o[0], o[1], o[2], 0, 0, 0, o[3], o[4]);
+      if (!(globalThis as { __noDepth?: boolean }).__noDepth) { outer[k] = rock.count; for (const o of outs) rock.point(o[0], o[1], o[2], 0, 0, 0, o[3], o[4]); }
       // The floor across it, where it is not a bridge's or a ledge's over a drop, nor a stair's.
       if (P.drop[k] < 0.5 && !STEPPED.has(this.kindAt[k])) {
         floors.floor = P.floor[k];
