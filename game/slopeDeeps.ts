@@ -1087,8 +1087,10 @@ export class Deeps {
      * light worked into it, and by the lantern and the fire. Seen from above, cut away over a height; a wall's back drawn dark, as the
      * rock behind its face, so that a wall seen from outside is a mass and not a sheet.
      */
-    const stone = (a: { map: N; normal: N }, b: { map: N; normal: N }, roughness: number, backed = false) => {
-      const m = new MeshStandardNodeMaterial({ roughness, metalness: 0, side: backed ? DoubleSide : undefined });
+    const stone = (a: { map: N; normal: N }, b: { map: N; normal: N }, roughness: number, backed = false, both = false) => {
+      // (`both`: drawn from either side, not dark behind: a floor, whose quads fold over one another on the inside of a bend, the folded
+      // ones facing down and, drawn from one side only, gone: black wedges cut into the floor there.)
+      const m = new MeshStandardNodeMaterial({ roughness, metalness: 0, side: backed || both ? DoubleSide : undefined });
       const k = attribute('aMix', 'float') as N, albedo = mix(texture(a.map, uv()).rgb as N, texture(b.map, uv()).rgb as N, k);
       const dark = vec3(0.035, 0.031, 0.028);
       m.colorNode = (backed ? select(frontFacing, albedo, dark) : albedo) as N;
@@ -1104,7 +1106,7 @@ export class Deeps {
       m.alphaTestNode = float(0.5);
       return m;
     };
-    for (const [s, m] of [[rock, stone(T.rock, T.wall, 0.95, true)], [floors, stone(T.rock, T.floor, 0.88)], [walls, stone(T.wall, T.wall, 0.9)]] as const) {
+    for (const [s, m] of [[rock, stone(T.rock, T.wall, 0.95, true)], [floors, stone(T.rock, T.floor, 0.88, false, true)], [walls, stone(T.wall, T.wall, 0.9)]] as const) {
       const mesh = new Mesh(s.geometry(true), m);
       mesh.receiveShadow = true;
       this.group.add(mesh);
@@ -1376,6 +1378,9 @@ export class Deeps {
       axis[k] = [cx, base + H * 0.35, cz];
       // (And a second ring of points behind it, `WALL_DEPTH` further out, for the wall's depth: see `WALL_DEPTH`.)
       const outs: number[][] = [];
+      // (Where the wall's foot is, to either side: the floor reaches it. The wall stands out from its line by the rock's roughness, and the
+      // floor ended at the line, a slit of that breadth between them.)
+      let footL = WL, footR = WR;
       for (let j = 0; j <= RING; j++) {
         let lat = 0, up = 0;
         CUTS.forEach((c, i) => { if (share[i] <= 0) return; const [a, b] = outlineAt(c, j / RING); lat += share[i] * a; up += share[i] * b; });
@@ -1383,6 +1388,8 @@ export class Deeps {
         const h = H * up, r = this.rough(k, j, big) * smooth * (1 + 0.6 * share[0]);
         const ox = lat / Math.max(W, 1e-3), oy = (up - 0.35) * 0.8, ol = Math.hypot(ox, oy) || 1;
         rock.point(cx + lx * (lat + (ox / ol) * r), base + h + (oy / ol) * r, cz + lz * (lat + (ox / ol) * r), 0, 0, 0, (j * W * 0.14) / 2.5, k / 2.5);
+        if (j === 0) footL = Math.max(WL, Math.abs(lat + (ox / ol) * r));
+        if (j === RING) footR = Math.max(WR, Math.abs(lat + (ox / ol) * r));
         const rr = r + WALL_DEPTH;
         outs.push([cx + lx * (lat + (ox / ol) * rr), base + h + (oy / ol) * rr, cz + lz * (lat + (ox / ol) * rr), (j * W * 0.14) / 2.5, k / 2.5]);
       }
@@ -1394,7 +1401,7 @@ export class Deeps {
         floors.mixed = 0.45 * share[1] + share[2] + share[3];
         const across = 8, first = floors.count, rough = 0.03 + 0.16 * share[0];
         for (let i = 0; i <= across; i++) {
-          const u = -1 + (2 * i) / across, lat = u * (u < 0 ? WL : WR), edge = Math.max(0, Math.abs(u) - 0.55) / 0.45;
+          const u = -1 + (2 * i) / across, lat = u * (u < 0 ? footL : footR), edge = Math.max(0, Math.abs(u) - 0.55) / 0.45;
           floors.point(cx + lx * lat, P.floor[k] + rough * (valueNoise2(lat * 0.7, k * 0.7, 3) - 0.3) * (0.4 + edge) + share[0] * 0.25 * edge * edge, cz + lz * lat, 0, 1, 0, lat / 3, k / 3);
         }
         if (k > 0 && (floors as N).lastRow !== undefined && (floors as N).lastK === k - 1 && this.joined(k - 1)) {
