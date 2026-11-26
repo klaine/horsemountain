@@ -1015,6 +1015,8 @@ export class Deeps {
   /** Whether the backs of the walls are drawn (1), dark, as the rock they are the face of; not (0) for a picture of all of them from outside. */
   readonly backs = uniform(1);
   private readonly flicker = uniform(1);
+  /** Light added to every point of the stone, evenly, for a script looking at the geometry without its shadows (`__deeps.bright.value`); none as played. */
+  readonly bright = uniform(0);
   private readonly flames: InstancedMesh;
   private readonly flameAt: Vector3[] = [];
   private readonly grid = new Map<string, number[]>();
@@ -1091,7 +1093,7 @@ export class Deeps {
       const dark = vec3(0.035, 0.031, 0.028);
       m.colorNode = (backed ? select(frontFacing, albedo, dark) : albedo) as N;
       m.normalNode = normalMap(mix(texture(a.normal, uv()) as N, texture(b.normal, uv()) as N, k));
-      const lit = (albedo as N).mul(attribute('aLight', 'vec3')).mul(this.flicker);
+      const lit = (albedo as N).mul((attribute('aLight', 'vec3') as N).add(this.bright)).mul(this.flicker);
       m.emissiveNode = (backed ? select(frontFacing, lit, dark.mul(0.25)) : lit) as N;
       m.lightsNode = lights([this.shared.lantern, this.shared.fire]);
       const floor = attribute('aFloor', 'float') as N;
