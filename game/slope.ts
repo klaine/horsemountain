@@ -61,7 +61,7 @@ import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sparks, Sweep } from './slopeArms';
 import { Drops, type Item, LootCard, type Maps, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
 import { nearTrail, planTrail, type Trail, TrailLook } from './slopeTrail';
-import { type Branch, type Frame, type GameLook, groomedLand, type Land, sliceLand } from './slopeLand';
+import { type Branch, type Frame, type GameLook, groomedLand, type Land, type LandWay, sliceLand } from './slopeLand';
 import { paintNearer } from './slopeTrees';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
 import { type Boss, type Den, type FoeKind, Horde, type HordeWay } from './slopeOrcs';
@@ -388,16 +388,18 @@ async function start() {
   // caves to warden's spur and balestead; and for other runs find suitable spots to add a mound or adjust land shape"): in a bank
   // beside the piste where there is one, Silent Warden's, Warden's Spur's and Balestead's; elsewhere in a knoll raised for it.)
   // (`trail: false`: no forgotten slope, `slopeTrail.ts`, will go on it with any seed, and no map is found of it.)
-  const runs: { id: string; label: string; where?: string; title: string; detail: string; cave?: boolean; trail?: boolean }[] = ([
+  // (`area`: the runs that part from one another (`FORKS` in `tools/skiRun.ts`) are one place, whichever of them is chosen and whichever
+  // way is taken down it: one best score and one best time, `areaOf`.)
+  const runs: { id: string; label: string; where?: string; title: string; detail: string; cave?: boolean; trail?: boolean; area?: string }[] = ([
     { id: 'w2', label: 'Silent Warden', where: 'below The Silent Warden', title: 'From beside the highest summit of the range, along a crest with rock falling away either side; halfway down, a cave in the bank beside the piste, a camp before it and a tomb under the mountain', detail: '1.02 km along a crest, from beside the highest summit; a cave halfway down', cave: true },
     { id: 'w2-3', label: 'Pale Crown', where: 'below The Pale Crown', title: 'Down a long spur out of the range into the wooded foothills above a bay', detail: '1.43 km down a spur into wooded foothills above a bay' },
-    { id: 'w2-8', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge; a hundred metres down, Ashbridge Bend parts from it to the south, and either way can be taken', detail: '0.80 km, the steepest, under rock walls to a lake; Ashbridge Bend parts from it' },
+    { id: 'w2-8', area: 'ashbridge', label: 'Ashbridge', where: 'near Ashbridge', title: 'Short and steep, along the foot of the range under its rock walls, down to a lake in a glen below Ashbridge; a hundred metres down, Ashbridge Bend parts from it to the south, and either way can be taken', detail: '0.80 km, the steepest, under rock walls to a lake; Ashbridge Bend parts from it' },
     { id: 'w2-10', label: 'Carndale', where: 'above Carndale', title: 'Long and gentle, straight down a wooded spur in the west of the range to a lake above Carndale', detail: '1.32 km, gentle, down a wooded spur to a lake' },
     { id: 'w2-2', label: "Warden's Spur", where: "on the Silent Warden's south spur", title: "From beside the highest summit down its south spur, along the crest for half its length", detail: '0.76 km from the summit, half of it along a crest' },
-    { id: 'w2-14', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end and across above the lake below Ashbridge, to where Ashbridge ends, its kickers big; two hundred metres down, Lake Wall East parts from it, and either way can be taken', detail: '1.54 km, broad above and steep below, big kickers, to where Ashbridge ends; Lake Wall East parts from it' },
+    { id: 'w2-14', area: 'lake-wall', label: 'Lake Wall', where: 'above the lake below Ashbridge', title: 'From a knoll at the head of a long spur, down its broad back, then steeply down its end and across above the lake below Ashbridge, to where Ashbridge ends, its kickers big; two hundred metres down, Lake Wall East parts from it, and either way can be taken', detail: '1.54 km, broad above and steep below, big kickers, to where Ashbridge ends; Lake Wall East parts from it' },
     { id: 'w2-17', label: 'Balestead', where: 'near Balestead', title: 'In among the mountains, down a crest to the glen below Balestead', detail: '0.77 km down a crest inside the range' },
-    { id: 'w2-25', label: 'Ashbridge Bend', where: 'round the spur below Ashbridge', title: "From Ashbridge's top, away from it to the south, round the spur and through the head of a gully, then back east under it to the lake where Ashbridge ends; or, where it parts, down Ashbridge itself", detail: "0.93 km from Ashbridge's top, round a spur to where it ends" },
-    { id: 'w2-40', trail: false, label: 'Lake Wall East', where: 'east of the spur above the lake below Ashbridge', title: "From Lake Wall's knoll, away from it to the east, down the far side of its spur and round under it to the west, to the lake where Ashbridge ends; or, where it parts, down Lake Wall itself", detail: "1.64 km from Lake Wall's top, round its spur to where Ashbridge ends" },
+    { id: 'w2-25', area: 'ashbridge', label: 'Ashbridge Bend', where: 'round the spur below Ashbridge', title: "From Ashbridge's top, away from it to the south, round the spur and through the head of a gully, then back east under it to the lake where Ashbridge ends; or, where it parts, down Ashbridge itself", detail: "0.93 km from Ashbridge's top, round a spur to where it ends" },
+    { id: 'w2-40', area: 'lake-wall', trail: false, label: 'Lake Wall East', where: 'east of the spur above the lake below Ashbridge', title: "From Lake Wall's knoll, away from it to the east, down the far side of its spur and round under it to the west, to the lake where Ashbridge ends; or, where it parts, down Lake Wall itself", detail: "1.64 km from Lake Wall's top, round its spur to where Ashbridge ends" },
   ]).map((r) => ({ ...r, cave: true, title: r.title.includes('cave') ? r.title : `${r.title}; halfway down, a cave beside the piste, a camp before it and a dungeon under the mountain`, detail: r.detail.includes('cave') ? r.detail : `${r.detail}; a cave halfway down` }));
   const asked = query.get('world'), bodyId = query.get('body') ?? 'adventurer';
   if (asked && !runs.some((r) => r.id === asked)) runs.unshift({ id: asked, label: asked, title: `A run down the world ${asked}`, detail: `A run found in the world, ${asked}` });
@@ -673,9 +675,7 @@ async function start() {
    */
   const standSign = (made: Land, kind: string) => {
     const branch = made.ways![1], nameOf = (id?: string) => runs.find((r) => r.id === (id ?? kind))?.label ?? id ?? kind;
-    made.setWay!(1);
-    const p = made.at(Math.min(branch.length, branch.from + 80), 0);
-    made.setWay!(0);
+    const p = branch.at(Math.min(branch.length, branch.from + 80), 0);
     const side = Math.sign(made.frame(p.x, p.z).left) || 1, s = Math.max(10, branch.from - 30), [lo, hi] = made.edges(s), at = made.at(s, side > 0 ? hi + 3 : lo - 3);
     const sign = forkSign(side > 0 ? nameOf(branch.id) : nameOf(), side > 0 ? nameOf() : nameOf(branch.id));
     sign.group.position.set(at.x, made.height(at.x, at.z), at.z);
@@ -728,13 +728,15 @@ async function start() {
     else if (!Object.getOwnPropertyDescriptor(made, 'cave')) Object.defineProperty(made, 'cave', { get: () => caves[made.way!()] ?? null, configurable: true });
     const letGo = made.dispose;
     made.dispose = () => { letGo?.(); cave.dispose(); };
-    const kickable = made.kickable;
-    // (Its ramp and the snow it lands on, across its breadth, each clear.)
-    made.kickable = (s, left, length) => {
-      if (!kickable(s, left, length)) return false;
-      for (let u = s; u <= s + length + 22; u += 3) for (const l of [left - 4, left, left + 4]) { const p = made.at(u, l); if (!cave.keepsClear(p.x, p.z)) return false; }
-      return true;
-    };
+    // (Its ramp and the snow it lands on, across its breadth, each clear: on every way down a run that parts, each along itself.)
+    for (const w of made.ways ?? [made]) {
+      const kickable = w.kickable.bind(w);
+      w.kickable = (s, left, length) => {
+        if (!kickable(s, left, length)) return false;
+        for (let u = s; u <= s + length + 22; u += 3) for (const l of [left - 4, left, left + 4]) { const p = w.at(u, l); if (!cave.keepsClear(p.x, p.z)) return false; }
+        return true;
+      };
+    }
     const poles = made.group.getObjectByName('poles') as InstancedMesh | undefined, m = new Matrix4(), p = new Vector3();
     if (poles) {
       for (let i = 0; i < poles.count; i++) { poles.getMatrixAt(i, m); p.setFromMatrixPosition(m); if (cave.inCamp(p.x, p.z, 1.5) || cave.skiTop(p.x, p.z) !== null) poles.setMatrixAt(i, m.makeScale(0, 0, 0)); }
@@ -845,6 +847,10 @@ async function start() {
     return made;
   };
   let land = await landOf(landKind);
+  /** A way down the run, as it is to be asked of itself (`Land.ways`): on a run of one way, the land; and the way the skier rides. */
+  type WayView = Pick<LandWay, 'length' | 'frame' | 'at' | 'edges' | 'kickable'>;
+  const wayOf = (w: number): WayView => land.ways?.[w] ?? land;
+  const ridden = () => land.way?.() ?? 0;
   // (The run opened on not fetched: the groomed slope, called so.)
   if (landKind !== 'groomed' && land === lands.get('groomed')) landKind = 'groomed';
   landTop = topOf.get(land) ?? null;
@@ -869,10 +875,10 @@ async function start() {
   interface Kicker extends KickDims { i: number; s: number; left: number; x: number; z: number; dx: number; dz: number; group?: Group; flags?: Mesh[]; safe?: number }
   // (Kept by the way down they stand on, too, on a run that parts: each way's `i`th is its own.)
   const kickerAt = new Map<string, Kicker | null>();
-  const kickerOf = (i: number): Kicker | null => {
-    const key = `${land.way?.() ?? 0}:${i}`;
+  const kickerOf = (i: number, w = ridden()): Kicker | null => {
+    const key = `${w}:${i}`;
     if (kickerAt.has(key)) return kickerAt.get(key)!;
-    const at = kickerSpot(land, i), p = at && land.at(at.s, at.left), k: Kicker | null = at && p ? { i, s: at.s, left: at.left, ...p, ...kickSize(i, at.s, at.left, p, at.spare) } : null;
+    const on = wayOf(w), at = kickerSpot(on, i), p = at && on.at(at.s, at.left), k: Kicker | null = at && p ? { i, s: at.s, left: at.left, ...p, ...kickSize(i, at.s, at.left, p, at.spare, on) } : null;
     kickerAt.set(key, k);
     return k;
   };
@@ -907,20 +913,20 @@ async function start() {
     const f = fall(u);
     return { u, f, after: fall(u + 6), blow: Math.max(0, -(vu * f + vy) / Math.hypot(f, 1)) };
   };
-  const kickSize = (i: number, s: number, left: number, at: { x: number; z: number; dx: number; dz: number }, spare: number): KickDims => {
-    if (land.length === Infinity) return kickDims(new Rng('kicker sizes').fork(`kicker ${i}`).pick(KICK_SIZES));
+  const kickSize = (i: number, s: number, left: number, at: { x: number; z: number; dx: number; dz: number }, spare: number, on: WayView): KickDims => {
+    if (on.length === Infinity) return kickDims(new Rng('kicker sizes').fork(`kicker ${i}`).pick(KICK_SIZES));
     const one = kickDims(1), flight = (d: KickDims, v0: number) => kickFlight(at, d, v0);
     // (A big kicker throws high, and a skier off it comes down steeply: hard, unless the land falls away under it as steeply. So a size
     // bigger than 1 is kept where, taken at `KICK_SPEED`, it comes down on the slope and no harder than `KICK_BLOW`, or than a kicker
     // of size 1 there would; and one smaller than 1 only where size 1 would come down harder than `KICK_HARD`: kickers of size 1 are
     // what the demo runs' tricks were made on, and a smaller one keeps a skier too short a time in the air for a flip.)
-    const fits = (d: KickDims) => d.size === 1 || (land.kickable(s, left, d.L + d.B) && (d.size < 1 || d.half + d.side - one.half - one.side <= spare));
+    const fits = (d: KickDims) => d.size === 1 || (on.kickable(s, left, d.L + d.B) && (d.size < 1 || d.half + d.side - one.half - one.side <= spare));
     const base = flight(one, KICK_SPEED);
     for (const size of KICK_SIZES.filter((z) => z > 1)) {
       const d = kickDims(size);
       if (!fits(d)) continue;
       const o = flight(d, KICK_SPEED);
-      if (s + o.u + 36 < land.length && o.f >= Math.tan((10 * Math.PI) / 180) && o.after >= Math.tan((8 * Math.PI) / 180) && o.blow <= Math.max(KICK_BLOW, base.blow)) return d;
+      if (s + o.u + 36 < on.length && o.f >= Math.tan((10 * Math.PI) / 180) && o.after >= Math.tan((8 * Math.PI) / 180) && o.blow <= Math.max(KICK_BLOW, base.blow)) return d;
     }
     if (base.blow <= KICK_HARD) return one;
     for (const size of KICK_SIZES.filter((z) => z < 1)) { const d = kickDims(size); if (fits(d) && flight(d, KICK_SPEED).blow <= KICK_HARD) return d; }
@@ -986,12 +992,7 @@ async function start() {
    * How far down the skier is along the way of a run that parts on which the arena was laid (its pipe's measures and its pen are along
    * it): the ride's own on that way, as on a run of one way; on the other, where it lies against that way.
    */
-  const arenaDown = (a: { way: number }) => {
-    const ridden = land.way?.() ?? 0;
-    if (a.way === ridden || !land.setWay) return ride.down;
-    land.setWay(a.way);
-    try { return land.frame(ride.x, ride.z).s; } finally { land.setWay(ridden); }
-  };
+  const arenaDown = (a: { way: number }) => (a.way === ridden() ? ride.down : wayOf(a.way).frame(ride.x, ride.z).s);
   const inArena = () => !!arena && !arena.sinking && mode === 'ride' && !flyingDemo && arenaDown(arena) > (horde.pen?.lo ?? arena.pipe.foot) - 30 && arenaDown(arena) < arena.pipe.foot + arena.pipe.end;
   // (Over the cave's mound, its rock: the snow under it is cut away there.)
   const ground = (x: number, z: number) => {
@@ -1092,13 +1093,10 @@ async function start() {
     for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i); if (k && k.s < land.length && clear(k)) near.push(k); }
     // (On a run that parts, the other ways' kickers past where they part too, while they are as near: seen from the fork down either
     // way, and there to be ridden into, before the skier is on that way and its kickers are its own.)
-    const was = land.way?.() ?? 0;
-    for (let w = 0; w < (land.ways?.length ?? 0); w++) {
-      if (w === was) continue;
-      land.setWay!(w);
-      for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i); if (k && k.s < land.length && k.s > land.ways![w].from + 10 && !near.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < 5)) near.push(k); }
+    for (const [w, o] of (land.ways ?? []).entries()) {
+      if (w === ridden()) continue;
+      for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i, w); if (k && k.s < o.length && k.s > o.from + 10 && !near.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < 5)) near.push(k); }
     }
-    land.setWay?.(was);
     for (const k of kickerAt.values()) if (k && !near.includes(k)) takeDown(k);
     if (kickersOn) for (const k of near) if (!k.group) buildKicker(k);
     kicks = kickersOn ? near : [];
@@ -1969,7 +1967,8 @@ async function start() {
    * its foot), a few metres in from the nearer edge, the run going on from there, its time and points kept (`endingFrom`, `resumeAt`).
    * Unset, the run's end throws it back to the top as it always has.
    */
-  let backOnto: { s: number; left: number } | null = null;
+  /** (And on which way down a run that parts: the ride, begun again from the top's way, is put back onto it.) */
+  let backOnto: { s: number; left: number; way: number } | null = null;
   const stepOffPiste = (dt: number) => {
     // (Not on a forgotten slope's way, which a map has shown: off the piste, but where it may be.)
     const [lo, hi] = land.edges(ride.down), out = offPisteOk() && !foot && !stopping && !crash && !cat && !ride.ended && (ride.left < lo || ride.left > hi) && !onTrail();
@@ -1982,7 +1981,7 @@ async function start() {
     if (out && left <= 0) {
       // (Brought to a stop, and the run's end then throws it back onto the piste, `backOnto`.)
       const s = land.length === Infinity ? Math.max(5, ride.down) : clamp(ride.down, 5, land.length - 60), [a, b] = land.edges(s);
-      backOnto = { s, left: clamp(ride.left, a + 4, b - 4) };
+      backOnto = { s, left: clamp(ride.left, a + 4, b - 4), way: ridden() };
       ride.ended = true; offPisteFor = 0; offPisteEl.hidden = true;
       tell('Out of bounds', 'too long off the marked slopes: back onto them', true, 1e9);
     }
@@ -2109,23 +2108,29 @@ async function start() {
     popsEl.appendChild(el);
   };
   /**
-   * The run ridden, by its slice's name, for its best score and best time: on a run that parts in two (`Land.ways`), the way now ridden
-   * down it, so that one come down Ashbridge Bend from Ashbridge's top counts as Ashbridge Bend's.
+   * The place a run is, for its best score and best time: a run's own, by its slice's name; but runs that part from one another are one
+   * place (`area`), whichever is chosen and whichever way is taken down it (asked: "should we just make the diverging runs logically
+   * single entities? ... want it to feel like one connected area"). They had been kept way by way, so that one come down Ashbridge Bend
+   * from Ashbridge's top counted as Ashbridge Bend's.
    */
-  const runKey = () => land.ways?.[land.way?.() ?? 0]?.id ?? landKind;
-  /** The other way down taken, where a run parts: said so, its best score the one to beat now, and its kickers put out. */
+  const areaOf = (id: string) => runs.find((r) => r.id === id)?.area ?? id;
+  const areaKey = () => areaOf(landKind);
+  /** What was kept under the place, or under any of its runs as each was kept before they were one (the best of them). */
+  const keptOf = (what: 'best' | 'bestTime', id: string) => {
+    const area = areaOf(id), all = [area, ...runs.filter((r) => r.area && r.area === area).map((r) => r.id)].map((k) => Number(kept(`${what}.${k}`)) || 0).filter((v) => v > 0);
+    return !all.length ? 0 : what === 'best' ? Math.max(...all) : Math.min(...all);
+  };
+  /** The other way down taken, where a run parts: said so, and its kickers put out. */
   const tookWay = () => {
-    const id = runKey(), run = runs.find((r) => r.id === id);
+    const id = land.ways?.[ridden()]?.id ?? landKind, run = runs.find((r) => r.id === id);
     if (run && mode === 'ride') tell(run.label, 'the way taken where the run parts', false, 3);
-    best = bestBefore = Math.max(0, Number(kept(`best.${id}`)) || 0);
-    showBest();
     placeKickers(ride.down);
   };
   /** Points won riding, counted. */
   const addScore = (n: number) => {
     if (mode !== 'ride') return;
     score += n;
-    if (score > best) { best = score; keep(`best.${runKey()}`, String(best)); }
+    if (score > best) { best = score; keep(`best.${areaKey()}`, String(best)); }
     showBest();
     scoreEl.textContent = score.toLocaleString('en');
     scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
@@ -2149,11 +2154,11 @@ async function start() {
    */
   const bestTimeSaid = () => {
     if (!Number.isFinite(land.length)) return '';
-    const was = Number(kept(`bestTime.${runKey()}`)) || 0, beat = !was || ride.time < was;
-    if (beat) keep(`bestTime.${runKey()}`, ride.time.toFixed(1));
+    const was = keptOf('bestTime', landKind), beat = !was || ride.time < was;
+    if (beat) keep(`bestTime.${areaKey()}`, ride.time.toFixed(1));
     return !was ? '' : beat ? 'new best' : `best ${Math.round(was)} s`;
   };
-  const resetScore = () => { tricksRun = 0; runStats = newStats(); foundRun.length = 0; score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; land.setWay?.(0); best = bestBefore = Math.max(0, Number(kept(`best.${runKey()}`)) || 0); showBest(); };
+  const resetScore = () => { tricksRun = 0; runStats = newStats(); foundRun.length = 0; score = 0; downedRun = 0; downedUntil = 0; scoreEl.textContent = '0'; land.setWay?.(0); best = bestBefore = keptOf('best', landKind); showBest(); };
   /** An orc downed at `p`: shot (the cross where it was struck), or run down; and the run of them it comes in. */
   /**
    * How many orcs the rider has brought down riding, over every run since the page was opened, which says what it carries
@@ -2630,11 +2635,12 @@ async function start() {
     try { history.replaceState(null, '', t.kind === opensOn ? location.pathname + location.search : `#${t.kind}`); } catch { /* (not where the page may not change its address) */ }
   };
   /** Thrown back onto the piste out of bounds (`backOnto`), down there at `to`: the run going on from it, its time, points and tracks kept. */
-  const resumeAt = (to: { s: number; left: number }) => {
+  const resumeAt = (to: { s: number; left: number; way: number }) => {
     const time = ride.time;
     unflip();
     resetRide();
     ride.time = time;
+    land.setWay?.(to.way);
     putAt(to.s, to.left);
     placeKickers(to.s);
     levelTilt();
@@ -2904,10 +2910,10 @@ async function start() {
   /** What every run's end begins with, `down` the run with its middle at `at`: where the run begins and the way down it; the view as it is. */
   const endingFrom = (down: number, at: Vector3): Omit<Catapult, 'by' | 'arm' | 'whirl' | 'blast' | 'saucer' | 'snowman' | 'plane' | 'ice' | 'flip' | 'cart' | 'takes' | 'gather'> => {
     // (Out of bounds, the nearest snow of the marked piste instead of the top, `backOnto`.)
-    const top = backOnto ? land.at(backOnto.s, backOnto.left) : land.at(0, 0);
+    const top = backOnto ? wayOf(backOnto.way).at(backOnto.s, backOnto.left) : land.at(0, 0);
     // (Riding off to another run, its top, where it lies: `trip`.)
     const landing = trip?.land ? trip.top.clone() : new Vector3(top.x, ground(top.x, top.z), top.z);
-    const downhill = trip?.land ? trip.downhill.clone() : runDir(land.frame(top.x, top.z, backOnto?.s ?? 0));
+    const downhill = trip?.land ? trip.downhill.clone() : runDir(wayOf(backOnto?.way ?? ridden()).frame(top.x, top.z, backOnto?.s ?? 0));
     const look = camera.getWorldDirection(new Vector3()).multiplyScalar(10).add(camera.position);
     return {
       t: 0, from: null, held: false, fly: null, flown: 0, letGo: new Quaternion(), landing, downhill, down, at: at.clone(), spun: null, tumble: { flip: 0, spin: 0 },
@@ -5114,16 +5120,12 @@ async function start() {
     }
     if (show && !carting && !inside) {
       const tall = innerHeight <= 500 && innerWidth > innerHeight ? 84 : 140;
-      if (mini.of !== land || tall !== miniTall || (land.way?.() ?? 0) !== miniWay) {
-        miniTall = tall; miniWay = land.way?.() ?? 0;
-        const kickersAll = () => { const out: { s: number; left: number }[] = []; for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) out.push(k); } return out; };
+      if (mini.of !== land || tall !== miniTall || ridden() !== miniWay) {
+        miniTall = tall; miniWay = ridden();
+        const kickersAll = (w = ridden()) => { const on = wayOf(w), out: { s: number; left: number }[] = []; for (let i = 0; KICK.first + i * KICK.every < on.length; i++) { const k = kickerOf(i, w); if (k && k.s < on.length) out.push(k); } return out; };
         const kicks = kickersAll();
-        // (On a run that parts, the other ways down it too, each seen through the land set to it for as long as it is asked.)
-        const ridden = land.way?.() ?? 0, onWay = <T>(w: number, f: () => T): T => { land.setWay!(w); try { return f(); } finally { land.setWay!(ridden); } };
-        const others = (land.ways ?? []).flatMap((o, w) => w === ridden ? [] : [{
-          land: { length: o.length, at: (s: number, l: number) => onWay(w, () => land.at(s, l)), edges: (s: number) => onWay(w, () => land.edges(s)) },
-          kicks: onWay(w, kickersAll),
-        }]);
+        // (On a run that parts, the other ways down it too, each as it is.)
+        const others = (land.ways ?? []).flatMap((o, w) => w === ridden() ? [] : [{ land: o, kicks: kickersAll(w) }]);
         mini.draw(land, kicks, tall, innerWidth < 420 ? 84 : 108, others);
         if (touchHud) layRail(kicks);
       }
@@ -5881,16 +5883,15 @@ async function start() {
    * through the land set to that way for as long as it is asked, and where the skier lies against it reckoned once a frame.
    */
   const hordeWays = (): { way?: number; other?: (w: number) => HordeWay } => {
-    if (!land.ways || land.ways.length < 2 || !land.setWay) return {};
-    const ridden = land.way!(), seen = new Map<number, HordeWay>();
-    const onWay = <T>(w: number, f: () => T): T => { land.setWay!(w); try { return f(); } finally { land.setWay!(ridden); } };
+    if (!land.ways || land.ways.length < 2) return {};
+    const seen = new Map<number, HordeWay>();
     return {
-      way: ridden,
+      way: ridden(),
       other: (w) => {
         let o = seen.get(w);
         if (!o) {
-          const f = onWay(w, () => land.frame(rider.position.x, rider.position.z));
-          o = { at: (s, l) => onWay(w, () => land.at(s, l)), edges: (s) => onWay(w, () => land.edges(s)), down: f.s, left: f.left };
+          const on = wayOf(w), f = on.frame(rider.position.x, rider.position.z);
+          o = { at: on.at, edges: on.edges, down: f.s, left: f.left };
           seen.set(w, o);
         }
         return o;
@@ -6577,7 +6578,7 @@ async function start() {
       const p = onPipe(u, x);
       box[0] = Math.min(box[0], p.x - 2); box[1] = Math.max(box[1], p.x + 2); box[2] = Math.min(box[2], p.z - 2); box[3] = Math.max(box[3], p.z + 2);
     }
-    arena = { pipe, group, box, sinking: false, o: { x: o.x, z: o.z, dx: o.dx, dz: o.dz }, way: land.way?.() ?? 0 };
+    arena = { pipe, group, box, sinking: false, o: { x: o.x, z: o.z, dx: o.dx, dz: o.dz }, way: ridden() };
     horde.pen = { lo: s0 - 45, hi: foot - 5, mid: (mid + mid0) / 2, half: Math.max(4, half - PIPE.wider - 3) };
     boosters.lay([12, 26, 40, 54].map((back, i) => onLand(foot - back, mid + (i % 2 ? -2.5 : 2.5))));
     placeKickers(ride.down);
@@ -7639,7 +7640,7 @@ async function start() {
     if (cat || air || foot || carting || inside || crash) return;
     liftAsked = false;
     const s = clamp(f.trail.to, 5, land.length === Infinity ? f.trail.to : land.length - 60), [a, b] = land.edges(s);
-    backOnto = { s, left: clamp((a + b) / 2, a + 4, b - 4) };
+    backOnto = { s, left: clamp((a + b) / 2, a + 4, b - 4), way: ridden() };
     tell('The plane!', 'back to the piste', false, 2.5);
     WAYS.plane.begin();
   };
@@ -8120,15 +8121,12 @@ async function start() {
    * of one way, its own (`f`, its frame here).
    */
   const waysDown = (x: number, z: number, f: { dx: number; dz: number }): { dx: number; dz: number } => {
-    if (!land.ways || land.ways.length < 2 || !land.setWay) return f;
-    const was = land.way!();
+    if (!land.ways || land.ways.length < 2) return f;
     let sx = 0, sz = 0;
-    for (let w = 0; w < land.ways.length; w++) {
-      land.setWay(w);
-      const g = land.frame(x, z), [lo, hi] = land.edges(g.s), out = Math.max(0, g.left - hi, lo - g.left), k = 1 / (1 + (out / 10) ** 2);
+    for (const w of land.ways) {
+      const g = w.frame(x, z), [lo, hi] = w.edges(g.s), out = Math.max(0, g.left - hi, lo - g.left), k = 1 / (1 + (out / 10) ** 2);
       sx += g.dx * k; sz += g.dz * k;
     }
-    land.setWay(was);
     const l = Math.hypot(sx, sz);
     return l > 1e-6 ? { dx: sx / l, dz: sz / l } : f;
   };
@@ -8744,7 +8742,7 @@ async function start() {
   const choose = $('choose');
   const mapView = new RunMapView($('runMap'), $('runList'), choose, runMap, runs, {
     ride: (id) => rideOn(id),
-    best: (id) => Math.max(0, Number(kept(`best.${id}`)) || 0),
+    best: (id) => keptOf('best', id),
   });
   if (!query.has('nointro')) { await loading.stage('map'); mapView.draw(); }
   // (The first frames make the shaders, which can take some seconds: the screen goes once two have been drawn. What may come later is
@@ -8799,7 +8797,7 @@ async function start() {
     const riding = world && id !== landKind && !trip;
     heldRide = false; playing = true;
     chosen(); setMode('ride');
-    if (riding && (carting || inside)) { const x = ride.x, z = ride.z; unflip(); const f = land.frame(x, z); resumeAt({ s: f.s, left: f.left }); }
+    if (riding && (carting || inside)) { const x = ride.x, z = ride.z; unflip(); const f = land.frame(x, z); resumeAt({ s: f.s, left: f.left, way: ridden() }); }
     if (riding) void travelTo(id);
     else if (id !== landKind) void setLand(id); else restart();
   };
@@ -9224,7 +9222,7 @@ async function start() {
     kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, safe: +(safeOff(k) * 3.6).toFixed(0), height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
     // (On a run that parts, its ways down: each's run, where it parts and how long it is; which is ridden, and the run it counts as. And
     // `onWay`, the skier put `down` and `left` on a way, riding: the ride takes it from there as if it had come.)
-    ways: () => ({ ways: land.ways ?? null, way: land.way?.() ?? 0, key: runKey() }),
+    ways: () => ({ ways: land.ways?.map((w) => ({ id: w.id, from: w.from, length: w.length })) ?? null, way: ridden(), key: areaKey() }),
     // (The way under the mountain between the two caves of a run that parts, `slopeDeeps.ts`, laid and shown for a look before it can be
     // walked: from a seed (the dungeons' own, unless another is given), between the doors each cave gives it for now; its flames turned
     // to the eye as the page goes on. Again with another seed, the last let go of.)

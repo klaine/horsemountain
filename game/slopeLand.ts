@@ -73,16 +73,23 @@ export interface Land {
   /** How far the air's haze begins and is whole; where the sun is (towards it); and how strong the sky's light is. */
   fog: [number, number]; sun: [number, number, number]; sky: number;
   /**
-   * The ways down a run that parts in two (its slice's `branches`, `FORKS` in `tools/skiRun.ts`): the first its own, each other the run
-   * it is (by its slice's name), from where it parts from the first, and how long each is. Which is ridden now (`way`, `setWay`): `frame`,
-   * `at`, `edges`, `length` and `kickable` are all of it. And the way whose path a point is on, or nearest (`wayAt`). None for a run of
-   * one way.
+   * The ways down a run that parts in two (its slice's `branches`, `FORKS` in `tools/skiRun.ts`), each to be asked of itself (`LandWay`):
+   * the first its own, each other the run it is (by its slice's name), from where it parts from the first. What is laid on the run, or
+   * comes along it, keeps to the way it is on and asks that way of it, not the land; the land's own `frame`, `at`, `edges`, `length` and
+   * `kickable` are those of the way the skier rides (`way`, `setWay`), which only the ride changes. And the way whose path a point is
+   * on, or nearest (`wayAt`). None for a run of one way.
    */
-  ways?: { id?: string; from: number; length: number }[];
+  ways?: LandWay[];
   way?(): number;
   setWay?(w: number): void;
   wayAt?(x: number, z: number): number;
 }
+/**
+ * One way down a run that parts (`Land.ways`): its name (none, the run's own), where it parts from the first, how long it is, and where a
+ * point lies against it, its path's edges, a point along and across it, and where a kicker may be built on it, as the land has them
+ * for the way ridden.
+ */
+export interface LandWay extends Pick<Land, 'length' | 'frame' | 'at' | 'edges' | 'kickable'> { id?: string; from: number }
 
 /** A way down a run that parts from its own, as its slice carries it (`branches`, written by `tools/skiRun.ts`). */
 export interface Branch { id: string; from: number; run: SkiSlice['run'] }
@@ -266,7 +273,7 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
     };
     /** How far a place against the line lies outside its path, metres (less than nothing, inside), past its top and foot too. */
     const outside = (f: Frame) => { const [lo, hi] = edges(f.s); return Math.max(lo - f.left, f.left - hi, -4 - f.s, f.s - length - 4); };
-    return { id, from, length, frame, edges, at, outside };
+    return { id, from, length, frame, edges, at, outside, kickable: (s: number, left: number, kick: number): boolean => kickableOn(at, length, s, left, kick) };
   };
   const ways = [wayOf(slice.run, undefined, 0), ...((slice as SkiSlice & { branches?: Branch[] }).branches ?? []).map((b) => wayOf(b.run, b.id, b.from))];
   let way = ways[0];
@@ -655,13 +662,14 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
 
   // Where a kicker may stand: where the land falls away after its lip at least as steeply as a landing wants, and is not too steep
   // or too tilted across where it is built; and where it can be come up to (`kickerReachable`).
-  const kickable = (s: number, left: number, kick: number) => {
-    if (s + kick + 40 > way.length - 30) return false;
+  function kickableOn(at: (s: number, left: number) => { x: number; z: number; dx: number; dz: number }, length: number, s: number, left: number, kick: number) {
+    if (s + kick + 40 > length - 30) return false;
     if (!kickerReachable(at, height, s, kick)) return false;
     const h = (u: number, l = left) => { const p = at(u, l); return height(p.x, p.z); };
     const fallAfter = (h(s + kick + 4) - h(s + kick + 30)) / 26, fallOn = (h(s) - h(s + kick)) / kick, tilt = Math.abs(h(s + kick / 2, left - 3) - h(s + kick / 2, left + 3)) / 6;
     return fallAfter > Math.tan((13 * Math.PI) / 180) && fallOn < Math.tan((30 * Math.PI) / 180) && fallOn > Math.tan((5 * Math.PI) / 180) && tilt < 0.2;
-  };
+  }
+  const kickable = (s: number, left: number, kick: number) => way.kickable(s, left, kick);
 
   return {
     name: `${slice.worldName}, below ${slice.peak}`, short: `below ${slice.peak}`,
@@ -674,7 +682,7 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
     // (Which way down is ridden, on a run that parts: kept to the one ridden on until another's path is two metres nearer, so that
     // where the two paths lie side by side, as they part, it does not go to and fro.)
     ...(ways.length > 1 ? {
-      ways: ways.map((w) => ({ id: w.id, from: w.from, length: w.length })),
+      ways,
       way: () => ways.indexOf(way),
       setWay: (w: number) => { way = ways[Math.max(0, Math.min(ways.length - 1, w))]; },
       wayAt: (x: number, z: number) => {
