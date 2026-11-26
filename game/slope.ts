@@ -211,22 +211,30 @@ const loading = (() => {
   const files = new Map<string, { got: number; of: number }>();
   const times: [string, number][] = [];
   let opening = true, stage = -1, shown = 0, said = '', began = performance.now();
+  /**
+   * How far into the stage it is (opening), or how far along the work is (later, `part`), 0 to 1; whether later work is counted so; the
+   * span of the bar a file being fetched later fills (`fetching`); and the bar crept on while what is waited on cannot be counted (`creep`).
+   */
+  let sub = 0, counted = false, fetchSpan: [number, number] | null = null, creeping: ReturnType<typeof setInterval> | null = null;
+  const stopCreep = () => { if (creeping) { clearInterval(creeping); creeping = null; } };
   const mb = (n: number) => (n / 1e6).toFixed(1);
   const show = () => {
     let got = 0, of = 0;
     for (const f of files.values()) { got += f.got; of += f.of; }
     if (opening) {
-      const work = STAGES.slice(0, Math.max(0, stage)).reduce((a, [, w]) => a + w, 0) / whole;
+      const work = (STAGES.slice(0, Math.max(0, stage)).reduce((a, [, w]) => a + w, 0) + (stage >= 0 ? STAGES[stage][1] * sub : 0)) / whole;
       // (Never back: a file whose size was not known ahead can grow as it comes. Before the first stage nothing has been asked for yet;
       // after it, all there is to fetch has been.)
       shown = Math.max(shown, FILES * (of > 0 ? got / of : stage >= 1 ? 1 : 0) + (1 - FILES) * work);
       fill.style.transform = `scaleX(${shown.toFixed(4)})`;
       box.setAttribute('aria-valuenow', (shown * 100).toFixed(0));
     } else {
-      // (Later, the bar filled by a file as it comes; sweeping while the work is not counted.)
+      // (Later, the bar filled by a file as it comes, over its span of the work if the work is counted; sweeping while it is not.)
       const coming = of > 0 && got < of;
-      box.classList.toggle('waiting', !coming);
-      if (coming) fill.style.transform = `scaleX(${(got / of).toFixed(4)})`;
+      if (coming && fetchSpan) { counted = true; sub = fetchSpan[0] + (fetchSpan[1] - fetchSpan[0]) * (got / of); }
+      box.classList.toggle('waiting', !coming && !counted);
+      if (counted) fill.style.transform = `scaleX(${sub.toFixed(4)})`;
+      else if (coming) fill.style.transform = `scaleX(${(got / of).toFixed(4)})`;
     }
     const text = got < of ? `Fetched ${mb(got)} of ${mb(of)} MB` : '';
     if (text !== said) { said = text; bytes.textContent = text; }
@@ -239,13 +247,44 @@ const loading = (() => {
   const busy = (text: string): Promise<void> => {
     if (hushed) { hushSaid?.(text); return paint(); }
     if (opening) { say.textContent = text; return paint(); }
+    stopCreep(); counted = false; fetchSpan = null;
     box.hidden = false; box.classList.remove('gone', 'failed'); box.classList.add('waiting'); say.textContent = text;
     fill.style.transform = 'scaleX(0)';
     show();
     return paint();
   };
+  /**
+   * Work counted: `k` of it done (0 to 1), said as `text` if given, and a moment for the page to be drawn before the next of it. Opening,
+   * how far into the stage it is now; later, how far along the whole of what is being made (the bar filled to it, not sweeping).
+   */
+  const part = (k: number, text?: string): Promise<void> => {
+    k = Math.max(0, Math.min(1, k));
+    if (hushed) { if (text) hushSaid?.(text); return paint(); }
+    if (text) say.textContent = text;
+    if (opening) { sub = Math.max(sub, k); show(); return paint(); }
+    stopCreep();
+    box.hidden = false; box.classList.remove('gone', 'failed', 'waiting');
+    counted = true; sub = Math.max(k, counted ? sub : 0);
+    show();
+    return paint();
+  };
   return {
     busy,
+    part,
+    /** Whether the screen is over the picture now, after opening (not a run made quietly, nor the screen that says it failed). */
+    covering: () => !opening && !hushed && !box.hidden && !box.classList.contains('failed'),
+    /** A file fetched later filling the bar from `a` to `b` of the work as it comes. */
+    fetching(a: number, b: number) { fetchSpan = [a, b]; },
+    /**
+     * Waiting on what cannot be counted (the shaders made, on the graphics card's own time), said as `text`: the bar crept on slowly
+     * toward `to`, never there, so that it is seen that the waiting goes on.
+     */
+    creep(text: string, to = 0.98) {
+      if (hushed || opening) { if (hushed) hushSaid?.(text); else say.textContent = text; return; }
+      stopCreep();
+      box.hidden = false; box.classList.remove('gone', 'failed', 'waiting'); say.textContent = text; counted = true;
+      creeping = setInterval(() => { sub += (to - sub) * 0.035; fill.style.transform = `scaleX(${sub.toFixed(4)})`; }, 120);
+    },
     /** Quiet, or not; and, quiet, told what is being done (the card a run made while riding is said on: `travelTo`). */
     hush(on: boolean, said: ((text: string) => void) | null = null) { hushed = on; hushSaid = on ? said : null; },
     /** A moment for what has changed on the page to be shown, before work that holds it. */
@@ -254,9 +293,9 @@ const loading = (() => {
     stage(name: Stage, text?: string): Promise<void> {
       const i = STAGES.findIndex(([n]) => n === name), now = performance.now();
       if (i < 0) return paint();
-      if (!opening) return busy(text ?? STAGES[i][2]);
+      if (!opening) return counted ? part(sub, text ?? STAGES[i][2]) : busy(text ?? STAGES[i][2]);
       if (stage >= 0) times.push([STAGES[stage][0], Math.round(now - began)]);
-      began = now; stage = Math.max(stage, i);
+      began = now; if (i > stage) sub = 0; stage = Math.max(stage, i);
       box.classList.remove('waiting');
       say.textContent = text ?? STAGES[i][2];
       show();
@@ -265,7 +304,7 @@ const loading = (() => {
     /** So much of a file fetched, of so much. */
     count(url: string, got: number, of: number) { files.set(url, { got, of }); show(); },
     /** That work done. */
-    idle() { if (!opening) box.hidden = true; },
+    idle() { stopCreep(); counted = false; fetchSpan = null; sub = 0; if (!opening) box.hidden = true; },
     /** Opened: the bar filled, and the screen faded away. */
     done() {
       if (!opening) return;
@@ -723,7 +762,7 @@ async function start() {
     if (made) return made;
     if (kind !== 'groomed') {
       const carried = win.__slopeFiles?.[`${kind}.json`];
-      if (!sliceTexts.has(kind) && !carried) await loading.busy('Fetching the mountain');
+      if (!sliceTexts.has(kind) && !carried) { await loading.part(0.02, 'Fetching the mountain'); loading.fetching(0.02, 0.3); }
       if (!sliceTexts.has(kind)) sliceTexts.set(kind, carried ?? await fetchCounted(`${slices}${kind}.json`).then((b) => new TextDecoder().decode(b)).catch(() => null));
       const sliceText = sliceTexts.get(kind);
       // (Not fetched: the groomed slope in its place, as it is, not kept under the run's name; and the run's slice, and its fetching,
@@ -741,8 +780,10 @@ async function start() {
       // (`?cave=0`: none, the runs as they were before them.)
       const caved = !!runs.find((r) => r.id === kind)?.cave && query.get('cave') !== '0';
       took('read');
+      await loading.part(0.32, 'Finding a place for the cave');
       const site = caved ? findSite(slice, kickerZones(sliceGround(slice))) : null, base = site ? carve(slice, site) : null;
       took('site');
+      await loading.part(0.36);
       // (And one on each way that parts from it, found and carved as the run's own is, along that way's line in the same land.)
       const branchCaves = caved ? ((slice as SkiSlice & { branches?: Branch[] }).branches ?? []).map((b, k) => {
         // (As far from the run's own as a good site may be: so that the deeps between them join two places apart on the mountain.)
@@ -750,6 +791,7 @@ async function start() {
         return at ? { site: at, base: carve(along, at), way: k + 1 } : null;
       }) : [];
       took('other sites');
+      await loading.part(0.4);
       // (A forgotten slope, a map of it found: its way and its cave's camp laid in the slice too, far from the run's own caves; never the
       // run lost for it.)
       const map = caved ? mapFor(kind) : null;
@@ -759,7 +801,8 @@ async function start() {
         if (trail) trailBase = carve(slice, trail.site);
       } catch (e) { console.error('the forgotten slope', e); trail = null; }
       took('forgotten slope');
-      made = sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined);
+      await loading.part(0.42, `Laying the snow ${whereOf(kind)}`);
+      made = await sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined, (k) => loading.part(0.42 + 0.36 * k));
       // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
       took('land');
       if (where) Object.assign(made, { name: `${slice.worldName}, ${where}`, short: where });
@@ -771,12 +814,14 @@ async function start() {
         const o = mouths.filter((m, k): m is { x: number; z: number } => !!m && k !== i);
         return o.length ? { x: o.reduce((n, m) => n + m.x, 0) / o.length, z: o.reduce((n, m) => n + m.z, 0) / o.length } : undefined;
       };
+      await loading.part(0.8, caved ? 'Digging the cave and its dungeon' : undefined);
       const own = site && base ? new Cave(site, base, dungeonSeed, tags, caveLights, toward(0)) : null;
       if (own) { const t0 = performance.now(); dig(made, own); caveMade = performance.now() - t0; }
       // (Each its own dungeon: laid out from a seed of its own.)
       const theirs = branchCaves.map((b, k) => b && new Cave(b.site, b.base, `${dungeonSeed}-${b.way}`, tags, caveLights, toward(k + 1)));
       branchCaves.forEach((b, k) => { if (b && theirs[k]) dig(made!, theirs[k]!, b.way); });
       took('caves');
+      if ([own, ...theirs].filter(Boolean).length >= 2) await loading.part(0.86, 'Laying out the deeps under the mountain');
       // The deeps between all of them (`slopeDeeps.ts`), from the dungeons' seed: a door in each, and the way down each door is on.
       const joined = [own && { door: own.deepDoor(), way: 0 }, ...theirs.map((c, k) => c && { door: c.deepDoor(), way: branchCaves[k]!.way })].filter((j): j is { door: NonNullable<ReturnType<Cave['deepDoor']>>; way: number } => !!j?.door);
       // (Never the run lost for it: what goes wrong laying them is said, and the run is ridden without them.)
@@ -5165,11 +5210,12 @@ async function start() {
     // which the browser has kept, in about a second, and its demo run flown again. The groomed slope, small, is kept.)
     for (const [key, l] of lands) if (l !== land && key !== 'groomed') { if (l.dispose) toLetGo.push(l.dispose); demos.delete(l); lands.delete(key); }
     for (const k of [...sliceTexts.keys()]) if (k !== kind) { sliceTexts.delete(k); fetching.delete(`${slices}${k}.json`); }
+    await loading.part(0.9, 'Turning the land over, for the ways back up');
     buildFold();
     warmSoon();
     if (mode === 'ride') restart();
     else { await useDemo(); t = 0; placed = false; clearSpray(); }
-    await loading.busy(`Lighting ${kind !== 'groomed' ? `the snow ${whereOf(kind)}` : 'the groomed slope'}`);
+    loading.creep(`Lighting ${kind !== 'groomed' ? `the snow ${whereOf(kind)}` : 'the groomed slope'}`);
     await warmedSoon();
     loading.idle();
     if (missed) tell(`Couldn't fetch ${runs.find((r) => r.id === missed)?.label ?? missed}`, 'the groomed slope in its place: choose the run again to try once more', true, 8);
@@ -8699,7 +8745,27 @@ async function start() {
     if (!warming) for (const f of toLetGo.splice(0)) f();
     // (`?dt=` steps every frame by so many seconds whatever time has passed: for pictures, made by a browser too slow to keep pace.)
     // (Riding, slowed through a jump if so chosen: `stepSlowmo`. What keeps pace with the clock on the wall, the picture's blur, not.)
-    const now = performance.now(), realDt = fixedDt || Math.min(0.1, (now - then) / 1000);
+    const now = performance.now();
+    // While the loading screen is over the picture, after opening: nothing stepped and nothing drawn, only the shaders asked for made
+    // ready (asked: "can we have loading that doesn't fully freeze the app and that shows more granular progress indication"): the
+    // scene drawn whole behind the screen every frame took as long as the work between its steps, the bar held at each, and the ride
+    // went on unseen under it.
+    if (loading.covering()) {
+      then = now;
+      if (warmWanted && !warming) {
+        warmWanted = false;
+        const undo = showEverything(), target = renderer.getRenderTarget(), mrt = renderer.getMRT(), context = renderer.contextNode;
+        const made = (blurNow() > 0 ? scenePass : sharpPass).compileAsync(renderer).catch((e) => console.warn(e));
+        const done = made.then(() => { if (warming === done) warming = null; });
+        warming = done;
+        const inTime = await Promise.race([made.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), WARM_WAIT))]);
+        if (!inTime) { console.warn('Grand Horse Mountain went on without waiting longer for its shaders'); renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context; warming = null; }
+        undo();
+      }
+      if (warmWaiters.length && !warmWanted && !warming) { const w = warmWaiters; warmWaiters = []; for (const f of w) f(); }
+      return;
+    }
+    const realDt = fixedDt || Math.min(0.1, (now - then) / 1000);
     stepSlowmo(mode === 'ride' && playing && !menuOpen ? realDt : 0);
     const dt = realDt * (mode === 'ride' ? timeScale : 1);
     stepIntro(now);

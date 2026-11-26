@@ -194,7 +194,12 @@ export interface GameLook {
  * The land of a world's ski run (`SkiSlice`), its scene's origin at the run's top; drawn with the game's materials if they are given,
  * and then, if `woods` is given (its textures' size), with the game's own trees in place of the snowy firs (`slopeTrees.ts`).
  */
-export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture, game?: GameLook, woods?: number): Land {
+/**
+ * (`pause`, if given: called now and then as it goes, with how far it has got (0 to 1), and waited on, so that the page can be drawn
+ * between its parts, a loading screen's bar moved on, rather than held for the whole of it: asked, "can we have loading that doesn't
+ * fully freeze the app and that shows more granular progress indication to the user?")
+ */
+export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture, game?: GameLook, woods?: number, pause?: (k: number) => Promise<void>): Promise<Land> {
   const [ox, oz] = slice.run.points[0], step = slice.run.step;
   const shift = (g: Grid): Grid => ({ ...g, x0: g.x0 - ox, z0: g.z0 - oz });
   const snow = shift(slice.snow), near = shift(slice.near), far = shift(slice.far);
@@ -448,6 +453,7 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     group.add(about, country);
   }
 
+  await pause?.(0.25);
   // The run's snow at a metre, in tiles of 64 metres, each made twice: at a metre, and at four (every fourth point). Only the tiles
   // within some 120 metres of the eye are drawn at a metre (`lod`); further off, a metre's triangle is smaller than a point of the
   // picture, and the material was worked out for each again and again. (Drawn whole at a metre, from behind the skier looking down
@@ -460,7 +466,10 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
   };
   const runGroup = new Group();
   runGroup.name = 'run';
+  const tiles = Math.ceil((snow.nz - 1) / TILE) * Math.ceil((snow.nx - 1) / TILE);
+  let tilesDone = 0;
   for (let j0 = 0; j0 < snow.nz - 1; j0 += TILE) for (let i0 = 0; i0 < snow.nx - 1; i0 += TILE) {
+    if (pause && ++tilesDone % 4 === 0) await pause(0.25 + (0.55 * tilesDone) / tiles);
     const fineGrid = subGrid(i0, j0, 1);
     if (fineGrid.data.every((v) => Number.isNaN(v))) continue;
     const fine = runOf(fineGrid), coarse = runOf(subGrid(i0, j0, 4));
@@ -622,6 +631,7 @@ export function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Texture,
     group.add(woodsGrown.group);
   } else group.add(near3);
 
+  await pause?.(0.92);
   // Where the trees drawn stand, for what goes into them (`Land.treeNear`): the game's own, or the snowy firs; kept in squares of
   // eight metres. How far out each one's trunk and lower boughs reach, from how tall it is.
   const TREE_CELL = 8, treeCells = new Map<string, { x: number; z: number; r: number; tall: number }[]>();
