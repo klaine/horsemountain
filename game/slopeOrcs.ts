@@ -24,7 +24,17 @@ export interface HordeGround {
   at(s: number, left: number): { x: number; z: number; dx: number; dz: number };
   edges(s: number): [number, number];
   length: number;
+  /**
+   * On a run that parts in two (`Land.ways`): which way is ridden, and the run seen along another, with where the skier is against it.
+   * Each foe keeps to the way it came up (`Foe.way`): had all of them been reckoned along the way ridden, every one there was would
+   * have leapt onto the other as the skier crossed from one way's path onto the other's (asked: "the two path runs like lakewall
+   * (east) still have some kind of split that causes enemies to appear and disappear when crossing the invisible boundary").
+   */
+  way?: number;
+  other?(w: number): HordeWay;
 }
+/** The run along one of its ways not ridden, and where the skier is against it (`HordeGround.other`). */
+export interface HordeWay { at: HordeGround['at']; edges: HordeGround['edges']; down: number; left: number }
 /** Where the skier is: in the scene, along the run and across it, and how fast it goes; and how near a body must come to be run down. */
 export interface Quarry { at: Vector3; down: number; left: number; v: Vector3; reach: number }
 /**
@@ -47,6 +57,8 @@ export interface Den {
  * how far ahead of the skier they come from.
  */
 const MOST = 26, AHEAD: [number, number] = [120, 230];
+/** How far from the skier one coming up a way of the run it is not on sinks away (`HordeGround.other`): further than any comes from, and too far to be made out. */
+const SINKS = 260;
 /** How hard the skier strikes what it runs down: enough to bring down any but the great ones and the dead. */
 const RUN_DOWN = 3;
 
@@ -54,6 +66,8 @@ interface Foe {
   kind: FoeKind; gait: Gait; size: number;
   /** Where it is along the run and across it, and in the scene; how fast it comes; which way it faces; how many more blows it takes. */
   s: number; left: number; p: Vector3; pace: number; yaw: number; hp: number;
+  /** Which way down a run that parts it came up, and keeps to (`HordeGround.way`); how long it has been sinking away, off another. */
+  way: number; sunk: number;
   /**
    * `come` while it comes up the slope; `down` once it has fallen (how long since, and how it was thrown); `taken`, its body the page's
    * a while, sent off far away (`onTaken`); `gone`, waiting to come.
@@ -150,7 +164,7 @@ export class Horde {
     this.dress(gait.model);
     gait.model.visible = false;
     this.scene.add(gait.model);
-    this.foes.push({ kind, gait, size, s: 0, left: 0, p: new Vector3(), pace: 1, yaw: 0, hp: kind.hp, state: 'gone', since: 0, v: new Vector3(), reel: 0, bumped: 0, casts: true, title: '', met: false, comes: 0, penned: false, next: 0, kneeling: false });
+    this.foes.push({ kind, gait, size, s: 0, left: 0, way: 0, sunk: 0, p: new Vector3(), pace: 1, yaw: 0, hp: kind.hp, state: 'gone', since: 0, v: new Vector3(), reel: 0, bumped: 0, casts: true, title: '', met: false, comes: 0, penned: false, next: 0, kneeling: false });
   }
   /** The kind fewest of which have been made, against how many there may be; none, when there are enough of each. */
   private wanting(): FoeKind | null {
@@ -186,7 +200,7 @@ export class Horde {
         const waiting = free(kind), [lo, hi] = g.edges(s0), mid = this.rng.range(lo + 3, hi - 3), n = Math.min(waiting.length, room, this.rng.int(...kind.pack));
         for (let k = 0; k < n; k++) {
           const b = waiting[k], s = s0 + this.rng.range(-kind.spread, kind.spread), left = mid + this.rng.range(-0.8, 0.8) * kind.spread;
-          Object.assign(b, { s, left, state: 'come', since: 0, pace: this.rng.range(...kind.pace), hp: kind.hp, reel: 0, bumped: 0, met: false, comes: b.comes + 1, kneeling: false });
+          Object.assign(b, { s, left, way: g.way ?? 0, sunk: 0, state: 'come', since: 0, pace: this.rng.range(...kind.pace), hp: kind.hp, reel: 0, bumped: 0, met: false, comes: b.comes + 1, kneeling: false });
           if (kind.titles) b.title = this.naming.pick(kind.titles);
           b.gait.go(b.pace, this.rng.next());
           b.gait.model.visible = true;
@@ -209,19 +223,31 @@ export class Horde {
         // Up the run, and across towards the skier's line, the nearer the more; hardly at all while it reels from a blow.
         b.reel = Math.max(0, b.reel - dt); b.bumped = Math.max(0, b.bumped - dt);
         const slow = b.reel > 0 ? 0.2 : 1, pen = b.penned ? this.pen : null;
-        const was = g.at(b.s, b.left), across = Math.max(-1, Math.min(1, (q.left - b.left) / 12)) * 0.6 * b.kind.hunt;
+        // (Along its own way, and after the skier as it lies against that way: on a run of one way, or on the way ridden, the run's.)
+        const w = b.way !== (g.way ?? 0) && g.other ? g.other(b.way) : null, at_ = w ? w.at : g.at, down = w ? w.down : q.down, left = w ? w.left : q.left;
+        // (Off a way not ridden and far from the skier, sinking back into the snow as it climbed out of it, and then let go of: it would
+        // have gone on up its own way, unseen, long after the skier had gone down the other, and kept fewer coming where it rides.)
+        if (w && !b.penned && (b.sunk > 0 || Math.hypot(b.p.x - q.at.x, b.p.z - q.at.z) > SINKS)) {
+          b.sunk += dt;
+          b.p.y = g.ground(b.p.x, b.p.z) - (b.sunk / 1.2) * 1.9 * b.size;
+          b.gait.model.position.copy(b.p);
+          b.gait.update(dt, true);
+          if (b.sunk > 1.2) this.letGo(b);
+          continue;
+        }
+        const was = at_(b.s, b.left), across = Math.max(-1, Math.min(1, (left - b.left) / 12)) * 0.6 * b.kind.hunt;
         if (pen) {
           // Penned: after the skier, up or down the run and across it, as far as the pen goes; standing its ground once it is there.
-          const ts = Math.max(pen.lo, Math.min(pen.hi, q.down)), tl = Math.max(pen.mid - pen.half, Math.min(pen.mid + pen.half, q.left));
+          const ts = Math.max(pen.lo, Math.min(pen.hi, down)), tl = Math.max(pen.mid - pen.half, Math.min(pen.mid + pen.half, left));
           const ds = ts - b.s, dl = tl - b.left, far = Math.hypot(ds, dl), step = Math.min(far, b.pace * slow * dt);
           if (far > 0.05) { b.s += (ds / far) * step; b.left += (dl / far) * step; }
         } else { b.s -= b.pace * slow * dt; b.left += across * slow * dt; }
-        const at = g.at(b.s, b.left), mx = at.x - was.x, mz = at.z - was.z;
+        const at = at_(b.s, b.left), mx = at.x - was.x, mz = at.z - was.z;
         if (Math.hypot(mx, mz) > 1e-5) b.yaw = Math.atan2(mx, mz);
         // (Climbing up out of the snow over its first moments, as it sinks into it when it is done with: none stands there all at once.)
         b.p.set(at.x, g.ground(at.x, at.z) - Math.max(0, 1 - b.since / 0.9) * 1.9 * b.size, at.z);
         // (Gone by: let go of. Run down: thrown on along the skier's way and up.)
-        if (b.s < q.down - 30 && !(b.penned && this.pen)) { this.letGo(b); continue; }
+        if (b.s < down - 30 && !(b.penned && this.pen)) { this.letGo(b); continue; }
         if (b.kind.titles && Math.hypot(b.p.x - q.at.x, b.p.z - q.at.z) < MEET) b.met = true;
         if (b.bumped <= 0 && Math.hypot(b.p.x - q.at.x, b.p.z - q.at.z) < q.reach + 0.2 * b.size * (b.kind.balls[0][2] / 0.42) && Math.abs(b.p.y - q.at.y) < 2 + Math.max(0, b.size - 1.2)) {
           const at2 = this.middleOf(b), struck = this.strike(b, q.v.clone().multiplyScalar(0.6).add(new Vector3(0, 4, 0)), RUN_DOWN);
