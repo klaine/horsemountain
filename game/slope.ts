@@ -5144,7 +5144,7 @@ async function start() {
       tell(`Couldn't lay ${runs.find((r) => r.id === kind)?.label ?? 'the groomed slope'}`, `${String((e as Error)?.message ?? e).slice(0, 120)} · still on the run you were on`, true, 8);
       return;
     }
-    loading.idle();
+    // (The screen kept over the picture until the run is ready to ride: below, once its shaders are made and it is drawn.)
     // (Its slice not fetched, the groomed slope laid in its place: called so, and said so.)
     const missed = kind !== 'groomed' && next === lands.get('groomed') ? kind : null;
     if (missed) kind = 'groomed';
@@ -5169,6 +5169,9 @@ async function start() {
     warmSoon();
     if (mode === 'ride') restart();
     else { await useDemo(); t = 0; placed = false; clearSpray(); }
+    await loading.busy(`Lighting ${kind !== 'groomed' ? `the snow ${whereOf(kind)}` : 'the groomed slope'}`);
+    await warmedSoon();
+    loading.idle();
     if (missed) tell(`Couldn't fetch ${runs.find((r) => r.id === missed)?.label ?? missed}`, 'the groomed slope in its place: choose the run again to try once more', true, 8);
     try { history.replaceState(null, '', kind === opensOn ? location.pathname + location.search : `#${kind}`); } catch { /* (not where the page may not change its address) */ }
     reflect();
@@ -8392,6 +8395,14 @@ async function start() {
   let warmWanted = true;
   /** Everything made ready by the next frame, with `also`, which is not in the scene until it is wanted (the gun). */
   const warmSoon = (...also: Object3D[]) => { for (const o of also) warmWith.add(o); warmWanted = true; };
+  /**
+   * Once what `warmSoon` asked for is made and a frame has been drawn with it (or it has been given up on): for the loading screen to stay
+   * over the picture until then (asked: "I select a run it will load a bit; then go and show me the player on a slope riding down but
+   * frozen for a while until it becomes actually playable"): taken down as soon as the run's land was made, the frames that waited for
+   * its shaders, seconds on an iPad, showed the rider stood still where it had been, and then the run begun at its top.
+   */
+  let warmWaiters: (() => void)[] = [];
+  const warmedSoon = (most = 7000) => new Promise<void>((r) => { warmWaiters.push(r); setTimeout(r, most); });
   /** Everything there is shown, and drawn wherever it is (not passed over as out of sight); and how to put it all back as it was. */
   const showEverything = (): (() => void) => {
     const undo: (() => void)[] = [];
@@ -8810,6 +8821,7 @@ async function start() {
       pipeline.render();
     } else sharp.render();
     unwarm?.();
+    if (warmWaiters.length && !warmWanted && !warming) { const w = warmWaiters; warmWaiters = []; for (const f of w) f(); }
     // (Only a picture just drawn is looked at: one left from before may read back as nothing.)
     if (!still) probeBlack(now);
     // (For a script making a video a frame at a time: told once each frame is drawn, `__slope.everyFrame`.)
