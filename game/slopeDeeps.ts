@@ -1381,17 +1381,23 @@ export class Deeps {
       // (Where the wall's foot is, to either side: the floor reaches it. The wall stands out from its line by the rock's roughness, and the
       // floor ended at the line, a slit of that breadth between them.)
       let footL = WL, footR = WR;
+      // (Its paint laid round it by the distance round it, as it is along it, `k / 2.5`: by the count of its points, a wall's paint was
+      // drawn out up it, and a room's tall walls were striped.)
+      let round = 0, wasX = 0, wasY = 0, wasZ = 0;
       for (let j = 0; j <= RING; j++) {
         let lat = 0, up = 0;
         CUTS.forEach((c, i) => { if (share[i] <= 0) return; const [a, b] = outlineAt(c, j / RING); lat += share[i] * a; up += share[i] * b; });
         lat *= lat < 0 ? WL : WR;
         const h = H * up, r = this.rough(k, j, big) * smooth * (1 + 0.6 * share[0]);
         const ox = lat / Math.max(W, 1e-3), oy = (up - 0.35) * 0.8, ol = Math.hypot(ox, oy) || 1;
-        rock.point(cx + lx * (lat + (ox / ol) * r), base + h + (oy / ol) * r, cz + lz * (lat + (ox / ol) * r), 0, 0, 0, (j * W * 0.14) / 2.5, k / 2.5);
+        const X = cx + lx * (lat + (ox / ol) * r), Y = base + h + (oy / ol) * r, Z = cz + lz * (lat + (ox / ol) * r);
+        if (j > 0) round += Math.hypot(X - wasX, Y - wasY, Z - wasZ);
+        wasX = X; wasY = Y; wasZ = Z;
+        rock.point(X, Y, Z, 0, 0, 0, round / 2.5, k / 2.5);
         if (j === 0) footL = Math.max(WL, Math.abs(lat + (ox / ol) * r));
         if (j === RING) footR = Math.max(WR, Math.abs(lat + (ox / ol) * r));
         const rr = r + WALL_DEPTH;
-        outs.push([cx + lx * (lat + (ox / ol) * rr), base + h + (oy / ol) * rr, cz + lz * (lat + (ox / ol) * rr), (j * W * 0.14) / 2.5, k / 2.5]);
+        outs.push([cx + lx * (lat + (ox / ol) * rr), base + h + (oy / ol) * rr, cz + lz * (lat + (ox / ol) * rr), round / 2.5, k / 2.5]);
       }
       if (!(globalThis as { __noDepth?: boolean }).__noDepth) { outer[k] = rock.count; for (const o of outs) rock.point(o[0], o[1], o[2], 0, 0, 0, o[3], o[4]); }
       // The floor across it, where it is not a bridge's or a ledge's over a drop, nor a stair's.
@@ -1430,11 +1436,19 @@ export class Deeps {
     for (const l of this.lines.slice(1)) {
       const k = l.s1 - 1;
       if (ring[k] < 0 || l.to !== undefined || this.doors.some((o) => o.s === k)) continue;
-      const [dx, dz] = this.dirAt(k), [cx, cy, cz] = axis[k], c = rock.count;
+      const [dx, dz] = this.dirAt(k), [cx, cy, cz] = axis[k], lx = -dz, lz = dx, c = rock.count;
       rock.floor = P.floor[k];
-      // (Its middle painted as the vault's middle is, the paint not drawn out across it from one corner.)
-      rock.point(cx, cy, cz, -dx, 0, -dz, (RING / 2) * P.wide[k] * 0.14 / 2.5, k / 2.5);
-      for (let j = 0; j < RING; j++) face(rock, c, ring[k] + j, ring[k] + j + 1, -dx, 0, -dz);
+      // (Its paint laid flat across it, across and up, from points of its own where it meets the vault. Drawn from the vault's own points,
+      // every one of them the same distance along it, the paint was one row of the picture drawn out across the whole wall: streaks out
+      // from its middle, and, where that row was the mortar between stones, a wall all dark, that looked like a hole.)
+      rock.mixed = rock.mix[ring[k] + (RING >> 1)];
+      rock.point(cx, cy, cz, -dx, 0, -dz, 0, cy / 2.5);
+      for (let j = 0; j <= RING; j++) {
+        const q = ring[k] + j, x = rock.pos[q * 3], y = rock.pos[q * 3 + 1], z = rock.pos[q * 3 + 2];
+        rock.mixed = rock.mix[q];
+        rock.point(x, y, z, -dx, 0, -dz, ((x - cx) * lx + (z - cz) * lz) / 2.5, y / 2.5);
+      }
+      for (let j = 0; j < RING; j++) face(rock, c, c + 1 + j, c + 2 + j, -dx, 0, -dz);
     }
     rock.smoothNormals();
     floors.smoothNormals();
@@ -1498,12 +1512,15 @@ export class Deeps {
     const P = this.plan;
     const wall = (pt: (u: number, v: number) => Vector3, nu: number, nv: number, inward: (x: number, z: number) => [number, number], floorOf: (y: number) => number) => {
       const first = rock.count;
-      for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) { const p = pt(i / nu, j / nv); rock.floor = floorOf(p.y); rock.point(p.x, p.y, p.z, 0, 0, 0, (i / nu) * nu * 0.6, p.y / 2.5); }
+      // (Its paint laid round it by the distance round it, as it is up it: by the count of its columns, a broad hall's was drawn out round it.)
+      const around = [0];
+      for (let i = 1; i <= nu; i++) { const p0 = pt((i - 1) / nu, 0), p1 = pt(i / nu, 0); around.push(around[i - 1] + Math.hypot(p1.x - p0.x, p1.z - p0.z)); }
+      for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) { const p = pt(i / nu, j / nv); rock.floor = floorOf(p.y); rock.point(p.x, p.y, p.z, 0, 0, 0, around[i] / 2.5, p.y / 2.5); }
       // (A second layer behind it, `WALL_DEPTH` out from the first, away from the middle of the chamber.)
       const behind = rock.count - first;
       for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
         const p = pt(i / nu, j / nv), [wx, wz] = inward(p.x, p.z), l = Math.hypot(wx, wz) || 1;
-        rock.floor = floorOf(p.y); rock.point(p.x - (wx / l) * WALL_DEPTH, p.y, p.z - (wz / l) * WALL_DEPTH, 0, 0, 0, (i / nu) * nu * 0.6, p.y / 2.5);
+        rock.floor = floorOf(p.y); rock.point(p.x - (wx / l) * WALL_DEPTH, p.y, p.z - (wz / l) * WALL_DEPTH, 0, 0, 0, around[i] / 2.5, p.y / 2.5);
       }
       for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
         const a = first + j * (nu + 1) + i, b = a + 1, c = a + nu + 1, d = c + 1, [mx, my, mz] = mid(rock, a, d);
