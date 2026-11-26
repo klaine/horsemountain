@@ -6,7 +6,8 @@
     "dev": "vite --open /game.html",
     "build": "node tools/build.mjs",
     "typecheck": "tsc --noEmit",
-    "skirun": "tsx tools/skiRun.ts"
+    "skirun": "tsx tools/skiRun.ts",
+    "village": "tsx tools/village.ts"
   },
   "repository": { "type": "git", "url": "git+https://github.com/klaine/horsemountain.git" },
   "homepage": "https://horsemountain.klaine.net",

@@ -61,6 +61,7 @@ import { RunMapView } from './slopeMap';
 import { type Arm, armAfter, type ArmKind, Bolts, Flames, LADDER, Rockets, Sparks, Sweep } from './slopeArms';
 import { Drops, type Item, LootCard, type Maps, type Mods, NO_MODS, Pack, packView, RARITY, rollLoot, type Slot, type Source, WARD_COLOUR, WardRing } from './slopeLoot';
 import { nearTrail, planTrail, type Trail, TrailLook } from './slopeTrail';
+import { levelVillage, narrowPistes, readVillage, type Village, villageClear, villageFile, VillageLook } from './slopeVillage';
 import { type Branch, type Frame, type GameLook, groomedLand, type Land, type LandWay, sliceLand } from './slopeLand';
 import { paintNearer } from './slopeTrees';
 import { Gunfire, GunSound, type Heard, tommyGun } from './slopeGun';
@@ -77,7 +78,7 @@ import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
-import { carve, Cave, findSite, paintsOf, sitePoint, sliceGround, STUFF_LOOK, STUFF_PAINT } from './slopeDungeon';
+import { carve, Cave, clearOfKickers, findSite, paintsOf, sitePoint, sliceGround, STUFF_LOOK, STUFF_PAINT } from './slopeDungeon';
 import { PROP_KINDS, Props } from './slopeProps';
 import { forkSign } from './slopeSign';
 import { Deeps, planDeeps } from './slopeDeeps';
@@ -420,6 +421,8 @@ async function start() {
   type DeepsLand = Land & { deeps?: Deeps; caves?: Cave[]; deepsWays?: number[]; deepsLater?: { plan: ReturnType<typeof planDeeps>; ways: number[] } };
   /** A land with a forgotten slope a map shows on it (`slopeTrail.ts`): its cave, its way, and the way as it is seen. */
   type TrailLand = Land & { forgotten?: { cave: Cave; trail: Trail; look: TrailLook } };
+  /** A run's land with the village where its ways part and meet again (`slopeVillage.ts`). */
+  type VillageLand = Land & { village?: VillageLook };
   const hashed = location.hash.slice(1);
   // (Opened on what the address asks for: after a choice on the page, its end, `#groomed` or `#w2-3`, which the page sets.)
   const opensOn = query.get('land') === 'groomed' ? 'groomed' : asked ?? runs[0].id;
@@ -757,6 +760,17 @@ async function start() {
     if (query.get('pack') === '0') return null;
     try { const items = (JSON.parse(localStorage.getItem('slope.pack') ?? 'null')?.items ?? []) as Item[]; return items.filter((i) => i.map?.run === kind).pop()?.map ?? null; } catch { return null; }
   };
+  /** A village, read once from beside the slices (`villageFile`); none where it could not be had. */
+  const villages = new Map<string, Promise<Village | null>>();
+  const villageOf = (file: string): Promise<Village | null> => {
+    let v = villages.get(file);
+    if (!v) {
+      const carried = win.__slopeFiles?.[file];
+      v = (carried ? Promise.resolve(carried) : fetch(`${slices}${file}`).then((r) => (r.ok ? r.text() : null))).then((text) => (text ? readVillage(text) : null)).catch(() => null);
+      villages.set(file, v);
+    }
+    return v;
+  };
   const landOf = async (kind: LandKind): Promise<Land> => {
     // (Made again with a map found of it: laid with its forgotten slope.)
     const key = kind !== 'groomed' ? `${kind}:${snowLook}:${mapFor(kind)?.seed ?? ''}` : kind;
@@ -782,14 +796,24 @@ async function start() {
       // (`?cave=0`: none, the runs as they were before them.)
       const caved = !!runs.find((r) => r.id === kind)?.cave && query.get('cave') !== '0';
       took('read');
+      // (The village where the run's ways part and meet again, if it is one of a village's runs (`slopeVillage.ts`): read from beside the
+      // slices, where `npm run village` wrote it, and the pistes narrowed through it, before anything is found on the run; the caves and
+      // the forgotten slope's way found clear of it. `?village=0`: none, the runs as they were before it.)
+      const vFile = query.get('village') === '0' ? null : villageFile(slice.world, kind), village = vFile ? await villageOf(vFile) : null;
+      if (village) narrowPistes(slice, kind);
+      const clear = village ? villageClear(village, slice.run.points[0][0], slice.run.points[0][1]) : undefined;
+      took('village read');
       await loading.part(0.32, 'Finding a place for the cave');
-      const site = caved ? findSite(slice, kickerZones(sliceGround(slice))) : null, base = site ? carve(slice, site) : null;
+      const ownZones = caved ? kickerZones(sliceGround(slice)) : [];
+      const site = caved ? findSite(slice, ownZones, undefined, clear) : null, base = site ? carve(slice, site) : null;
       took('site');
       await loading.part(0.36);
       // (And one on each way that parts from it, found and carved as the run's own is, along that way's line in the same land.)
       const branchCaves = caved ? ((slice as SkiSlice & { branches?: Branch[] }).branches ?? []).map((b, k) => {
         // (As far from the run's own as a good site may be: so that the deeps between them join two places apart on the mountain.)
-        const along = { ...slice, run: b.run }, at = findSite(along, kickerZones(sliceGround(along)), site?.mouth);
+        // (Clear of the run's own kickers too, where the two ways run side by side: `clearOfKickers`.)
+        const along = { ...slice, run: b.run }, apart = clearOfKickers(slice, ownZones, along);
+        const at = findSite(along, kickerZones(sliceGround(along)), site?.mouth, (x, z) => apart(x, z) && (!clear || clear(x, z)));
         return at ? { site: at, base: carve(along, at), way: k + 1 } : null;
       }) : [];
       took('other sites');
@@ -799,10 +823,13 @@ async function start() {
       const map = caved ? mapFor(kind) : null;
       let trail: Trail | null = null, trailBase: ReturnType<typeof carve> | null = null;
       if (map) try {
-        trail = planTrail(slice, map.seed, [site?.camp, ...branchCaves.map((b) => b?.site.camp)].filter((c): c is { x: number; z: number } => !!c));
+        trail = planTrail(slice, map.seed, [site?.camp, ...branchCaves.map((b) => b?.site.camp)].filter((c): c is { x: number; z: number } => !!c), undefined, undefined, clear);
         if (trail) trailBase = carve(slice, trail.site);
       } catch (e) { console.error('the forgotten slope', e); trail = null; }
       took('forgotten slope');
+      // (The village's ground levelled in the slice, before its land is made from it.)
+      if (village) levelVillage(slice, kind, village);
+      took('village levelled');
       await loading.part(0.42, `Laying the snow ${whereOf(kind)}`);
       made = await sliceLand(slice, snowMap, powderMap, snowLook === 'game' ? gameLookOf() : undefined, snowLook === 'game' && gameTrees ? Number(query.get('tex')) || 512 : undefined, (k) => loading.part(0.42 + 0.36 * k));
       // (Called as the menu calls it: the slice names it for the nearest of the world's great peaks, which two runs far from any share.)
@@ -834,6 +861,14 @@ async function start() {
       } catch (e) { console.error('the deeps', e); }
       if (made.ways) standSign(made, kind);
       took('sign');
+      if (village) {
+        const [vx, vz] = slice.run.points[0], look = new VillageLook(village, vx, vz, (x, z) => made!.height(x, z));
+        made.group.add(look.group);
+        (made as VillageLand).village = look;
+        const letGo = made.dispose;
+        made.dispose = () => { letGo?.(); look.dispose(); };
+        took('village built');
+      }
       if (trail && trailBase) {
         const cave = new Cave(trail.site, trailBase, `${dungeonSeed}-forgotten-${map!.seed}`, tags, caveLights), look = new TrailLook(trail.path, (x, z) => made!.height(x, z));
         made.group.add(cave.group, look.group);
@@ -1809,6 +1844,24 @@ async function start() {
     if (share > 1e-3) ride.way = Math.atan2(slide.dot(runLeft(here)), slide.dot(runDir(here)));
     return false;
   };
+  /**
+   * Into a house of the village, or its church (`VillageLook.wall`), as into the cave's rock face (`intoRock`): kept out of it, turned
+   * along its wall and slowed, or thrown going into it faster than into a tree.
+   */
+  const intoHouse = (go: Vector3): boolean => {
+    const v = (land as VillageLand).village;
+    if (!v || mode !== 'ride' || flyingDemo || carting) return false;
+    const o = land.group.position, w = v.wall(ride.x - o.x, ride.z - o.z, ride.y - o.y, treeBody());
+    if (!w) return false;
+    ride.x += w.nx * w.into; ride.z += w.nz * w.into;
+    const into = -(go.x * w.nx + go.z * w.nz);
+    if (into <= 0) return false;
+    if (ride.speed * into > TREE.hard) { fall(w.what); return true; }
+    const slide = go.clone().setY(0).addScaledVector(new Vector3(w.nx, 0, w.nz), into), share = slide.length();
+    ride.speed *= share;
+    if (share > 1e-3) ride.way = Math.atan2(slide.dot(runLeft(here)), slide.dot(runDir(here)));
+    return false;
+  };
   /** A run begun riding: pushed off with both poles, planted together. */
   const pushOff = () => { ride.shove = SHOVE.long; ride.flickL = ride.flickR = FLICK; };
   /** An angle brought within half a turn either way of nothing. */
@@ -1969,9 +2022,11 @@ async function start() {
    */
   /** (And on which way down a run that parts: the ride, begun again from the top's way, is put back onto it.) */
   let backOnto: { s: number; left: number; way: number } | null = null;
+  /** Whether the rider is in the village (`VillageLook.holds`): off the piste, but not out of bounds. */
+  const inVillage = () => { const v = (land as VillageLand).village, o = land.group.position; return !!v && v.holds(ride.x - o.x, ride.z - o.z); };
   const stepOffPiste = (dt: number) => {
     // (Not on a forgotten slope's way, which a map has shown: off the piste, but where it may be.)
-    const [lo, hi] = land.edges(ride.down), out = offPisteOk() && !foot && !stopping && !crash && !cat && !ride.ended && (ride.left < lo || ride.left > hi) && !onTrail();
+    const [lo, hi] = land.edges(ride.down), out = offPisteOk() && !foot && !stopping && !crash && !cat && !ride.ended && (ride.left < lo || ride.left > hi) && !onTrail() && !inVillage();
     offPisteFor = out ? offPisteFor + dt : 0;
     // (The longer for what is worn, touring skis or boots.)
     const left = OFF_PISTE.most + kit().roam - offPisteFor, late = out && left <= OFF_PISTE.warn;
@@ -4042,6 +4097,9 @@ async function start() {
     // (Flown into a tree, below its top: thrown, `TREE`.)
     const tree = mode === 'ride' && !flyingDemo ? land.treeNear?.(ride.x, ride.z, treeBody()) : null;
     if (tree && ride.y < ground(tree.x, tree.z) + tree.tall * 0.9) { if (a.pipe?.open && !a.pipe.gone) chuteDown(); air = null; fall('flew into a tree'); return stepFallen(dt); }
+    // (And into a house of the village, below its roof's top.)
+    const house = mode === 'ride' && !flyingDemo ? (land as VillageLand).village?.wall(ride.x - land.group.position.x, ride.z - land.group.position.z, ride.y - land.group.position.y, treeBody()) : null;
+    if (house) { if (a.pipe?.open && !a.pipe.gone) chuteDown(); air = null; fall(`flew into ${house.what === 'ran into the church' ? 'the church' : 'a house'}`); return stepFallen(dt); }
     if (a.pipe) pipeChute(a.pipe, a.v, dt);
     // Opening up to land, the last few tenths of a second before the snow, or once its turns are made (a moment after, if it holds a
     // grab); a tighter tuck turns it quicker, laid out or spread it turns slower.
@@ -4208,7 +4266,7 @@ async function start() {
     if (ride.speed < 0.4 && rise > 0.05 && inArena() && arenaRaise(ride.x, ride.z) > 0.05) ride.way = wrapAngle(ride.way + Math.PI);
     ride.x += go.x * ride.speed * level * dt; ride.z += go.z * ride.speed * level * dt;
     ride.time += dt;
-    if (intoTree(go) || intoRock(go)) return stepFallen(dt);
+    if (intoTree(go) || intoRock(go) || intoHouse(go)) return stepFallen(dt);
     // On the snow as high as the snow is where it went; unless the snow falls away faster than the skier's weight can bring it down
     // after it (by more than the snow gives underfoot), and the skier leaves it, rising as it was over its last step (up a kicker's
     // ramp, off its lip). (Judged where it went, before it is kept on the path: moved back in from an edge, onto snow higher or lower,
@@ -9200,7 +9258,7 @@ async function start() {
       return { here: +(land.snowAt?.(ride.x, ride.z) ?? 1).toFixed(3), stones: +ride.stones.toFixed(2), over: +ride.overStones.toFixed(1), piste: +(onBare / Math.max(1, on)).toFixed(4), beyond: +(offBare / Math.max(1, off)).toFixed(4) };
     },
     // (Off the piste: whether it is allowed and may be now, how long the skier has been out past the poles, and where they are.)
-    offPiste: () => ({ allowed: offPisteOn, now: offPisteOk(), for: +offPisteFor.toFixed(2), edges: land.edges(ride.down), reach: reachAt(ride.down), left: +ride.left.toFixed(1) }),
+    offPiste: () => ({ allowed: offPisteOn, now: offPisteOk(), for: +offPisteFor.toFixed(2), edges: land.edges(ride.down), reach: reachAt(ride.down), left: +ride.left.toFixed(1), village: inVillage() }),
     // (The trigger, held or let go, as the button is, and pulled once as a click does.)
     trigger: (on: boolean) => { firing = on; if (on) { shotClock = SHOT; pull(); } },
     // (The arms aiming themselves: `aiming('free' | 'auto')`; the foe locked on, and its strength in hit points; `cycle(1)` to the right;
@@ -9489,6 +9547,7 @@ async function start() {
       takeLoot(item);
       return item.map;
     },
+    village: () => (land as VillageLand).village?.list() ?? null,
     trail: () => {
       const f = (land as TrailLand).forgotten;
       if (!f) return null;

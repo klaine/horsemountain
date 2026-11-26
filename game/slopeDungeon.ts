@@ -132,11 +132,39 @@ export function sliceFrame(slice: SkiSlice) {
  * is under the land), the mouth in its flank facing the piste, and the piste's edge drawn in to the camp's middle about it. None if
  * neither will do.
  */
-export function findSite(slice: SkiSlice, kickers: KickerZone[] = [], awayFrom?: { x: number; z: number }): CaveSite | null {
-  return searchSites(slice, false, kickers, awayFrom) ?? searchSites(slice, true, kickers, awayFrom);
+export function findSite(slice: SkiSlice, kickers: KickerZone[] = [], awayFrom?: { x: number; z: number }, clear?: (x: number, z: number) => boolean): CaveSite | null {
+  return searchSites(slice, false, kickers, awayFrom, clear) ?? searchSites(slice, true, kickers, awayFrom, clear);
+}
+/**
+ * Whether a cave at `site` keeps to ground `clear` says may be had (out of a village, `villageClear` in `slopeVillage.ts`): its camp and
+ * the land about it, its mouth, the hole in the snow behind it and a little past, and its knoll, if it has one.
+ */
+function siteClear(site: CaveSite, clear: (x: number, z: number) => boolean): boolean {
+  const c = site.camp, r = CAVE.campR + CAVE.campBlend;
+  for (let i = 0; i < 12; i++) { const w = (i / 12) * Math.PI * 2; if (!clear(c.x + Math.cos(w) * r, c.z + Math.sin(w) * r)) return false; }
+  if (!clear(c.x, c.z)) return false;
+  for (let t = 0; t <= site.holeTo + 6; t += 3) for (const lat of [-MOUND_HALF, 0, MOUND_HALF]) { const p = sitePoint(site, t, lat); if (!clear(p.x, p.z)) return false; }
+  const k = site.knoll;
+  if (k) for (let i = 0; i < 16; i++) {
+    const w = (i / 16) * Math.PI * 2;
+    if (!clear(k.x + k.ax * Math.cos(w) * k.along + k.az * Math.sin(w) * k.across, k.z + k.az * Math.cos(w) * k.along - k.ax * Math.sin(w) * k.across)) return false;
+  }
+  return true;
 }
 /** Where a kicker stands on a run (along it and across), and how far along from there it and the snow it lands on reach. */
 export interface KickerZone { s: number; left: number; reach: number }
+/**
+ * Whether a point of `on`'s scene keeps clear of `slice`'s kickers and the snow each lands on, by `by` metres: for a cave on another way
+ * of a run that parts (`findSite`'s `clear`), where the two ways run side by side and a kicker on one lands on snow the other's cave
+ * would be cut into. (Each way's cave had kept clear of its own way's kickers only: on Ashbridge, Ashbridge Bend's cave, moved up the run
+ * by its village, levelled its camp and cut its hole where Ashbridge's second kicker lands, and the demo's backflip there landed too
+ * hard.)
+ */
+export function clearOfKickers(slice: SkiSlice, kickers: KickerZone[], on: SkiSlice, by = 6): (x: number, z: number) => boolean {
+  const F = sliceFrame(slice), G = sliceFrame(on), pts: [number, number][] = [];
+  for (const k of kickers) for (let u = k.s; u <= k.s + k.reach; u += 3) for (const l of [k.left - 6, k.left, k.left + 6]) { const p = F.at(u, l); pts.push([p.x + F.ox - G.ox, p.z + F.oz - G.oz]); }
+  return (x, z) => pts.every(([px, pz]) => Math.abs(px - x) > by || Math.abs(pz - z) > by || Math.hypot(px - x, pz - z) > by);
+}
 /** Whether a cave at `site` keeps clear of a kicker and its landing, across its breadth, as `Cave.keepsClear` keeps kickers clear of it. */
 function keptClear(site: CaveSite, k: KickerZone, F: ReturnType<typeof sliceFrame>): boolean {
   const c = site.camp, k_ = site.knoll;
@@ -169,7 +197,7 @@ export function sliceGround(slice: SkiSlice) {
  * quarter to three quarters of the way down, as far from that one as a good site may be (asked: "spread them apart": the cave on Ashbridge
  * Bend had stood halfway down it, where it still runs beside Ashbridge, some eighty metres from Ashbridge's own).
  */
-function searchSites(slice: SkiSlice, raise: boolean, kickers: KickerZone[], awayFrom?: { x: number; z: number }): CaveSite | null {
+function searchSites(slice: SkiSlice, raise: boolean, kickers: KickerZone[], awayFrom?: { x: number; z: number }, clear?: (x: number, z: number) => boolean): CaveSite | null {
   const F = sliceFrame(slice), L = F.length, [from, to] = awayFrom ? [0.25, 0.75] : [0.4, 0.6];
   let best: { site: CaveSite; score: number } | null = null;
   for (let s = from * L; s <= to * L; s += raise ? 8 : 5) {
@@ -196,8 +224,8 @@ function searchSites(slice: SkiSlice, raise: boolean, kickers: KickerZone[], awa
           const site: CaveSite = { s, side, mouth, ax, az, y0: 0, deep: 0, camp: { x: 0, z: 0 }, length: 20, holeTo: 0, knoll };
           const tried = trySite(F, site, H);
           if (!tried) continue;
-          // (Clear of every kicker and the snow it lands on.)
-          if (kickers.some((k) => !keptClear(site, k, F))) continue;
+          // (Clear of every kicker and the snow it lands on; and of a village, if the run has one.)
+          if (kickers.some((k) => !keptClear(site, k, F)) || (clear && !siteClear(site, clear))) continue;
           const apart = awayFrom ? 0.08 * Math.min(400, Math.hypot(site.mouth.x - awayFrom.x, site.mouth.z - awayFrom.z)) : 0;
           const score = tried - 25 * Math.abs(s / L - 0.5) - 0.02 * Math.abs(turn) + apart;
           if (!best || score > best.score) best = { site: { ...site, mouth: { ...site.mouth }, camp: { ...site.camp } }, score };

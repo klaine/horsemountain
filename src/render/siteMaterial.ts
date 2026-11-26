@@ -150,8 +150,14 @@ const sstep = (a: number, b: number, x: N): N => (a > b ? one(smoothstep(b, a, x
  * rounded arris turns. It fades out where the rounding would be smaller than a point of the picture. Gives the bent normal (from the
  * one given, in the eye's terms) and how near an edge the point is, 0 to 1, for wear.
  */
-/** How much of a rendered wall has come away (`render` in `makeSiteMaterial`): 1 as it is, 0 for none (`?chips=0`). */
-export const renderUniforms: { uChips: { value: number } } = { uChips: uniform(1) as N };
+/**
+ * How worn what is built is when nothing says otherwise: the game's, every world page's and the building lab's (`?chips=` another).
+ * The scale runs from 0, new, through 1, the wear the game was first given, to 4, derelict. (It was 1; asked, it looked too derelict.
+ * Below 1 each mark is fewer where it is laid by a share, as the render's holes are, and fainter where it is not.)
+ */
+export const GAME_WEAR = 0.6;
+/** How worn what is built is (`makeSiteMaterial`'s `wear`, for everything): `GAME_WEAR`, 0 for new (`?chips=0`). */
+export const renderUniforms: { uChips: { value: number } } = { uChips: uniform(GAME_WEAR) as N };
 export const edgeUniforms: { uEdges: { value: number } } = { uEdges: uniform(1) as N };
 /**
  * (`chips`, for dressed stone: its arrises are not worn evenly round. Here and there along an edge a piece has been knocked off, a
@@ -307,7 +313,7 @@ export const glinting = (m: MeshStandardNodeMaterial, g: Glints): void => {
  */
 /**
  * `wear`, a uniform of the material's own for how worn it is, in place of the one for everything (`renderUniforms.uChips`): 0 new,
- * 1 as the game builds it, and on past that to 4, derelict, where the render is mostly gone, the joints raked deep, timber grey and
+ * 1 as the game first built it (it now builds `GAME_WEAR`), and on past that to 4, derelict, where the render is mostly gone, the joints raked deep, timber grey and
  * rotten and its paint all but gone, the roof dark and broken, and the walls grimed and grown over from the foot. (Nothing changes
  * at 1 or below for anything past it: the game, which never goes past 1, is drawn as it was.)
  *
@@ -316,11 +322,11 @@ export const glinting = (m: MeshStandardNodeMaterial, g: Glints): void => {
  * wall is a copy of another. `courses` is how many courses the picture has from foot to head, so that a patch is moved up or down by
  * whole courses and its courses run on into its neighbour's.
  */
-export function makeSiteMaterial(base: TextureSet, moss: TextureSet, o: { normalScale?: number; roughness?: number; mossScale?: number; matt?: boolean; deep?: number; hollow?: number; paint?: [number, number, number]; fades?: 'near'; bevel?: number; render?: boolean; chips?: boolean; weather?: boolean; bond?: 'wendish' | 'running'; timber?: boolean; roof?: boolean; unrepeat?: { span: number; courses: number }; wear?: { value: number } } = {}): MeshStandardNodeMaterial {
+export function makeSiteMaterial(base: TextureSet, moss: TextureSet, o: { normalScale?: number; roughness?: number; mossScale?: number; matt?: boolean; deep?: number; hollow?: number; paint?: [number, number, number]; fades?: 'near'; bevel?: number; render?: boolean; chips?: boolean; weather?: boolean; bond?: 'wendish' | 'running'; timber?: boolean; roof?: boolean; unrepeat?: { span: number; courses: number }; wear?: { value: number }; snowed?: boolean } = {}): MeshStandardNodeMaterial {
   if (o.deep) return makeDeepMaterial(base, moss, { ...o, deep: o.deep });
   const un = o.unrepeat;
   // (How worn what is built is: the one for everything, which `?chips=0` turns off, or one of this material's own, `wear`, as the building
-  // lab gives a building it has been asked to show more or less worn than the rest. 1 is as the game builds it.)
+  // lab gives a building it has been asked to show more or less worn than the rest. `GAME_WEAR` is as the game builds it.)
   const wearU: N = (o.wear ?? renderUniforms.uChips) as N;
   // Up to 1, as the game builds: each mark grows as it always has. Past it, a building worn more than the game's, to a ruin at 4: the
   // same marks spread further (more render come away, more bricks flaked, more paint peeled, more tiles lost), each held at its full
@@ -392,7 +398,9 @@ export function makeSiteMaterial(base: TextureSet, moss: TextureSet, o: { normal
     // (The finest tearing only where a point of the picture is small enough to show it: further off it speckled the edges.)
     const nearW: N = one(smoothstep(0.004, 0.012, length(fwidth(q)))).toVar();
     const n0: N = farNoise(rot(q.mul(1.7)).add(11.3)).mul(0.62).add(farNoise(rot(q.mul(-5.9)).add(3.7)).mul(0.27)).add(farNoise(rot(q.mul(23)).add(1.9)).sub(0.5).mul(0.11).mul(nearW)).add(0.055).toVar();
-    const t0: N = float(0.77).sub(share.mul(0.75)).toVar();
+    // (Below the wear the game was first given, fewer holes and smaller, and not the same holes fainter: the share alone moved the
+    // level the noise is cut at so little that a wall at a third of that wear had nearly every hole it had at the full.)
+    const t0: N = float(0.77).sub(share.mul(0.75)).add(one(wearI).mul(0.16)).toVar();
     const dd: N = n0.sub(t0).toVar();
     const soft: N = max(fwidth(n0).mul(0.8), 0.006).toVar();
     const hole: N = smoothstep(soft.negate(), soft, dd).mul(step(0.004, share)).toVar();
@@ -569,8 +577,10 @@ export function makeSiteMaterial(base: TextureSet, moss: TextureSet, o: { normal
   colour = colour.mul(mix(vec3(1, 1, 1), vec3(0.74, 0.77, 0.72), risen)).mul(one(rim.mul(0.1)));
   colour = mix(colour, colour.mul(vec3(0.5, 0.46, 0.4)), splash.mul(0.55));
   // Snow on what is built, out of doors: on roofs, copings, sills and the floors of open courts. What is out of doors is known only
-  // from the bake, which says how much sky each point sees; until it arrives, nothing built has snow on it.
-  const snowy: N = snowOn(positionWorld, normalize(normalWorldGeometry).y.add(one(stone.a).mul(0.1))).mul(smoothstep(0.3, 0.55, bk.x)).mul(uBake).toVar();
+  // from the bake, which says how much sky each point sees; until it arrives, nothing built has snow on it. Or, where nothing is baked
+  // and what is built is shut, seen only from outside (`snowed`: the ski runs' village), on all of it that faces up.
+  const outdoors: N = o.snowed ? float(1) : smoothstep(0.3, 0.55, bk.x).mul(uBake);
+  const snowy: N = snowOn(positionWorld, normalize(normalWorldGeometry).y.add(one(stone.a).mul(0.1))).mul(outdoors).toVar();
   colour = mix(colour, vec3(...SNOW), snowy);
   // The edges of what is cut square, rounded in the shading (`edgeOf`), and a little paler where they are worn.
   if (o.bevel) {

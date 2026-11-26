@@ -69,7 +69,7 @@ function fillSnow(slice: SkiSlice, ox: number, oz: number, points: [number, numb
  * The forgotten slope a map's `seed` says there is on `slice`'s run, its snow laid in the slice (to be carved and made land after),
  * kept `away` metres from each of `keepFrom` (the run's own caves' camps); none, if none is found that a cave will go at.
  */
-export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; z: number }[] = [], away = 140, told?: Record<string, number>): Trail | null {
+export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; z: number }[] = [], away = 140, told?: Record<string, number>, clear?: (x: number, z: number) => boolean): Trail | null {
   const tell = (why: string) => { if (told) told[why] = (told[why] ?? 0) + 1; };
   const F = sliceFrame(slice), L = F.length, rng = new Rng(`forgotten slope ${seed}`), h = F.height, far = F.far;
   const steep = (x: number, z: number, e = 3) => Math.hypot(h(x + e, z) - h(x - e, z), h(x, z + e) - h(x, z - e)) / (2 * e);
@@ -101,7 +101,8 @@ export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; 
       for (const turn of [0, 15, -15, 30, -30, 45, -45, 60, -60]) {
         const t = (turn * Math.PI) / 180, dx = wx * Math.cos(t) - wz * Math.sin(t), dz = wx * Math.sin(t) + wz * Math.cos(t);
         const nx = x + dx * TRAIL.step, nz = z + dz * TRAIL.step, dh = h(nx, nz) - h(x, z);
-        if (dh > -0.05 || -dh / TRAIL.step > tanOf(31) || steep(nx, nz) > tanOf(35) || water(nx, nz) || !inside(nx, nz, 40)) continue;
+        // (Nor through a village, `clear`, nor its camp in one.)
+        if (dh > -0.05 || -dh / TRAIL.step > tanOf(31) || steep(nx, nz) > tanOf(35) || water(nx, nz) || !inside(nx, nz, 40) || (clear && !clear(nx, nz))) continue;
         next = [nx, nz]; fell -= dh; break;
       }
       if (!next) { tell(`stuck ${wide < out ? 'going out' : 'going down'}`); break; }

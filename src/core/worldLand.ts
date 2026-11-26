@@ -27,6 +27,8 @@ export interface WorldLand {
   places: WorldPlace[];
   /** Its lakes as bodies of water (`World['lakes']`), for whoever draws the country about a place. */
   lakes?: World['lakes'];
+  /** Its ways (`World['ways']`), for a city built in it, whose main streets come in where its roads do (`layOutCity` in `town.ts`). */
+  ways?: World['ways'];
   /** The world itself, where it was made in this thread (its tiles can then be made here too). */
   world?: World;
 }
@@ -68,7 +70,7 @@ export function worldLand(seed: string): WorldLand {
 export function landOfWorld(w: World): WorldLand {
   const had = LANDS.get(keyOf(w.plan.seed));
   if (had && had.world === w) return had;
-  const land: WorldLand = { seed: w.plan.seed, hx: w.plan.hx, hz: w.plan.hz, field: w.field, tiles: new Map(), places: w.places, lakes: w.lakes, world: w };
+  const land: WorldLand = { seed: w.plan.seed, hx: w.plan.hx, hz: w.plan.hz, field: w.field, tiles: new Map(), places: w.places, lakes: w.lakes, ways: w.ways, world: w };
   LANDS.set(keyOf(w.plan.seed), land);
   return land;
 }

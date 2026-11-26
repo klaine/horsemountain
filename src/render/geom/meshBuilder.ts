@@ -34,14 +34,6 @@ export class MeshBuilder {
   private fld: GrowF32;
   private idx: number[] = [];
   /**
-   * Room made at first for `vertices` points (it grows as more are added): sixteen thousand unless said, a megabyte, which a mesh of a
-   * few hundred points, made a hundred at a time (a run's tiles of land, a block's trees), took and gave back each time.
-   */
-  constructor(vertices = 1 << 14) {
-    const n = Math.max(64, Math.ceil(vertices));
-    this.pos = new GrowF32(3 * n); this.nrm = new GrowF32(3 * n); this.uv = new GrowF32(2 * n); this.col = new GrowF32(3 * n); this.fld = new GrowF32(4 * n);
-  }
-  /**
    * Which vertices carry baked light. Tracing light for every vertex is wasteful: a stone's bevel
    * and mortar edge can take their light from the stone's face. A vertex with a source copies that
    * vertex's baked light, scaled; a vertex without one is traced itself.
@@ -57,6 +49,20 @@ export class MeshBuilder {
    * from another, as a burnt house's is, writes into the same one.)
    */
   private readonly edges = { data: new Uint8Array(0) };
+  /**
+   * Room made at first for `vertices` points (it grows as more are added): sixteen thousand unless said, a megabyte, which a mesh of a
+   * few hundred points, made a hundred at a time (a run's tiles of land, a block's trees), took and gave back each time.
+   */
+  constructor(vertices = 1 << 14) {
+    const n = Math.max(64, Math.ceil(vertices));
+    this.pos = new GrowF32(3 * n); this.nrm = new GrowF32(3 * n); this.uv = new GrowF32(2 * n); this.col = new GrowF32(3 * n); this.fld = new GrowF32(4 * n);
+  }
+  /**
+   * How slight the solid each point belongs to is, where its builder said (`markDetail`): the lesser of its two smaller measures in
+   * centimetres, 1 to 254, and 0 where nothing was said. A glazing bar is four or five, a window's frame seven, a wall's post twenty.
+   * What is slight enough is laid apart and left out of the picture from a distance (`placeHouse`, `FINE` in `housePlacing.ts`).
+   */
+  private detail = new Uint8Array(0);
   vertexCount = 0;
 
   addVertex(
@@ -165,10 +171,20 @@ export class MeshBuilder {
     }
   }
 
-  append(src: MeshBuilder, place: (v: { p: number[]; n: number[]; colour: number[]; field: number[]; open: number }) => void): void {
+  /**
+   * Copies another builder's points and triangles in, each point given to `place` first to be moved or changed, with its index in
+   * `src`. `keep`, if given, says which of `src`'s triangles to take, by their order (as `eachTriangle` gives them): the points they
+   * use are taken with them, and no others.
+   */
+  append(src: MeshBuilder, place: (v: { p: number[]; n: number[]; colour: number[]; field: number[]; open: number }, i: number) => void, keep?: (t: number) => boolean): void {
     const base = this.vertexCount;
     const v = { p: [0, 0, 0], n: [0, 0, 0], colour: [0, 0, 0], field: [0, 0, 0, 0], open: 1 };
+    // (Where only some are taken: which triangles, which points they use, and where each point taken now is.)
+    const kept = keep ? new Uint8Array(src.idx.length / 3) : null, used = keep ? new Uint8Array(src.vertexCount) : null;
+    if (kept && used) for (let t = 0; t < kept.length; t++) if (keep!(t)) { kept[t] = 1; used[src.idx[t * 3]] = used[src.idx[t * 3 + 1]] = used[src.idx[t * 3 + 2]] = 1; }
+    const to = keep ? new Int32Array(src.vertexCount).fill(-1) : null;
     for (let i = 0; i < src.vertexCount; i++) {
+      if (used && !used[i]) continue;
       for (let k = 0; k < 3; k++) {
         v.p[k] = src.pos.data[i * 3 + k];
         v.n[k] = src.nrm.data[i * 3 + k];
@@ -176,17 +192,40 @@ export class MeshBuilder {
       }
       for (let k = 0; k < 4; k++) v.field[k] = src.fld.data[i * 4 + k];
       v.open = src.openAt(i);
-      place(v);
+      place(v, i);
       const id = this.addVertex(v.p[0], v.p[1], v.p[2], v.n[0], v.n[1], v.n[2], src.uv.data[i * 2], src.uv.data[i * 2 + 1], v.colour[0], v.colour[1], v.colour[2], v.field[0], v.field[1], v.field[2], v.field[3]);
       this.setOpen(id, v.open);
+      if (to) to[i] = id;
+      const d = src.detailAt(i);
+      if (d) this.markDetail(id, d / 100);
     }
+    const at = (i: number) => (to ? to[i] : base + i);
     // (Where the faces copied said where their corners were, so do the copies.)
     const se = src.edges.data;
     if (se.length) {
       const top = Math.min(src.vertexCount, se.length >> 2);
-      for (let i = 0; i < top; i++) if (se[i * 4 + 2]) this.markCopied(base + i, se[i * 4], se[i * 4 + 1], se[i * 4 + 2]);
+      for (let i = 0; i < top; i++) if (se[i * 4 + 2] && at(i) >= 0) this.markCopied(at(i), se[i * 4], se[i * 4 + 1], se[i * 4 + 2]);
     }
-    for (let t = 0; t < src.idx.length; t += 3) this.addTriangle(src.idx[t] + base, src.idx[t + 1] + base, src.idx[t + 2] + base);
+    for (let t = 0; t < src.idx.length; t += 3) if (!kept || kept[t / 3]) this.addTriangle(at(src.idx[t]), at(src.idx[t + 1]), at(src.idx[t + 2]));
+  }
+
+  /** Says that the points from `from` up to the last added belong to a solid whose second least measure is `measure` metres. */
+  markDetail(from: number, measure: number): void {
+    const to = this.vertexCount;
+    if (to <= from) return;
+    if (this.detail.length < to) {
+      let cap = Math.max(1024, this.detail.length);
+      while (cap < to) cap *= 2;
+      const next = new Uint8Array(cap);
+      next.set(this.detail);
+      this.detail = next;
+    }
+    this.detail.fill(Math.min(254, Math.max(1, Math.round(measure * 100))), from, to);
+  }
+
+  /** How slight the solid point `i` belongs to is, in centimetres (`markDetail`); 0 where nothing was said. */
+  detailAt(i: number): number {
+    return i < this.detail.length ? this.detail[i] : 0;
   }
 
   /**

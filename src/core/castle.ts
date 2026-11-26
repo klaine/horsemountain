@@ -1,5 +1,5 @@
 import { Rng } from './rng';
-import { Place, Site } from './site';
+import { Place, Site, Tower } from './site';
 import { insideOf } from './valley';
 
 /**
@@ -308,7 +308,7 @@ export function soundWall(wall: [number, number][]): boolean {
  * hill's rise as `was` has them; and its bailey laid out again about the new wall (stair, ranges and well) from `rng`, which is given
  * the same from edit to edit so that they stay where they are while they still fit.
  */
-export function castleOfPlan(p: CastlePlan, was: Castle, rng: Rng): Castle {
+export function castleOfPlan(p: CastlePlan, was: Castle, rng: Rng, about?: { keep?: Tower; house?: { x0: number; x1: number; z0: number; z1: number }; door?: [number, number] }): Castle {
   const wall = p.corners.map((k): [number, number] => [k.x, k.z]), n = wall.length, r3 = (v: number) => Math.round(v * 1000) / 1000;
   const outAt = (k: number) => {
     const [ax, az] = inwardOf(wall, (k + n - 1) % n), [bx, bz] = inwardOf(wall, k), ox = -(ax + bx), oz = -(az + bz);
@@ -320,8 +320,10 @@ export function castleOfPlan(p: CastlePlan, was: Castle, rng: Rng): Castle {
   const u = Math.min(Math.max(len - 4, len / 2), Math.max(Math.min(4, len / 2), p.gate.t * len)) / len, [ix, iz] = inwardOf(wall, gi);
   const gate = { x: Math.round((ax + (bx - ax) * u) * 100) / 100, z: Math.round((az + (bz - az) * u) * 100) / 100, out: r3(Math.atan2(-iz, -ix)), w: was.gate.w };
   const c: Castle = { wall, height: p.height, thick: p.thick, gate, towers, rise: was.rise };
-  // (No house stands in a bailey laid out by hand: the middle of its corners is kept a little clear, and a way from there to the gate.)
+  // (No house stands in a bailey laid out by hand: the middle of its corners is kept a little clear, and a way from there to the gate.
+  // A city's citadel says what does stand in it, its keep and its great building, and where that building's door is: `about`.)
   const mx = wall.reduce((s, q) => s + q[0], 0) / n, mz = wall.reduce((s, q) => s + q[1], 0) / n;
-  layOutBailey(c, { towers: [] } as unknown as Site, { x0: mx, x1: mx, z0: mz, z1: mz }, mx, mz, rng);
+  const [dx, dz] = about?.door ?? [mx, mz];
+  layOutBailey(c, { towers: about?.keep ? [about.keep] : [] } as unknown as Site, about?.house ?? { x0: mx, x1: mx, z0: mz, z1: mz }, dx, dz, rng);
   return c;
 }

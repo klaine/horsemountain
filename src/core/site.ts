@@ -488,9 +488,13 @@ export interface BuildingPlan {
    * next room's or the rendered skin outside, in the order front, back, left, right (as `v0`,
    * `v1`, `u0`, `u1`): half a wall between rooms, all of an outer wall within its skin.
    */
-  rooms: { kind: 'hall' | 'stair' | 'passage' | 'front' | 'back' | 'wing' | 'carriage' | 'office' | 'loft'; u0: number; u1: number; v0: number; v1: number; linings: [number, number, number, number]; storey?: number }[];
-  /** Doorways between rooms: in the wall whose middle line is at `at` (a `u` if `line` is `u`, a `v` if `v`), centred at `c` along it, `w` wide; `tall` for an arch into a stair hall. */
-  doors: { line: 'u' | 'v'; at: number; c: number; w: number; tall?: boolean; through?: number; storey?: number }[];
+  rooms: { kind: 'hall' | 'stair' | 'passage' | 'front' | 'back' | 'wing' | 'carriage' | 'office' | 'loft'; u0: number; u1: number; v0: number; v1: number; linings: [number, number, number, number]; storey?: number; frame?: -1 | 1 }[];
+  /**
+   * Doorways between rooms: in the wall whose middle line is at `at` (a `u` if `line` is `u`, a `v` if `v`), centred at `c` along it,
+   * `w` wide; `tall` for an arch into a stair hall. A room or door with a `frame` is in a leaning wing on that side, and its measures
+   * are the wing's own, as if it stood square (`wingFrame`).
+   */
+  doors: { line: 'u' | 'v'; at: number; c: number; w: number; tall?: boolean; through?: number; storey?: number; frame?: -1 | 1 }[];
   /** The thickness of the outer walls, of the wall down the middle of the depth, and of the walls between rooms. */
   walls: { outer: number; spine: number; cross: number };
   /**
@@ -603,8 +607,22 @@ export interface Building {
    * (two) about a court behind it. `side` is -1 for the left end as one stands before it and 1
    * for the right; `width` is how much of the main block's breadth the wing takes, from its end
    * inward; `length` is how far it reaches back beyond the main block. It has the main block's storeys.
+   *
+   * `lean`, of a classical building's wing (`imperial`), in degrees: how far the wing is turned from square to the back, about the
+   * back corner of the end it stands on; more than nothing outward, away from the middle, less than nothing in over the court. So an
+   * L may open wider or narrower than a right angle, as a building at a corner of two streets that do not meet square does, and its
+   * wing run along a river's quay. `width` is then taken square to the wing, `length` along its outer wall, and the wing covers
+   * `width / cos(lean)` of the back (`wingFrame` in `src/core/building.ts`).
    */
-  wings?: { side: -1 | 1; width: number; length: number }[];
+  wings?: { side: -1 | 1; width: number; length: number; lean?: number }[];
+  /**
+   * Of a classical building (`imperial`): its end on `side` carried on past the main block, `front` metres further along the front and
+   * `back` along the back, to an end wall that is not square to them: a wedge, as where a building fills a corner whose streets do not
+   * meet square, or stands with its end on a river's quay. It has the main block's storeys, cornice and roof, which is hipped to the
+   * slanting end. What was the main block's end wall is a wall within, with a door into each room against it. (`wedgeOf` in
+   * `src/core/building.ts`.)
+   */
+  wedge?: { side: -1 | 1; front: number; back: number };
   /** Of the style `brick`: which of the family it is, and how it is made. */
   brickwork?: BrickWork;
   /** Of the style `canal`: how it is made. */
@@ -623,6 +641,32 @@ export interface Building {
  * and on the fringes, along the shore and up the slopes, shacks. Outside the town are fields, and
  * woods up the hills.
  */
+/**
+ * The settings of a city (a harbour town of the plan `city`), named as watabou's Medieval Fantasy City Generator names them (and
+ * asked for by the same names in the address: `?size=small&walls=1&citadel=1&urban_castle=0&river=1&greens=0&shantytown=1&gates=-1`).
+ * A harbour town always has its temple (the house, at the head of the square), its plaza (the square) and its coast.
+ */
+export interface CityOptions {
+  /** How much of a city: small unless asked, as a larger one is heavier to draw. */
+  size: 'small' | 'medium' | 'large';
+  /** A citadel: a ward walled round, with a gate, and a great building in it. */
+  citadel: boolean;
+  /** The citadel within the city (an inner castle) rather than at its edge. */
+  urbanCastle: boolean;
+  /** A curtain wall round the city's wards, with towers and a gate where each road goes through. */
+  walls: boolean;
+  river: boolean;
+  /** Some wards left as parks. */
+  greens: boolean;
+  /** Shacks along lanes wandering out from the city's edge. */
+  shantytown: boolean;
+  /** How many roads come in, each a main street to the square; −1 for as many as the world's ways bring (two or three without a world). */
+  gates: number;
+  temple: true;
+  plaza: true;
+  coast: true;
+}
+
 export interface Town {
   /**
    * Where the land was found: the frame's seed, the point of the frame under the middle of the quay's edge, how far the frame is
@@ -638,7 +682,11 @@ export interface Town {
   /** The quay: its edge runs along `x` at `z`, from `x0` to `x1`, its top at `y`; the waterfront behind it is `apron` deep. */
   quay: { x0: number; x1: number; z: number; y: number; apron: number };
   /** The market square: its ground falls from `yN` at its north side to `yS` at its south, where it opens onto the waterfront. */
-  square: { x0: number; x1: number; z0: number; z1: number; yN: number; yS: number };
+  /**
+   * The square, as the box about it (`x0` to `z1`, its north side against the house's terrace): `outline`, if it is not that box, the
+   * ring of points round its edge from the north-west corner, east first, and its `shape` (`oval`, `funnel` or `irregular`).
+   */
+  square: { x0: number; x1: number; z0: number; z1: number; yN: number; yS: number; outline?: [number, number][]; shape?: 'oval' | 'funnel' | 'irregular' };
   /** The stair from the forecourt down into the square: `x0` to `x1` broad, from the forecourt's edge at `z0` to its foot at `z1`. */
   stair: { x0: number; x1: number; z0: number; z1: number };
   /** The moles that close the harbour: each a line of points from where it leaves the quay, `width` across, its top at `y`. */
@@ -668,10 +716,33 @@ export interface Town {
   };
   /** The outline of the harbour's water: the quay's edge, the moles' lines and the mouths between their heads. */
   harbour?: [number, number][];
-  /** What kind of plan the town's streets are laid on: square and straight, following the shore, fanning out from the harbour, or crooked as an old town's. */
-  plan?: 'planned' | 'shore' | 'fan' | 'old';
-  /** The blocks of buildings: each its four corners, south-west, south-east, north-east, north-west (south being towards the sea), and the box about them. */
-  blocks: { x0: number; x1: number; z0: number; z1: number; kind: 'classical' | 'timber'; corners?: [number, number][] }[];
+  /**
+   * What kind of plan the town's streets are laid on: square and straight, following the shore, fanning out from the harbour, or crooked
+   * as an old town's; or none, `grown` as a village grows, its lanes grown over the land and houses along them (its `blocks` are then
+   * each house's lot, the house and its yard behind it).
+   */
+  plan?: 'planned' | 'shore' | 'fan' | 'old' | 'grown' | 'city';
+  /** A city's settings (the plan `city`), as watabou's City Generator offers them: what was asked for, and the rest as dealt. */
+  city?: CityOptions;
+  /**
+   * A city's walls: the curtain round its wards, from the shore round to the shore (`closed` false), and a citadel's round it (`closed`):
+   * each its line of corners, its towers, and its gates, each where a road goes through, facing out along the bearing `out` (from
+   * greater x towards greater z), `w` broad. `height` from the ground to the wall-walk, `thick` through.
+   */
+  cityWalls?: { line: [number, number][]; closed: boolean; towers: { x: number; z: number; r: number }[]; gates: { x: number; z: number; out: number; w: number }[]; height: number; thick: number }[];
+  /**
+   * A city's citadel, built as a valley's castle is (`Castle`, drawn by `render/castle.ts`): its curtain round its ward with towers of
+   * several kinds at its corners, its gate onto its best street, the stair to its walk, ranges and a well in its bailey; its bailey
+   * levelled at `floor`; and its `keep`, a tower that can be gone into and climbed. Its great building, if it has room for one, is
+   * among the town's buildings.
+   */
+  citadel?: { castle: Castle; floor: number; keep: Tower };
+  /**
+   * The blocks of buildings: each its corners, going round with its inside on the right hand (for four, south-west, south-east,
+   * north-east, north-west, south being towards the sea), and the box about them. A city's blocks may have more corners than four,
+   * and a `green` one is a park, built on by nothing.
+   */
+  blocks: { x0: number; x1: number; z0: number; z1: number; kind: 'classical' | 'timber' | 'green'; corners?: [number, number][] }[];
   /** The buildings of the blocks and the farms: each with its `turn` and its `y`. */
   buildings: Building[];
   /**
