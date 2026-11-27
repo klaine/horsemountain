@@ -997,10 +997,10 @@ async function start() {
     return !own || d(hid) < d(own) ? hid : own;
   };
   /** Whether the rider is on a forgotten slope's way, or in its camp (within `wide` metres of the way): off the piste, but not out of bounds. */
-  const onTrail = (wide = 10) => {
+  const onTrail = (wide = 10, at: { x: number; z: number } = rider.position) => {
     const f = (land as TrailLand).forgotten;
     if (!f) return false;
-    const o = land.group.position, x = rider.position.x - o.x, z = rider.position.z - o.z;
+    const o = land.group.position, x = at.x - o.x, z = at.z - o.z;
     return Math.hypot(f.cave.site.camp.x - x, f.cave.site.camp.z - z) < 45 || nearTrail(f.trail.path, x, z).off < wide;
   };
   const toCave = <T extends { x: number; z: number; y?: number }>(p: T) => { const o = land.group.position; return { x: p.x - o.x, y: p.y ?? 0, z: p.z - o.z }; };
@@ -2051,7 +2051,7 @@ async function start() {
   // (And on a forgotten slope's way, off the piste allowed or not.)
   // (On a forgotten slope's way, riding: where it may go, out of bounds or not, and past the run's foot, as on Lake Wall, whose way goes
   // down off its spur to the lake beside its foot, the only land well out from its pistes: not held to the foot, nor the run over there.)
-  const freeOnTrail = () => mode === 'ride' && !flyingDemo && onTrail(14);
+  const freeOnTrail = () => mode === 'ride' && !flyingDemo && onTrail(14, ride);
   const reachAt = (s: number): [number, number] => (offPisteOk() || (flyingDemo && demoKind === 'show') || freeOnTrail() ? [-1e6, 1e6] : land.edges(s));
   /**
    * Where the skier now is against the run: its way and its body's facing kept as they were in the world as the run's own way turns
@@ -2068,6 +2068,20 @@ async function start() {
       if (w !== land.way!()) { land.setWay!(w); switched = true; }
     }
     let f = land.frame(ride.x, ride.z, switched ? undefined : ride.down);
+    // (Strayed off a forgotten slope's way past the run's foot, where only the way may be ridden: held at the way's edge, as the poles
+    // hold one on the piste. Let go of the way there, the skier had been thrown back to the run's foot, from out by Lake Wall's lake,
+    // and the run ended with the time taken down the way kept as its best.)
+    const lost = (land as TrailLand).forgotten;
+    if (lost && mode === 'ride' && !flyingDemo && f.s > land.length - 30 && !freeOnTrail()) {
+      const o = land.group.position, x = ride.x - o.x, z = ride.z - o.z, n = nearTrail(lost.trail.path, x, z);
+      // (Held whichever is nearer: some twelve metres out from the way, or forty-four from its camp, which is on it within forty-five.)
+      const c = lost.cave.site.camp, dc = Math.hypot(x - c.x, z - c.z), [hx, hz, r, d] = dc - 44 < n.off - 12 ? [c.x, c.z, 44, dc] : [n.x, n.z, 12, n.off];
+      if (d < 200) {
+        const k = r / Math.max(r, d);
+        ride.x = o.x + hx + (x - hx) * k; ride.z = o.z + hz + (z - hz) * k;
+        f = land.frame(ride.x, ride.z, f.s);
+      }
+    }
     const [lo, hi] = reachAt(f.s), end = freeOnTrail() ? Infinity : land.length + 20;
     if (f.left < lo + 1 || f.left > hi - 1 || f.s < -20 || f.s > end) {
       const s = clamp(f.s, -20, end), left = clamp(f.left, lo + 1, hi - 1), p = land.at(s, left);
@@ -2503,7 +2517,9 @@ async function start() {
     // (Down the run's own way, on a run that parts: the demo run flown down it, and each run begun at its top.)
     land.setWay?.(0);
     leaveFoot();
-    offPisteFor = 0; backOnto = null;
+    // (Nor the plane asked for from a forgotten slope's camp: a fall just after the skis were put on there had left it asked, to come
+    // for the skier at the next run's top.)
+    offPisteFor = 0; backOnto = null; liftAsked = false;
     Object.assign(ride, { shove: 0, way: 0, speed: 7, facing: 0, tuck: 0, tall: 0, brake: 0, lean: 0, leanSide: 0, flickL: 0, flickR: 0, time: 0, out: 0, absorb: 0, sink: 0, pop: 0, skid: 0, ended: false, held: 0, switch: false, flex: 0, back: 0, turn180: null, stones: 0, overStones: 0, bare: 0, deep: 0 });
     here = land.frame(0, 0);
     putAt(0, 0);
@@ -2521,7 +2537,7 @@ async function start() {
   /** The run again from the top, going a little. */
   const restart = () => {
     // (A map found of this run: laid again with its forgotten slope, which begins it again.)
-    if (mapLaysOut && mode === 'ride') { mapLaysOut = false; void setLand(landKind, true); return; }
+    if (mapLaysOut === landKind && !trip?.swapped && mode === 'ride') { mapLaysOut = null; void setLand(landKind, true); return; }
     caveNow()?.shutChest();
     (land as DeepsLand).deeps?.restock();
     // (What was found and not yet come to the player, given it now: nothing found is lost.)
@@ -2561,8 +2577,17 @@ async function start() {
     const group = new Group(), ox = off.x, oz = off.z, out = (p: Vector3) => p.clone().sub(off);
     group.position.copy(off);
     group.add(base.group);
-    return {
+    // (Each way of a run that parts moved too, as the land's own `frame` and `at` are: they were asked, and the way a point is on
+    // found, where the land lay before it was moved, hundreds of metres off on a run come to from another (its kickers stood there,
+    // the way ridden was chosen by them, and the edges with it).)
+    const shiftWay = (w: LandWay): LandWay => ({
+      ...w,
+      frame: (x, z, hint) => w.frame(x - ox, z - oz, hint),
+      at: (s_, left) => { const a = w.at(s_, left); return { ...a, x: a.x + ox, z: a.z + oz }; },
+    });
+    const moved: Land = {
       ...base, group,
+      ...(base.ways ? { ways: base.ways.map(shiftWay), wayAt: (x: number, z: number) => base.wayAt!(x - ox, z - oz) } : {}),
       height: (x, z) => base.height(x - ox, z - oz),
       snowAt: base.snowAt && ((x, z) => base.snowAt!(x - ox, z - oz)),
       treeNear: base.treeNear && ((x, z, r) => { const t = base.treeNear!(x - ox, z - oz, r); return t && { ...t, x: t.x + ox, z: t.z + oz }; }),
@@ -2573,6 +2598,11 @@ async function start() {
       lod: base.lod && ((x, z) => base.lod!(x - ox, z - oz)),
       trees: base.trees && ((eye, seconds) => base.trees!(out(eye), seconds)),
     };
+    // (What changes with the way ridden asked of the land itself each time, not read once as it was moved: its length, and the cave of
+    // the way ridden on a run that parts, which, not enumerable, the spread above leaves out altogether.)
+    Object.defineProperty(moved, 'length', { get: () => base.length, enumerable: true, configurable: true });
+    if (Object.getOwnPropertyDescriptor(base, 'cave')?.get) Object.defineProperty(moved, 'cave', { get: () => (base as CaveLand).cave, configurable: true });
+    return moved;
   };
   /** The ways that carry the rider through the air, which can take it to another run. */
   const carries = (e: Ending) => e !== 'invert' && e !== 'cart' && e !== 'revert';
@@ -2589,7 +2619,14 @@ async function start() {
     await loading.paint();
     loading.hush(true, (text) => makingStep(text));
     let base: Land;
-    try { base = await landOf(kind); } catch (e) { makingDone(); throw e; } finally { loading.hush(false); }
+    // (Not laid: the trip given up and said so, the run ridden going on. Left under way, nothing ended the run, a fall nor its foot.)
+    try { base = await landOf(kind); } catch (e) {
+      makingDone();
+      if (trip === mine) trip = null;
+      console.error('the run ridden to', e);
+      tell(`Couldn't lay ${label}`, `${String((e as Error)?.message ?? e).slice(0, 120)} · still on the run you were on`, true, 8);
+      return;
+    } finally { loading.hush(false); }
     // (Broken off while it was made, by another run chosen, or watching: let be.)
     if (trip !== mine) { makingDone(); return; }
     makingStep('Making its shaders ready', 0.85);
@@ -2686,6 +2723,8 @@ async function start() {
     const t = trip!, old = t.from;
     trip = null;
     landKind = t.kind;
+    // (Come to another run, laid with any map found of it: none waiting to be laid.)
+    mapLaysOut = null;
     landShift = (t.land!.group.position as Vector3).clone();
     landTop = topOf.get(t.base!) ?? null;
     old.group.removeFromParent();
@@ -5345,6 +5384,8 @@ async function start() {
     // (The slope ridden chosen again: nothing to do, and not out of the cave, nor the way back given up, for it.)
     if (kind === landKind && !again) return;
     abortTrip();
+    // (Laid now with any map found of it.)
+    mapLaysOut = null;
     leaveFoot();
     await loading.busy(kind !== 'groomed' ? `Laying the snow ${whereOf(kind)}` : 'Laying the groomed slope');
     // (Its land not made, the slope ridden kept, and said so: thrown, the loading screen had stood over everything for good.)
@@ -5497,6 +5538,9 @@ async function start() {
     leaveFoot();
     abortTrip();
     offPisteFor = 0; $('offPiste').hidden = true;
+    // (No way back to the piste kept, nor the plane asked for, from the ride before: kept over a turn of watching, the next fall or
+    // the next run's end put the skier back where that ride had been sent.)
+    backOnto = null; liftAsked = false;
     endCatapult();
     letAimGo();
     if (m === 'ride') {
@@ -7063,14 +7107,17 @@ async function start() {
   };
   /** The runs a map may be of: those with caves, where each is, the run ridden, and those mapped already. */
   const mapsNow = (): Maps | undefined => (pack ? { runs: runs.filter((r) => r.cave && r.trail !== false).map((r) => ({ id: r.id, where: r.where ?? r.label })), here: landKind, had: new Set(pack.maps().keys()) } : undefined);
-  /** A map found of the run ridden: the run laid again with its forgotten slope when it next begins (`restart`). */
-  let mapLaysOut = false;
+  /**
+   * A map found of the run ridden: that run, laid again with its forgotten slope when it next begins (`restart`), if it is the run
+   * ridden then. (Kept as only that one had been found, a trip to another run begun since ended with the run left laid again over it.)
+   */
+  let mapLaysOut: LandKind | null = null;
   /** Something found come to the player: put in the pack (worn, or read, if it can be), said, and a chime. */
   const takeLoot = (item: Item) => {
     if (!pack) return;
     const on = pack.add(item);
     foundRun.push(item.name);
-    if (item.map?.run === landKind) mapLaysOut = true;
+    if (item.map?.run === landKind) mapLaysOut = landKind;
     lootCard.show(item, on, item.slot === 'weapon' && !weaponsFree() ? `in your pack · ${HELD_BACK.toLowerCase()}` : item.map ? (item.map.run === landKind ? 'its old tracks show when this run begins again' : `its old tracks show when you ride ${item.map.where}`) : undefined);
     gunSound.hear('ring');
   };

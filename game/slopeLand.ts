@@ -10,7 +10,7 @@
  * lakes frozen, and snowy firs where the world has woods. Scene coordinates are the world's, less the run's top.
  */
 import {
-  BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, Group, InstancedMesh, type Material, Matrix4, Mesh, MeshStandardMaterial,
+  BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, Group, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshStandardMaterial,
   PlaneGeometry, Quaternion, type Texture, Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -273,7 +273,16 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
     };
     /** How far a place against the line lies outside its path, metres (less than nothing, inside), past its top and foot too. */
     const outside = (f: Frame) => { const [lo, hi] = edges(f.s); return Math.max(lo - f.left, f.left - hi, -4 - f.s, f.s - length - 4); };
-    return { id, from, length, frame, edges, at, outside, kickable: (s: number, left: number, kick: number): boolean => kickableOn(at, length, s, left, kick) };
+    /**
+     * As `frame`, from the stretches about `hint`; looked for along all of the line if the nearest found lies at the edge of those, where
+     * the place may lie further on. (For what is asked again and again about the skier, on a run that parts: each way looked along all
+     * of its line each time, several times a step of the ride.)
+     */
+    const near = (x: number, z: number, hint: number): Frame => {
+      const f = frame(x, z, hint), k = Math.floor(hint / step), lo = Math.max(0, k - 16) * step, hi = (Math.min(n - 2, k + 16) + 1) * step;
+      return (lo > 0 && f.s <= lo + 0.01) || (hi < length && f.s >= hi - 0.01) ? frame(x, z) : f;
+    };
+    return { id, from, length, frame, near, edges, at, outside, kickable: (s: number, left: number, kick: number): boolean => kickableOn(at, length, s, left, kick) };
   };
   const ways = [wayOf(slice.run, undefined, 0), ...((slice as SkiSlice & { branches?: Branch[] }).branches ?? []).map((b) => wayOf(b.run, b.id, b.from))];
   let way = ways[0];
@@ -300,6 +309,19 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
   /** How steep the world's own land is where the slice's is `steep` degrees at height `y`. */
   const worldSteep = (steep: number, y: number) => (!sq || y <= sq.above ? steep : (Math.atan(Math.tan((steep * Math.PI) / 180) / sq.keep) * 180) / Math.PI);
 
+  /** The way whose path a point is on or nearest, as `nearestWay`, each looked along from where the last point asked lay (`near`). */
+  const askHints = ways.map(() => 0);
+  const nearestNow = (x: number, z: number) => {
+    let best = ways[0], f = best.near(x, z, askHints[0]), out = best.outside(f);
+    askHints[0] = f.s;
+    for (let w = 1; w < ways.length; w++) {
+      const g = ways[w].near(x, z, askHints[w]), o = ways[w].outside(g);
+      askHints[w] = g.s;
+      if (o < out) { best = ways[w]; f = g; out = o; }
+    }
+    return { w: best, f, out };
+  };
+
   // How much snow lies at a point, as it is drawn (`Land.snowAt`), for the skis to know what they go over. With the game's snow, by its
   // own rule (`game.snowAt`), from how nearly the ground faces up there as the run's snow is made to (`nrm` in `gameMeshes`: over three
   // metres either way; off the skiable path, as steeply as the world's own land); drawn plainly, as `coloured` lays its rock.
@@ -307,7 +329,7 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
   const snowAt = (x: number, z: number) => {
     const y = height(x, z);
     let out: number;
-    if (ways.length === 1) { const f = frame(x, z, snowHint); snowHint = f.s; out = ways[0].outside(f); } else out = nearestWay(x, z).out;
+    if (ways.length === 1) { const f = frame(x, z, snowHint); snowHint = f.s; out = ways[0].outside(f); } else out = nearestNow(x, z).out;
     const away = smooth01((out + 1) / 6);
     if (!game?.snowAt) return 1 - smooth01((worldSteep(steepAt(x, z, 4), y) - 38) / 14) * away;
     // (Over three metres either way on the run's own snow, eight on the land about it, as each is shaded, `nrm`.)
@@ -566,12 +588,12 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
     const snowAbout = gridBuilder(near, underSnow, 3, false, inSlice);
     const lit = (builder: MeshBuilder, material: Material) => {
       // (As the walk page lights the world's land, `meshOf`: the sky's light by the share of it each point sees, here all of it.)
+      // (Alike at every point: so one value of each, which every point reads, set in place of the builder's, one for each point. Those
+      // were 56 bytes a point of a land of hundreds of thousands, kept twice over, on the graphics card and off it: some twenty megabytes
+      // each on the Silent Warden, more on the broader runs.)
       const geometry = builder.build(), L = look.sky;
-      const sh = [geometry.getAttribute('aSHr'), geometry.getAttribute('aSHg'), geometry.getAttribute('aSHb')] as BufferAttribute[], bk = geometry.getAttribute('aBake') as BufferAttribute;
-      for (let i = 0; i < builder.vertexCount; i++) {
-        for (let c = 0; c < 3; c++) sh[c].setXYZW(i, (Math.PI / 2) * L[c], 0, (Math.PI / 2) * L[c] * 0.8, 0);
-        bk.setXY(i, 1, 0.6);
-      }
+      (['aSHr', 'aSHg', 'aSHb'] as const).forEach((name, c) => geometry.setAttribute(name, new InstancedBufferAttribute(new Float32Array([(Math.PI / 2) * L[c], 0, (Math.PI / 2) * L[c] * 0.8, 0]), 4)));
+      geometry.setAttribute('aBake', new InstancedBufferAttribute(new Float32Array([1, 0.6]), 2));
       const mesh = new Mesh(geometry, material);
       mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
       return mesh;
@@ -686,8 +708,9 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
       way: () => ways.indexOf(way),
       setWay: (w: number) => { way = ways[Math.max(0, Math.min(ways.length - 1, w))]; },
       wayAt: (x: number, z: number) => {
-        let best = way, out = way.outside(way.frame(x, z)) - 2;
-        for (const w of ways) { if (w === way) continue; const o = w.outside(w.frame(x, z)); if (o < out) { best = w; out = o; } }
+        const at = (w: (typeof ways)[number]) => { const i = ways.indexOf(w), f = w.near(x, z, askHints[i]); askHints[i] = f.s; return w.outside(f); };
+        let best = way, out = at(way) - 2;
+        for (const w of ways) { if (w === way) continue; const o = at(w); if (o < out) { best = w; out = o; } }
         return ways.indexOf(best);
       },
     } : {}),

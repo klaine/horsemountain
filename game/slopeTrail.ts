@@ -198,16 +198,16 @@ export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; 
   return null;
 }
 
-/** How far a point (in the scene's frame) is from the way, and how far along it the nearest of it is (metres from where it leaves the piste). */
-export function nearTrail(path: [number, number][], x: number, z: number): { off: number; along: number } {
-  let best = Infinity, along = 0, sum = 0;
+/** How far a point (in the scene's frame) is from the way, how far along it the nearest of it is (metres from where it leaves the piste), and where that is. */
+export function nearTrail(path: [number, number][], x: number, z: number): { off: number; along: number; x: number; z: number } {
+  let best = Infinity, along = 0, sum = 0, px = path[0][0], pz = path[0][1];
   for (let i = 1; i < path.length; i++) {
     const [ax, az] = path[i - 1], [bx, bz] = path[i], dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
     const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2)), cx = ax + dx * t - x, cz = az + dz * t - z, d = cx * cx + cz * cz, l = Math.sqrt(l2);
-    if (d < best) { best = d; along = sum + t * l; }
+    if (d < best) { best = d; along = sum + t * l; px = ax + dx * t; pz = az + dz * t; }
     sum += l;
   }
-  return { off: Math.sqrt(best), along };
+  return { off: Math.sqrt(best), along, x: px, z: pz };
 }
 
 /**
