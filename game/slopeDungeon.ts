@@ -21,7 +21,7 @@
  * Everything here is in the scene's frame of the run's land (the world's, less the run's top), as the land's own heights are.
  */
 import {
-  AdditiveBlending, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DodecahedronGeometry, DoubleSide,
+  AdditiveBlending, BoxGeometry, TorusGeometry, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DodecahedronGeometry, DoubleSide,
   DataTexture, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, NearestFilter, PlaneGeometry, PointLight, Quaternion, RepeatWrapping, RGBAFormat,
   type Material, SphereGeometry, SRGBColorSpace, Texture, Vector3,
 } from 'three';
@@ -32,10 +32,13 @@ import { Rng, valueNoise2 } from '../src/core/rng';
 import { type PropKind, Props, type Stuff } from './slopeProps';
 import { type Grid, gridAt, type SkiSlice } from '../src/core/skiSlice';
 import { kickerReachable } from './slopeLand';
+import { Folk } from './slopeFolk';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const smooth = (t: number) => { const u = clamp(t, 0, 1); return u * u * (3 - 2 * u); };
 const UP = new Vector3(0, 1, 0);
+/** Nothing drawn: an instance put away. */
+const ZERO_M = new Matrix4().makeScale(0, 0, 0);
 
 /** The cave's measures, in metres. */
 export const CAVE = {
@@ -345,8 +348,9 @@ export function carve(slice: SkiSlice, site: CaveSite): BaseHeight {
 
 // ---------------------------------------------------------------------------------------------------------------- the dungeon laid
 
-type RoomKind = 'gate' | 'hall' | 'store' | 'crypt' | 'ossuary' | 'shrine' | 'tomb' | 'library' | 'sanctum' | 'cell' | 'guard' | 'warden' | 'vault' | 'hoard';
-type DoorKind = 'arch' | 'door' | 'portcullis';
+type RoomKind = 'gate' | 'hall' | 'store' | 'crypt' | 'ossuary' | 'shrine' | 'tomb' | 'library' | 'sanctum' | 'cell' | 'guard' | 'warden' | 'vault' | 'hoard' | 'hidden';
+/** A doorway: an open arch, a door standing open, a portcullis drawn up; or a way into a hidden room behind a cracked wall (`plotDungeon`). */
+type DoorKind = 'arch' | 'door' | 'portcullis' | 'secret';
 /** A room: its squares, what it is, which level it is on (0 the gate's, -1 the one below), and what is said of it as it is come into. */
 interface Room { c0: number; r0: number; w: number; h: number; kind: RoomKind; level: number; note: string }
 /** A doorway, at the end of corridor square (c, r) where it opens toward (dc, dr) into a room. */
@@ -362,6 +366,8 @@ interface Layout {
   cells: Uint8Array; rooms: Room[]; roomAt: Int16Array; far: Int16Array;
   floor: Float32Array; low: Float32Array; down: Int8Array; top: Float32Array;
   doors: Door[]; name: string; about: string;
+  /** Whose the place was: who the last room is the tomb, the sanctum, the hoard of (and who its ghost is, `plotDungeon`). */
+  who: string;
   /** The way out to the deeps (`slopeDeeps.ts`), where it has one: the square at the lattice's edge it goes out of, and which way. */
   exit?: { c: number; r: number; dc: number; dr: number };
 }
@@ -441,6 +447,7 @@ const LINES: Record<RoomKind, string[]> = {
   sanctum: ['The sanctum of WHO: an altar, and a chest of offerings before it'],
   warden: ["The warden's room: WHO's desk, and the chest of what was taken"],
   hoard: ['The hoard of WHO: gold heaped about a chest'],
+  hidden: ['A hidden room, its air stale and still: no one has stood here in an age', 'A room walled up and forgotten, and what was hidden in it'],
 };
 const NAMES = ['Aldric', 'Morwen', 'Hrothgar', 'Isolde', 'Cenric', 'Edda', 'Thorvald', 'Brannoc', 'Wulfhild', 'Osric', 'Sigrun', 'Eadmund'];
 const EPITHETS = ['the Pale', 'the Unbowed', 'Frostborn', 'the Silent', 'the Grey', 'the Hollow-Eyed', 'the Last', 'Oathbreaker', 'of the Long Winter'];
@@ -495,6 +502,126 @@ function cutDeepDoor(l: Layout, toward: [number, number]) {
     return;
   }
 }
+/**
+ * What a dungeon is made to be gone through by, laid over its rooms once they are grown (asked: "how can we have these for our Grand
+ * Horse Mountain dungeons?" — of a great dungeon's loops and shortcuts, its locked ways, its secrets, its traps and set pieces): the
+ * last room's ways in shut (`locked`) until the key is found in another room (`key`), on one who came before; a door on a way round
+ * barred from its far side (`barred`, the side further from the gate once it is shut), to be opened from there on the way back as a
+ * short way out; a small room cut off one, walled up behind a cracked wall (`secret`); plates in the passages that loose darts from
+ * the wall (`traps`); and the rooms given over to what is in them: one flooded, one under a crack in the roof where the day comes
+ * down, one with three cold braziers to be lit in order (`puzzle`), one with someone left captive in it. Each by its own stream of
+ * chance (`rng`), so that the dungeons grown before keep every room and prop they had. (Indices are into the layout's rooms and
+ * doors; -1, or none, where nothing fitted.)
+ */
+export interface Plot {
+  last: number; locked: number[]; key: number;
+  barred: { door: number; from: 1 | -1 } | null;
+  secret: { room: number; door: number; cells: number[] } | null;
+  traps: { c: number; r: number; dc: number; dr: number }[];
+  flooded: number; shaft: number; puzzle: number; captive: number;
+}
+export function plotDungeon(l: Layout, rng: Rng): Plot {
+  const { cols, rows, cells } = l, at = (c: number, r: number) => r * cols + c;
+  const inside = (c: number, r: number) => c >= 1 && r >= 1 && c < cols - 1 && r < rows - 1;
+  const solid = (c: number, r: number) => c < 0 || r < 0 || c >= cols || r >= rows || !cells[at(c, r)];
+  const last = l.rooms.findIndex((r) => r.kind === 'tomb' || r.kind === 'sanctum' || r.kind === 'warden' || r.kind === 'hoard');
+  const plot: Plot = { last, locked: [], key: -1, barred: null, secret: null, traps: [], flooded: -1, shaft: -1, puzzle: -1, captive: -1 };
+  const ex = l.exit, exitDoor = ex ? l.doors.length - 1 : -1;
+
+  // ---- The hidden room: two squares by two (or one by two), down a corridor of one or two squares off a room's side, in solid rock
+  // with rock about it, as the generator sets its rooms; never off the antechamber or the last room.
+  const sr = rng.fork('secret');
+  for (let tries = 0; tries < 400 && !plot.secret; tries++) {
+    const pi = sr.int(1, l.rooms.length - 1), parent = l.rooms[pi];
+    if (pi === last || parent.kind === 'gate') continue;
+    const [dc, dr] = WAYS[sr.int(0, 3)], len = sr.int(1, 2), [w, h] = sr.pick([[2, 2], [2, 1], [1, 2]] as [number, number][]);
+    const across = dc ? sr.int(parent.r0, parent.r0 + parent.h - 1) : sr.int(parent.c0, parent.c0 + parent.w - 1);
+    const sc = dc ? (dc > 0 ? parent.c0 + parent.w : parent.c0 - 1) : across, sr0 = dr ? (dr > 0 ? parent.r0 + parent.h : parent.r0 - 1) : across;
+    const ec = sc + dc * len, er = sr0 + dr * len;
+    const c0 = dc ? (dc > 0 ? ec : ec - w + 1) : ec - sr.int(0, w - 1), r0 = dr ? (dr > 0 ? er : er - h + 1) : er - sr.int(0, h - 1);
+    const hall: [number, number][] = Array.from({ length: len }, (_, i) => [sc + dc * i, sr0 + dr * i]);
+    let fits = hall.every(([c, r]) => inside(c, r) && solid(c, r) && solid(c + dr, r + dc) && solid(c - dr, r - dc));
+    for (let j = r0 - 1; j <= r0 + h && fits; j++) for (let i = c0 - 1; i <= c0 + w && fits; i++) if (!solid(i, j) || (i >= c0 && i < c0 + w && j >= r0 && j < r0 + h && !inside(i, j))) fits = false;
+    // (Not where the way out to the deeps would come through it.)
+    if (!fits) continue;
+    const y = parent.level * DROP, out: number[] = [];
+    for (const [c, r] of hall) { const k = at(c, r); cells[k] = 1; l.floor[k] = l.low[k] = y; l.top[k] = y + CAVE.corridor; out.push(k); }
+    const room: Room = { c0, r0, w, h, kind: 'hidden', level: parent.level, note: '' };
+    l.rooms.push(room);
+    for (let j = r0; j < r0 + h; j++) for (let i = c0; i < c0 + w; i++) { const k = at(i, j); cells[k] = 2; l.roomAt[k] = l.rooms.length - 1; l.floor[k] = l.low[k] = y; l.top[k] = y + CAVE.room; out.push(k); }
+    room.note = `${parent.level < 0 ? 'Below: ' : ''}${sr.pick(LINES.hidden)}`;
+    l.doors.push({ c: sc, r: sr0, dc: -dc, dr: -dr, kind: 'secret' });
+    l.doors.push({ c: ec - dc, r: er - dr, dc, dr, kind: 'arch' });
+    plot.secret = { room: l.rooms.length - 1, door: l.doors.length - 2, cells: out };
+  }
+
+  // ---- The last room's ways in, locked; but never the way out to the deeps, by which one may come in from the other dungeon.
+  const intoRoom = (d: Door) => l.roomAt[at(d.c + d.dc, d.r + d.dr)];
+  if (last >= 0) l.doors.forEach((d, i) => { if (i !== exitDoor && d.kind !== 'secret' && intoRoom(d) === last) { plot.locked.push(i); d.kind = 'portcullis'; } });
+  /** How far each square is from the gate with these doorways shut (crossed neither way). */
+  const reach = (shut: number[]) => {
+    const far = new Int16Array(cols * rows).fill(-1), q = [l.entry], blocked = new Set<string>();
+    for (const i of shut) { const d = l.doors[i]; blocked.add(`${d.c},${d.r},${d.dc},${d.dr}`); blocked.add(`${d.c + d.dc},${d.r + d.dr},${-d.dc},${-d.dr}`); }
+    far[l.entry] = 0;
+    for (let n = 0; n < q.length; n++) {
+      const k = q[n], c = k % cols, r = (k / cols) | 0;
+      for (const [dc, dr] of WAYS) { const i = c + dc, j = r + dr; if (solid(i, j) || far[at(i, j)] >= 0 || blocked.has(`${c},${r},${dc},${dr}`)) continue; far[at(i, j)] = far[k] + 1; q.push(at(i, j)); }
+    }
+    return far;
+  };
+  const always = [...plot.locked, ...(plot.secret ? [plot.secret.door] : [])], open = reach(always);
+  const middle = (r: Room) => at(r.c0 + (r.w >> 1), r.r0 + (r.h >> 1));
+  // (The key in a room come to with the last one shut, among the furthest from the gate of those: one has to go looking for it.)
+  if (plot.locked.length) {
+    const can = l.rooms.map((r, i) => i).filter((i) => i !== last && l.rooms[i].kind !== 'gate' && l.rooms[i].kind !== 'hidden' && open[middle(l.rooms[i])] >= 0)
+      .sort((a, b) => open[middle(l.rooms[b])] - open[middle(l.rooms[a])]);
+    if (can.length) plot.key = can[rng.fork('key').int(0, Math.max(0, Math.ceil(can.length / 2) - 1))];
+    else { for (const i of plot.locked) l.doors[i].kind = 'portcullis'; plot.locked = []; }
+  }
+
+  // ---- The barred door: on a way round, so that shutting it leaves every room still to be come to; of those, the one across which the
+  // way round is longest, so that opening it from its far side is a real short way back. Barred from that side.
+  const count = (f: Int16Array) => f.reduce((n, v) => n + (v >= 0 ? 1 : 0), 0), all = count(open);
+  let best: { door: number; from: 1 | -1; gain: number } | null = null;
+  l.doors.forEach((d, i) => {
+    if (always.includes(i) || i === exitDoor || d.kind === 'secret') return;
+    const f = reach([...always, i]);
+    if (count(f) !== all) return;
+    const a = f[at(d.c, d.r)], b = f[at(d.c + d.dc, d.r + d.dr)], gain = Math.abs(a - b);
+    if (gain >= 6 && (!best || gain > best.gain)) best = { door: i, from: b > a ? 1 : -1, gain };
+  });
+  if (best) { const b = best as { door: number; from: 1 | -1 }; plot.barred = { door: b.door, from: b.from }; l.doors[b.door].kind = 'door'; }
+
+  // ---- Traps: plates in straight passages with rock either side, some way in from the gate, apart from one another and from doorways.
+  const tr = rng.fork('traps'), doorCells = new Set(l.doors.map((d) => at(d.c, d.r))), want = { small: 1, medium: 2, large: 3 }[l.tags.size];
+  const spots: { c: number; r: number; dc: number; dr: number }[] = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const k = at(c, r);
+    if (cells[k] !== 1 || l.down[k] >= 0 || l.far[k] < 3 || doorCells.has(k) || plot.secret?.cells.includes(k)) continue;
+    const alongR = !solid(c, r - 1) && !solid(c, r + 1) && solid(c - 1, r) && solid(c + 1, r), alongC = !solid(c - 1, r) && !solid(c + 1, r) && solid(c, r - 1) && solid(c, r + 1);
+    if (alongR) spots.push({ c, r, dc: tr.chance(0.5) ? 1 : -1, dr: 0 }); else if (alongC) spots.push({ c, r, dc: 0, dr: tr.chance(0.5) ? 1 : -1 });
+  }
+  for (let i = 0; i < 40 && plot.traps.length < want && spots.length; i++) {
+    const s = spots[tr.int(0, spots.length - 1)];
+    if (plot.traps.some((t) => Math.abs(t.c - s.c) + Math.abs(t.r - s.r) < 4)) continue;
+    plot.traps.push(s);
+  }
+
+  // ---- The rooms given over: flooded (more often in a tomb or a temple, and below), the crack of day (on the gate's level), the
+  // braziers (a room of six squares or more, not the hall), the captive (a cell, if a prison, else a store or a crypt).
+  const free = (i: number) => i !== last && i !== plot.key && l.rooms[i].kind !== 'gate' && l.rooms[i].kind !== 'hidden' && l.rooms[i].kind !== 'hall';
+  const rooms = l.rooms.map((_, i) => i), sets = rng.fork('rooms'), theme = l.tags.theme;
+  const wet = rooms.filter((i) => free(i) && l.rooms[i].w * l.rooms[i].h >= 4).sort((a, b) => l.rooms[a].level - l.rooms[b].level);
+  if (wet.length && sets.chance(theme === 'tomb' || theme === 'temple' ? 0.6 : 0.35)) plot.flooded = sets.chance(0.6) ? wet[0] : sets.pick(wet);
+  const lit = rooms.filter((i) => free(i) && i !== plot.flooded && l.rooms[i].level === 0);
+  if (lit.length && sets.chance(0.65)) plot.shaft = sets.pick(lit);
+  const big = rooms.filter((i) => free(i) && i !== plot.flooded && i !== plot.shaft && l.rooms[i].w * l.rooms[i].h >= 6);
+  if (big.length && sets.chance(0.75)) plot.puzzle = sets.pick(big);
+  const held = rooms.filter((i) => free(i) && i !== plot.flooded && i !== plot.puzzle && (theme === 'prison' ? l.rooms[i].kind === 'cell' || l.rooms[i].kind === 'guard' : ['store', 'crypt', 'library', 'cell', 'guard', 'vault'].includes(l.rooms[i].kind)));
+  if (held.length && sets.chance(theme === 'prison' ? 0.9 : 0.5)) plot.captive = sets.pick(held);
+  return plot;
+}
+
 function growDungeon(rng: Rng, tags: Tags): Layout {
   const size = SIZES[tags.size], plan = LAYOUTS[tags.layout], theme = THEMES[tags.theme], COLS = size.cols, ROWS = size.rows, ENTRY = COLS >> 1;
   const n = COLS * ROWS, cells = new Uint8Array(n), roomAt = new Int16Array(n).fill(-1), floor = new Float32Array(n), low = new Float32Array(n), down = new Int8Array(n).fill(-1);
@@ -586,7 +713,7 @@ function growDungeon(rng: Rng, tags: Tags): Layout {
   const name = `The ${rng.pick(theme.places)} of ${who}`, levels = -Math.min(0, ...rooms.map((r) => r.level));
   for (const r of rooms) r.note = `${r.level < 0 ? `${r.level < -1 ? 'Deeper still' : 'Below'}: ` : ''}${rng.pick(LINES[r.kind]).replace('WHO', who)}`;
   const about = `a ${tags.size} ${theme.noun}, ${tags.layout}${levels ? `, on ${levels + 1} levels` : ''}, ${rooms.length} rooms`;
-  return { cols: COLS, rows: ROWS, entry: ENTRY, tags, cells, rooms, roomAt, far, floor, low, down, top, doors, name, about };
+  return { cols: COLS, rows: ROWS, entry: ENTRY, tags, cells, rooms, roomAt, far, floor, low, down, top, doors, name, about, who };
 }
 
 // ------------------------------------------------------------------------------------------------------------------ what it is made of
@@ -787,7 +914,7 @@ export class Shape {
 }
 
 /** A torch on a wall: where its flame is (in the cave's own frame), and which way the wall faces. */
-interface Torch { at: Vector3; facing: Vector3; kind: 'wall' | 'post' | 'candle' | 'brazier'; power: number }
+interface Torch { at: Vector3; facing: Vector3; kind: 'wall' | 'post' | 'candle' | 'brazier' | 'sky'; power: number; color?: Color }
 /** Something in the way of one on foot, round, in the cave's own frame (across, along). */
 interface Post { lat: number; t: number; r: number; horse?: boolean }
 
@@ -802,6 +929,8 @@ const archSteps = (k: number): number[] => {
 
 /** The light the torches give, the day's at the mouth, and what is about everywhere in the dark. */
 export const TORCH_LIGHT = new Color(1.0, 0.66, 0.38), DAYLIGHT = new Color(0.78, 0.84, 0.95), DARK = new Color(0.022, 0.024, 0.03);
+/** The cold fire burning by the way that matters (the last room's locked way in): pale blue, as no torch burns. */
+export const COLD_FIRE = new Color(0.42, 0.7, 1.15);
 export const TORCH_REACH = 15;
 /**
  * Seen from above on foot (`Cave.overhead`), how high over its own floor the stone is cut away (its roofs and its walls' tops), as a
@@ -816,6 +945,69 @@ type N = any; // eslint-disable-line @typescript-eslint/no-explicit-any
  * game asks of it, in the land's frame: where one on foot may go and how high its floor is there, where a view may stand, how deep
  * in a point is, and what is solid to one on skis. Inside, its own frame (`frame`): across the way in to its left (x), up, and in (z).
  */
+/**
+ * What came of a step through the plot (`Cave.tread`), for the game to tell and do: something said; the key taken up; a way opened (the
+ * locked, the barred, the hidden); the hidden room's stash opened, the braziers lit in order (each where its find is thrown up from); a
+ * trap's darts loosed (from where); the hermit come to (health back) and sat by long enough to trade (where he sits); the captive freed;
+ * the last room come into, and whoever it was made for rising there to fight (where, and by what name).
+ */
+export type CaveEvent =
+  | { kind: 'say'; title: string; text: string }
+  | { kind: 'key' | 'unlock' | 'unbar' | 'secret' | 'heal' }
+  | { kind: 'stash' | 'puzzle' | 'trap' | 'trade'; at: Vector3 }
+  | { kind: 'freed'; name: string }
+  | { kind: 'boss'; at: Vector3; title: string };
+/** Each kind of room, as one would name it in telling the way. */
+const ROOM_NAMES: Record<RoomKind, string> = {
+  gate: 'antechamber', hall: 'pillared hall', store: 'storeroom', crypt: 'crypt', ossuary: 'ossuary', shrine: 'shrine', tomb: 'tomb', library: 'library',
+  sanctum: 'sanctum', cell: 'cell', guard: 'guardroom', warden: "warden's room", vault: 'vault', hoard: 'hoard', hidden: 'hidden room',
+};
+/** A picture of a crack, dark, branching across a wall from near its foot: the hidden room's wall's tell (its alpha only). */
+function crackPicture(): Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!, r = new Rng('crack');
+  g.strokeStyle = 'rgba(0,0,0,1)'; g.lineCap = 'round';
+  const branch = (x: number, y: number, a: number, len: number, w: number) => {
+    if (len < 8 || w < 0.6) return;
+    g.lineWidth = w; g.beginPath(); g.moveTo(x, y);
+    let px = x, py = y;
+    for (let i = 0; i < 6; i++) { a += r.range(-0.5, 0.5); px += Math.cos(a) * len / 6; py += Math.sin(a) * len / 6; g.lineTo(px, py); }
+    g.stroke();
+    if (r.chance(0.8)) branch(px, py, a + r.range(-0.9, -0.3), len * 0.65, w * 0.65);
+    if (r.chance(0.8)) branch(px, py, a + r.range(0.3, 0.9), len * 0.6, w * 0.6);
+  };
+  branch(118, 250, -Math.PI / 2 - 0.15, 120, 4.5);
+  branch(140, 250, -Math.PI / 2 + 0.3, 80, 3);
+  const t = new CanvasTexture(c);
+  return t;
+}
+/** A shaft of light: soft at its sides, brighter at its top, as a picture's alpha. */
+function beamPicture(): Texture {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 256;
+  const g = c.getContext('2d')!, img = g.createImageData(64, 256);
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 64; x++) {
+    const u = (x - 31.5) / 32, v = y / 255, a = (1 - u * u) ** 2 * (0.25 + 0.75 * (1 - v)) * Math.min(1, (1 - v) * 12) * Math.min(1, v * 4 + 0.2), k = (y * 64 + x) * 4;
+    img.data[k] = img.data[k + 1] = img.data[k + 2] = 255; img.data[k + 3] = 255 * a;
+  }
+  g.putImageData(img, 0, 0);
+  return new CanvasTexture(c);
+}
+/** A numeral cut in stone, I, II or III (`order`, from 0), as a picture's alpha: before each cold brazier, the order it is to be lit in. */
+function numeralPicture(order: number): Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 5;
+  g.beginPath(); g.arc(64, 64, 56, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = '#fff'; g.font = 'bold 64px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(['I', 'II', 'III'][order], 64, 68);
+  return new CanvasTexture(c);
+}
+
+/** Where a script may be put in or by the cave (`Cave.spot`): the camp, the gate, the chest, a room, a stair, and what the plot has laid. */
+export type CaveSpot = 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'locked' | 'barred' | 'secret' | 'key' | 'captive' | 'puzzle' | 'stash' | 'water' | 'shaft' | 'trap';
 /** The corners about a point, a quarter metre out, that must all be open floor for it to be clear of the walls (`Cave.clear`). */
 const ROOM_CORNERS = [[-0.25, -0.25], [0.25, 0.25], [-0.25, 0.25], [0.25, -0.25]] as const;
 
@@ -864,10 +1056,12 @@ export class Cave {
   private readonly outside: Mesh[] = [];
   private readonly plug: Mesh;
   private readonly flames: InstancedMesh;
+  private readonly coldFlames: InstancedMesh;
   private readonly fire: InstancedMesh;
   private readonly smoke: InstancedMesh;
   private readonly smokeFade: InstancedBufferAttribute;
-  private readonly lid = new Group();
+  /** The last room's chest's lid, on its hinge (`makeChest`). */
+  private lid = new Group();
   private readonly glow: Mesh;
   private readonly rack = new Group();
   private readonly fireAt: Vector3;
@@ -878,6 +1072,50 @@ export class Cave {
   /** Where a horse is left, across and along (`horseSpot`). */
   private parking: [number, number] = [0, 0];
 
+  // ---- What the dungeon is made to be gone through by (`plotDungeon`), and what keeps it: all in the cave's own frame but where said.
+  /** The dungeon's plot: its locked way, its key, its barred door, its hidden room, its traps, the rooms given over. */
+  readonly plot: Plot;
+  /** The squares of the hidden room and its way in, while its wall stands: solid to everything, walking, light, sight, the foes' ways. */
+  private readonly hidden = new Set<number>();
+  /** The light the torches give (`TORCH_LIGHT`), as the place's own (`themeLook`). */
+  private torchLight = TORCH_LIGHT;
+  /** Each door and portcullis drawn, by its doorway: its mesh, which way its leaf swings, and where it stands open and shut. */
+  private readonly doorMesh = new Map<number, { mesh: Mesh; s: number; open: number; shut: number }>();
+  /**
+   * Each doorway kept shut, and how far open it is now (0 to 1): the last room's ways in (`locked`, opened with the key from outside,
+   * freely from within), the barred door (opened from its far side), the hidden room's wall (pushed through). What stands in it (`parts`)
+   * goes as it opens; what is left when it is open (`after`) comes.
+   */
+  private readonly shuts: { door: number; kind: 'locked' | 'barred' | 'secret'; open: number; going: boolean; parts: Mesh[]; after: Mesh[] }[] = [];
+  /** Spots taken on the floors by what the plot lays, kept apart (`layThings`). */
+  private readonly taken: [number, number][] = [];
+  /** The key, by the one who came before: where, whether taken; drawn, and its glint. */
+  private readonly keyLocal = new Vector3(NaN, 0, 0);
+  private keyMesh: Group | null = null;
+  keyTaken = false;
+  /** The hidden room's stash: where, how it lies, its lid and its glow, and whether opened. */
+  private readonly stashLocal = new Vector3(NaN, 0, 0);
+  private stashTurn = 0;
+  private stash: { hinge: Group; glow: Mesh; open: number; opened: boolean } | null = null;
+  /** The dart traps: each plate's square, the wall it shoots from, how long until it may again, and its darts' flight. */
+  private traps: { at: Vector3; from: Vector3; to: Vector3; wait: number; fly: number; seen: boolean }[] = [];
+  private darts: InstancedMesh | null = null;
+  /** The flooded room's water: its rectangle and its surface's height. */
+  private water: { x0: number; t0: number; x1: number; t1: number; y: number } | null = null;
+  /** The crack of day's foot, and the snow coming down it. */
+  private readonly shaftLocal = new Vector3(NaN, 0, 0);
+  private flakes: { mesh: InstancedMesh; at: Vector3[] } | null = null;
+  /** The three cold braziers: where, which is to be lit when (0 first), whether lit; their flames, and how long since a wrong one was lit. */
+  private readonly braziers: { at: Vector3; order: number; lit: boolean; cool: boolean }[] = [];
+  private brazierFlames: InstancedMesh | null = null;
+  private puzzleDone = false;
+  private puzzleWrong = -1;
+  /** The folk: the hermit at the fire, the captive, the ghost of the place; where, and what has passed with each. */
+  private readonly captiveLocal = new Vector3(NaN, 0, 0);
+  private readonly ghostLocal = new Vector3(NaN, 0, 0);
+  private readonly folk: { who: 'hermit' | 'captive' | 'ghost'; figure: Folk; fade: number }[] = [];
+  private met = { hermit: false, hermitAway: true, by: 0, traded: false, captive: false, ghost: false, boss: false, locked: false, barred: false, draught: false, near: 0 };
+
   constructor(readonly site: CaveSite, private readonly base: BaseHeight, readonly seed: string, asked: string[] = [], shared?: { lantern: PointLight; fire: PointLight }, toward?: { x: number; z: number }) {
     this.sharedLights = !!shared;
     this.lantern = shared?.lantern ?? new PointLight(0xffc690, 0, 20, 1.6);
@@ -887,6 +1125,8 @@ export class Cave {
     this.layout = layDungeon(this.rng.fork('layout'), tagsFor(this.rng.fork('tags'), asked));
     // (A way out to the deeps, where there is another dungeon to go to: toward it, from the lattice's middle.)
     if (toward) { const [t, lat] = siteLocal(site, toward.x, toward.z); cutDeepDoor(this.layout, [lat, t - (site.length + (this.layout.rows * CAVE.cell) / 2)]); }
+    this.plot = plotDungeon(this.layout, this.rng.fork('plot'));
+    this.notePlot();
     this.seen = new Uint8Array(this.layout.cols * this.layout.rows);
     this.fogMap = new DataTexture(new Uint8Array(this.layout.cols * this.layout.rows * 4), this.layout.cols, this.layout.rows, RGBAFormat);
     this.fogMap.magFilter = this.fogMap.minFilter = NearestFilter;
@@ -907,6 +1147,7 @@ export class Cave {
     this.fireAt.y = this.groundAt(this.fireAt.x, this.fireAt.z);
     this.layCamp(tc);
     this.glow = this.layThings();
+    this.layPlot();
 
     // ---- The cave's own stone, lit by its torches (worked out here, `bake`) and the day at the mouth, and by nothing in the scene but
     // the light carried in and the campfire.
@@ -973,6 +1214,12 @@ export class Cave {
     this.flames = new InstancedMesh(new PlaneGeometry(1, 1).translate(0, 0.38, 0), flamePaint, this.torches.length);
     this.flames.frustumCulled = false;
     this.frame.add(this.flames);
+    // (The cold fire by the locked way: the same tongues, blue-white.)
+    const coldPaint = new MeshBasicNodeMaterial({ map: P.flame, transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide });
+    coldPaint.colorNode = (texture(P.flame, uv()).rgb as N).mul(vec3(0.7, 1.3, 2.6));
+    this.coldFlames = new InstancedMesh(this.flames.geometry, coldPaint, this.torches.length);
+    this.coldFlames.frustumCulled = false;
+    this.frame.add(this.coldFlames);
 
     // ---- The campfire's flames and smoke, and its light; the light carried in.
     const firePaint = new MeshBasicNodeMaterial({ map: P.flame, transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide });
@@ -1016,7 +1263,7 @@ export class Cave {
   /** Across the way in, the middle of the dungeon's square `c`; along it, of row `r`. */
   private latOf(c: number) { return (c - (this.layout.cols - 1) / 2) * CAVE.cell; }
   private tOf(r: number) { return this.site.length + (r + 0.5) * CAVE.cell; }
-  private open(c: number, r: number) { return c >= 0 && r >= 0 && c < this.layout.cols && r < this.layout.rows && this.layout.cells[r * this.layout.cols + c] > 0; }
+  private open(c: number, r: number) { return c >= 0 && r >= 0 && c < this.layout.cols && r < this.layout.rows && this.layout.cells[r * this.layout.cols + c] > 0 && !this.hidden.has(r * this.layout.cols + c); }
   /** The square a point of the cave's own frame is in, or none outside the lattice. */
   private cellAt(lat: number, t: number): [number, number] | null {
     const c = Math.floor(lat / CAVE.cell + this.layout.cols / 2), r = Math.floor((t - this.site.length) / CAVE.cell);
@@ -1135,6 +1382,8 @@ export class Cave {
     };
     const doorAt = (c: number, r: number, dc: number, dr: number) => this.layout.doors.some((d) => (d.c + d.dc === c && d.r + d.dr === r && d.dc === -dc && d.dr === -dr));
     for (const room of rooms) {
+      // (None burning in a room walled up an age ago.)
+      if (room.kind === 'hidden') continue;
       const lines: [number, number, number, number][][] = [[], [], [], []];
       for (let j = room.r0; j < room.r0 + room.h; j++) { if (!this.open(room.c0 - 1, j)) lines[0].push([room.c0, j, -1, 0]); if (!this.open(room.c0 + room.w, j)) lines[1].push([room.c0 + room.w - 1, j, 1, 0]); }
       for (let i = room.c0; i < room.c0 + room.w; i++) { if (!this.open(i, room.r0 - 1)) lines[2].push([i, room.r0, 0, -1]); if (!this.open(i, room.r0 + room.h)) lines[3].push([i, room.r0 + room.h - 1, 0, 1]); }
@@ -1153,6 +1402,8 @@ export class Cave {
     }
     // The doorways: a frame of dressed stone, jambs and a lintel, standing in the corridor's end where it opens into a room.
     for (const d of this.layout.doors) {
+      // (None round the way into the hidden room: its wall stands across it, flush with the room's.)
+      if (d.kind === 'secret') continue;
       const k = d.r * this.layout.cols + d.c, x = this.latOf(d.c), t = this.tOf(d.r), go = new Vector3(d.dc, 0, d.dr), side = new Vector3(-d.dr, 0, d.dc);
       const f = this.edgeFloor(d.c, d.r, d.dc, d.dr), roof = top[k], edge = new Vector3(x, 0, t).addScaledVector(go, half - 0.22);
       walls.floor = this.caps.floor = deep + f;
@@ -1233,7 +1484,7 @@ export class Cave {
       if (d > TORCH_REACH) continue;
       const dir = torch.at.clone().sub(p).divideScalar(Math.max(d, 1e-3)), face = round ? 0.75 : clamp(n.dot(dir) * 0.8 + 0.2, 0, 1);
       if (face <= 0 || !this.sees(torch.at, from)) continue;
-      addScaled(into, TORCH_LIGHT, torch.power * Math.min(2.2, 1.9 / (1 + (d / 1.1) ** 2)) * smooth((TORCH_REACH - d) / 4) * face);
+      addScaled(into, torch.color ?? this.torchLight, torch.power * Math.min(2.2, 1.9 / (1 + (d / 1.1) ** 2)) * smooth((TORCH_REACH - d) / 4) * face);
     }
     return into;
   }
@@ -1487,9 +1738,14 @@ export class Cave {
         case 'gate':
           for (const [x, t, sx, st] of corners.slice(0, 2)) put(theme === 'tomb' || theme === 'temple' ? 'urn' : 'barrel', x + sx * 0.45, y, t + st * 0.45, rng.range(0, 6.3));
           break;
+        case 'hidden':
+          // (Laid by the plot, with its stash: `layThings`, after the rooms.)
+          break;
         default: {
           // The last room: across from the way in, what it is for; and the chest before it.
           const [bx, bt] = back(room.kind === 'hoard' || room.kind === 'warden' ? 1.2 : 1.6);
+          // (Where whoever it was made for stands again, as a ghost: over their coffin, their altar, behind their desk, on their gold.)
+          this.ghostLocal.set(bx, y + (room.kind === 'tomb' ? 1.1 : room.kind === 'sanctum' ? 0.5 : 0.1), bt);
           let ahead = 2.9;
           if (room.kind === 'tomb' || room.kind === 'sanctum') {
             put('dais', bx, y, bt, toward, room.kind === 'tomb' ? 1 : [1, 1, 0.8], true);
@@ -1535,6 +1791,89 @@ export class Cave {
       const k = r * this.layout.cols + c;
       if (this.layout.cells[k] === 1 && this.layout.down[k] < 0 && rng.chance(0.18)) strew('rubble', this.latOf(c), this.tOf(r), 2, 1.1, this.layout.floor[k]);
     }
+    // ---- What the plot lays in its rooms (`plotDungeon`), by its own chance (`tales`), clear of all laid already.
+    const plot = this.plot, tales = this.rng.fork('tales');
+    const box = (i: number) => { const room = this.layout.rooms[i], x0 = this.latOf(room.c0) - half, t0 = this.tOf(room.r0) - half; return { room, x0, t0, x1: x0 + room.w * CAVE.cell, t1: t0 + room.h * CAVE.cell, f: room.level * DROP, y: deep + room.level * DROP }; };
+    const doorEdges = this.layout.doors.map((d) => [this.latOf(d.c) + d.dc * half, this.tOf(d.r) + d.dr * half]);
+    /**
+     * A spot on room `i`'s floor `clear` metres clear of what stands in it, its walls, its ways in and the spots taken already (by twice as
+     * much, or `apart`); or its middle.
+     */
+    const freeSpot = (i: number, clear: number, apart = 2 * clear): [number, number] => {
+      const b = box(i);
+      // (Kept apart as asked if it can be, and less so, a little at a time, in a room crowded already.)
+      for (const k of [1, 0.8, 0.6, 0.4]) for (let n = 0; n < 60; n++) {
+        const x = tales.range(b.x0 + clear, b.x1 - clear), t = tales.range(b.t0 + clear, b.t1 - clear);
+        if (!onFloor(x, t, b.f) || this.posts.some((p) => Math.hypot(x - p.lat, t - p.t) < p.r + clear * k)) continue;
+        if (doorEdges.some(([a, c]) => Math.hypot(x - a, t - c) < 1.4 + clear) || this.taken.some(([a, c]) => Math.hypot(x - a, t - c) < apart * k)) continue;
+        this.taken.push([x, t]);
+        return [x, t];
+      }
+      const mid: [number, number] = [(b.x0 + b.x1) / 2, (b.t0 + b.t1) / 2];
+      this.taken.push(mid);
+      return mid;
+    };
+    // The one who came before, fallen where the key was carried: bones, a pack, a shield, the lantern still burning low beside them.
+    if (plot.key >= 0) {
+      const b = box(plot.key), [x, t] = freeSpot(plot.key, 1.0), turn = tales.range(0, 6.3), sn = Math.sin(turn), cs = Math.cos(turn);
+      put('skeleton', x, b.y, t, turn, 1, true);
+      put('sack', x - cs * 0.7, b.y, t + sn * 0.7, tales.range(0, 6.3), 0.8, true);
+      put('shield', x + cs * 0.65 + sn * 0.3, b.y, t - sn * 0.65 + cs * 0.3, turn + 1.2, 0.9, true);
+      put('lantern', x - sn * 0.55, b.y, t - cs * 0.55, 0, 1, true);
+      this.posts.push({ lat: x, t, r: 0.55 });
+      this.keyLocal.set(x + sn * 0.62, b.y + 0.04, t + cs * 0.62);
+    }
+    // The hidden room: the stash in its middle, gems and an idol, a lantern long out (no light), one who was walled up with it all.
+    if (plot.secret) {
+      const i = plot.secret.room, b = box(i), cx = (b.x0 + b.x1) / 2, ct = (b.t0 + b.t1) / 2, along = b.x1 - b.x0 > b.t1 - b.t0;
+      this.stashLocal.set(cx, b.y, ct);
+      this.stashTurn = along ? 0 : Math.PI / 2;
+      this.posts.push({ lat: cx, t: ct, r: 0.6 });
+      const end = (k: number): [number, number] => (along ? [cx + k * ((b.x1 - b.x0) / 2 - 0.8), ct] : [cx, ct + k * ((b.t1 - b.t0) / 2 - 0.8)]);
+      const [gx, gt] = end(1), [ix, it] = end(-1);
+      put('gemPile', gx, b.y, gt, tales.range(0, 6.3));
+      put('idol', ix, b.y, it, Math.atan2(cx - ix, ct - it));
+      strew('coins', cx, ct, 6, 1.2, b.f);
+      strew('skeleton', cx, ct, 1, 1.0, b.f);
+      for (const [x, t, sx, st] of [[b.x0, b.t0, 1, 1], [b.x1, b.t1, -1, -1]] as const) put('cobweb', x + sx * 0.3, b.y + CAVE.room - 0.35, t + st * 0.3, Math.atan2(sx, st) + Math.PI, 1, true);
+      // (Its wall's tell, on the side it is come at from: stone fallen from a crack at its foot.)
+      const d = this.layout.doors[plot.secret.door], [ex, et] = doorEdges[plot.secret.door], f = this.layout.floor[d.r * this.layout.cols + d.c];
+      for (let k = 0; k < 3; k++) put('rubble', ex + d.dc * tales.range(0.3, 0.7) + d.dr * tales.range(-0.9, 0.9), deep + f, et + d.dr * tales.range(0.3, 0.7) + d.dc * tales.range(-0.9, 0.9), tales.range(0, 6.3), tales.range(0.5, 0.8), true);
+    }
+    // A dart trap's tells: the dead it took before, by its plate.
+    for (const tr of plot.traps) {
+      const k = tr.r * this.layout.cols + tr.c, x = this.latOf(tr.c), t = this.tOf(tr.r), y = deep + this.layout.floor[k];
+      put('skull', x + tr.dc * 0.95 + tr.dr * 0.7, y, t + tr.dr * 0.95 + tr.dc * 0.7, tales.range(0, 6.3), 1, true);
+      put('bones', x + tr.dc * 0.9 - tr.dr * 0.9, y, t + tr.dr * 0.9 - tr.dc * 0.9, tales.range(0, 6.3), 0.8, true);
+    }
+    // The three cold braziers, each where it stands (and drawn apart from the props, unlit: `layPlot`).
+    if (plot.puzzle >= 0) {
+      const b = box(plot.puzzle), order = tales.fork('order'), seq = [0, 1, 2];
+      for (let i = 2; i > 0; i--) { const j = order.int(0, i); [seq[i], seq[j]] = [seq[j], seq[i]]; }
+      for (let i = 0; i < 3; i++) { const [x, t] = freeSpot(plot.puzzle, 1.0, 3.2); this.braziers.push({ at: new Vector3(x, b.y, t), order: seq[i], lit: false, cool: false }); this.posts.push({ lat: x, t, r: 0.4 }); }
+    }
+    // Someone left captive, chained where they sit.
+    if (plot.captive >= 0) {
+      const b = box(plot.captive), [x, t] = freeSpot(plot.captive, 0.9);
+      this.captiveLocal.set(x, b.y, t);
+      put('chain', x + 0.45, b.y, t - 0.2, tales.range(0, 6.3), 0.8, true);
+      put('bucket', x - 0.7, b.y, t + 0.3, tales.range(0, 6.3), 1, true);
+      this.posts.push({ lat: x, t, r: 0.45 });
+    }
+    // The crack of day: a light from the roof (cold, as the day's), and the snow it has let down heaped under it (`layPlot`).
+    if (plot.shaft >= 0) {
+      const b = box(plot.shaft), [x, t] = [(b.x0 + b.x1) / 2, (b.t0 + b.t1) / 2];
+      this.shaftLocal.set(x, b.y, t);
+      this.torches.push({ at: new Vector3(x, b.y + CAVE.room - 0.4, t), facing: UP.clone(), kind: 'sky', power: 1.5, color: DAYLIGHT.clone().multiplyScalar(1.1) });
+    }
+    // (The torches either side of the last room's locked way in burn with a cold fire: the way that matters, marked.)
+    for (const i of plot.locked) {
+      const [ex, et] = doorEdges[i];
+      for (const torch of this.torches) if (torch.kind === 'wall' && Math.hypot(torch.at.x - ex, torch.at.z - et) < 3.2) torch.color = COLD_FIRE;
+    }
+    // (The hidden room, and the way to it, out of everything's reach, and sight, until it is found: walked, lit, seen and gone through.)
+    if (plot.secret) for (const k of plot.secret.cells) this.hidden.add(k);
+
     // The flames the props hold (candles, braziers), each a little light; then the props drawn, lit by every light there is.
     for (const flame of props.flames()) this.torches.push({ at: flame.at, facing: UP.clone(), kind: flame.power > 0.5 ? 'brazier' : 'candle', power: flame.power });
     for (const { stuff, shape, at: list } of props.parts()) {
@@ -1545,11 +1884,10 @@ export class Cave {
       this.inner.add(mesh);
     }
     const woodM = () => this.stuffOf('wood');
-    const goldM = new MeshStandardNodeMaterial({ color: 0xffc040, roughness: 0.3, metalness: 1 });
     // The doors left standing open against the walls, and the portcullises drawn up into their lintels.
     const iron = new MeshStandardNodeMaterial({ color: 0x3a3a3e, roughness: 0.5, metalness: 0.8 }), plank = woodM();
-    for (const d of this.layout.doors) {
-      if (d.kind === 'arch') continue;
+    this.layout.doors.forEach((d, di) => {
+      if (d.kind === 'arch' || d.kind === 'secret') return;
       const x = this.latOf(d.c), t = this.tOf(d.r), go = new Vector3(d.dc, 0, d.dr), side = new Vector3(-d.dr, 0, d.dc), f = this.edgeFloor(d.c, d.r, d.dc, d.dr), roof = this.layout.top[d.r * this.layout.cols + d.c];
       const edge = new Vector3(x, deep + f, t).addScaledVector(go, half - 0.22), c = new Color();
       this.lightAt(edge.clone().addScaledVector(UP, 1.5), UP, c);
@@ -1560,6 +1898,7 @@ export class Cave {
         leaf.rotation.y = Math.atan2(side.x * s, side.z * s) - Math.PI / 2 + s * 0.25;
         leaf.castShadow = true;
         this.inner.add(leaf);
+        this.doorMesh.set(di, { mesh: leaf, s, open: leaf.rotation.y, shut: Math.atan2(s * d.dc, s * d.dr) });
       } else {
         const bars: BufferGeometry[] = [], w = CAVE.cell - 0.96, hgt = roof - f - 0.62 - 2.7;
         for (let i = 0; i <= 10; i++) bars.push(new CylinderGeometry(0.025, 0.025, hgt + 0.5, 5).translate(-w / 2 + (w * i) / 10, 2.7 + (hgt + 0.5) / 2, 0));
@@ -1568,30 +1907,43 @@ export class Cave {
         grate.position.copy(edge);
         grate.rotation.y = Math.atan2(side.x, side.z) - Math.PI / 2;
         this.inner.add(grate);
+        this.doorMesh.set(di, { mesh: grate, s: 1, open: grate.position.y, shut: grate.position.y - 2.7 });
       }
-    }
-    // The chest: a box of planks bound with iron, its lid on a hinge along its back.
-    const chest = new Group(), wood = woodM(), local = new Vector3(...this.localOf(this.chest.at)), c = new Color();
-    this.lightAt(local.clone().setY(this.chest.at.y + 0.8), UP, c);
-    const body = new Mesh(new BoxGeometry(1.1, 0.6, 0.7).translate(0, 0.3, 0), this.glowing(wood, c, P.wood.map)), ironC = this.glowing(iron.clone() as MeshStandardNodeMaterial, c);
+    });
+    // The chest before the last room's end (and the stash in the hidden room, smaller, `layPlot`).
+    const local = new Vector3(...this.localOf(this.chest.at)).setY(this.chest.at.y), made = this.makeChest(local, this.chestTurn, 1);
+    this.lid = made.hinge;
+    return made.glow;
+  }
+  /**
+   * A chest at `local` (in the cave's own frame, on its floor), turned `turn`, of size `scale`: a box of planks bound with iron, its lid
+   * on a hinge along its back (`hinge`, turned back to open it), gold heaped in it, and the glow over the gold, hidden until it is open.
+   */
+  private makeChest(local: Vector3, turn: number, scale: number): { hinge: Group; glow: Mesh } {
+    const P = paintsOf(), chest = new Group(), c = new Color(), hinge = new Group();
+    const iron = new MeshStandardNodeMaterial({ color: 0x3a3a3e, roughness: 0.5, metalness: 0.8 }), goldM = new MeshStandardNodeMaterial({ color: 0xffc040, roughness: 0.3, metalness: 1 });
+    this.lightAt(local.clone().setY(local.y + 0.8), UP, c);
+    const body = new Mesh(new BoxGeometry(1.1, 0.6, 0.7).translate(0, 0.3, 0), this.glowing(this.stuffOf('wood'), c, P.wood.map)), ironC = this.glowing(iron, c);
     const band = new BoxGeometry(0.06, 0.62, 0.72).translate(0, 0.31, 0);
     for (const bx of [-0.42, 0.42]) { const b = new Mesh(band, ironC); b.position.x = bx; chest.add(b); }
-    const lid = new Mesh(new CylinderGeometry(0.35, 0.35, 1.1, 12, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).translate(0, 0, -0.35), this.glowing(woodM(), c, P.wood.map));
-    this.lid.position.set(0, 0.6, 0.35);
-    this.lid.add(lid);
-    const gold = new Mesh(new SphereGeometry(0.42, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.15, 0.45, 0.72).translate(0, 0.42, 0), this.glowing(goldM.clone() as MeshStandardNodeMaterial, c.clone().multiplyScalar(1.5)));
-    chest.add(body, this.lid, gold);
-    chest.position.set(local.x, this.chest.at.y, local.z);
-    chest.rotation.y = this.chestTurn;
+    const lid = new Mesh(new CylinderGeometry(0.35, 0.35, 1.1, 12, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).translate(0, 0, -0.35), this.glowing(this.stuffOf('wood'), c, P.wood.map));
+    hinge.position.set(0, 0.6, 0.35);
+    hinge.add(lid);
+    const gold = new Mesh(new SphereGeometry(0.42, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.15, 0.45, 0.72).translate(0, 0.42, 0), this.glowing(goldM, c.clone().multiplyScalar(1.5)));
+    chest.add(body, hinge, gold);
+    chest.position.copy(local);
+    chest.rotation.y = turn;
+    chest.scale.setScalar(scale);
     chest.traverse((o) => { o.castShadow = true; o.receiveShadow = true; });
     this.inner.add(chest);
     const glowPaint = new MeshBasicNodeMaterial({ map: P.puff, transparent: true, depthWrite: false, blending: AdditiveBlending });
     glowPaint.colorNode = vec3(1, 0.7, 0.25).mul(texture(P.puff, uv()).a).mul(0.8).mul(sin(time.mul(2.3)).mul(0.15).add(0.85));
-    const glow = new Mesh(new PlaneGeometry(2.4, 2.4), glowPaint);
-    glow.position.set(local.x, this.chest.at.y + 0.9, local.z);
+    glowPaint.opacityNode = this.fog();
+    const glow = new Mesh(new PlaneGeometry(2.4 * scale, 2.4 * scale), glowPaint);
+    glow.position.set(local.x, local.y + 0.9 * scale, local.z);
     glow.visible = false;
     this.inner.add(glow);
-    return glow;
+    return { hinge, glow };
   }
   /** A material lit as the dungeon's stone is, by the light `c` where its one thing stands. */
   private glowing(m: MeshStandardNodeMaterial, c: Color, paint?: Texture): MeshStandardNodeMaterial {
@@ -1600,6 +1952,490 @@ export class Cave {
     m.lightsNode = lights([this.lantern]);
     this.cutAway(m);
     return m;
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- the plot
+
+  /** What is said of the rooms the plot has given over, added to their lines, to be said as each is come into. */
+  private notePlot(): void {
+    const p = this.plot, rooms = this.layout.rooms, add = (i: number, more: string) => { if (i >= 0) rooms[i].note += `; ${more}`; };
+    add(p.key, 'one who came before you lies here, their lantern still burning low');
+    add(p.flooded, 'black water stands over its floor');
+    add(p.shaft, 'a crack in its roof lets the day down, and the snow with it');
+    add(p.puzzle, 'three cold braziers stand in it, a numeral cut before each');
+    add(p.captive, 'someone is here, alive, chained where they sit');
+  }
+  /** A room named as one would say it in telling the way to it: "the crypt below". */
+  private roomName(i: number): string {
+    const r = this.layout.rooms[i];
+    return `the ${ROOM_NAMES[r.kind]}${r.level < -1 ? ' deep below' : r.level < 0 ? ' below' : ''}`;
+  }
+  /** The room the hidden room's cracked wall is come at from. */
+  private get secretBy(): number {
+    const p = this.plot.secret;
+    if (!p) return -1;
+    const d = this.layout.doors[p.door];
+    return this.layout.roomAt[(d.r + d.dr) * this.layout.cols + d.c + d.dc];
+  }
+  /** Whose the place was, as said at the start of a line. */
+  private get whoSaid(): string { return this.layout.who.replace(/^the /, 'The '); }
+  /** A material for one thing standing in the dungeon (of vertex colours), lit as its stone is by the light `c` where it stands. */
+  private litByVertex(c: Color, roughness = 0.9): MeshStandardNodeMaterial {
+    const m = new MeshStandardNodeMaterial({ vertexColors: true, roughness });
+    m.emissiveNode = (attribute('color', 'vec3') as N).mul(vec3(c.r, c.g, c.b)).mul(0.8).mul(this.flicker);
+    m.lightsNode = lights([this.lantern]);
+    this.cutAway(m);
+    return m;
+  }
+  /**
+   * Props laid apart from the rest, drawn as they are (`layThings`), each mesh kept to be shown or hidden; their flames give no light,
+   * and, `cold`, their coals no glow (a brazier not yet lit).
+   */
+  private drawProps(props: Props, cold = false): Mesh[] {
+    const P = paintsOf(), out: Mesh[] = [];
+    for (const { stuff, shape, at: list } of props.parts()) {
+      const m = this.stuffOf(stuff);
+      if (cold) m.userData.glow = undefined;
+      const paint = STUFF_PAINT[stuff], mesh = new InstancedMesh(shape, this.lit(m, shape, list.map((x) => new Vector3().setFromMatrixPosition(x)), paint ? P[paint].map : undefined, true), list.length);
+      list.forEach((x, i) => mesh.setMatrixAt(i, x));
+      mesh.receiveShadow = mesh.castShadow = true;
+      this.inner.add(mesh);
+      out.push(mesh);
+    }
+    return out;
+  }
+  /** The turn about the upright that lays a shape's own +x along (`ax`, `az`) in the cave's frame. */
+  private static along = (ax: number, az: number) => Math.atan2(-az, ax);
+
+  /**
+   * What the plot has that moves, or comes and goes, made: the last room's portcullises let down; the barred door shut, its bar across
+   * it; the hidden room's wall, cracked, and the stone it falls to; the key and its glint; the stash; the traps' plates, the slits in
+   * the wall and their darts; the flooded room's water; the crack of day, its beams and its snow; the cold braziers, their numerals
+   * and the flames they will have; and the folk: the hermit at the camp's fire, the captive, the ghost.
+   */
+  private layPlot(): void {
+    const P = paintsOf(), deep = this.site.deep, half = CAVE.cell / 2, plot = this.plot, cols = this.layout.cols, c = new Color();
+    const edge = (i: number) => { const d = this.layout.doors[i]; return { d, x: this.latOf(d.c) + d.dc * half, t: this.tOf(d.r) + d.dr * half, f: this.edgeFloor(d.c, d.r, d.dc, d.dr) }; };
+    for (const i of plot.locked) { const m = this.doorMesh.get(i); if (m) m.mesh.position.y = m.shut; this.shuts.push({ door: i, kind: 'locked', open: 0, going: false, parts: [], after: [] }); }
+    if (plot.barred) {
+      const i = plot.barred.door, m = this.doorMesh.get(i), { d, x, t, f } = edge(i);
+      if (m) m.mesh.rotation.y = m.shut;
+      this.lightAt(new Vector3(x, deep + f + 1.2, t).addScaledVector(new Vector3(d.dc, 0, d.dr), 0.5 * plot.barred.from), UP, c);
+      const bar = new Mesh(new BoxGeometry(CAVE.cell - 0.5, 0.15, 0.1), this.glowing(this.stuffOf('wood'), c, P.wood.map));
+      bar.position.set(x + d.dc * (plot.barred.from > 0 ? 0.4 : -0.55), deep + f + 1.15, t + d.dr * (plot.barred.from > 0 ? 0.4 : -0.55));
+      bar.rotation.y = Cave.along(-d.dr, d.dc);
+      bar.castShadow = true;
+      this.inner.add(bar);
+      this.shuts.push({ door: i, kind: 'barred', open: 0, going: false, parts: [bar], after: [] });
+    }
+    if (plot.secret) {
+      const i = plot.secret.door, { d, x, t, f } = edge(i), hgt = this.layout.top[d.r * cols + d.c] - f, go = new Vector3(d.dc, 0, d.dr);
+      this.lightAt(new Vector3(x, deep + f + 1.5, t).addScaledVector(go, 0.3), go, c);
+      const g = new BoxGeometry(CAVE.cell, hgt, 0.3), uvs = g.getAttribute('uv') as BufferAttribute;
+      for (let k = 0; k < uvs.count; k++) uvs.setXY(k, (uvs.getX(k) * CAVE.cell) / 2, (uvs.getY(k) * hgt) / 2);
+      const plug = new Mesh(g, this.glowing(new MeshStandardNodeMaterial({ map: P.wall.map, normalMap: P.wall.normal, roughness: 0.92, color: 0xcfc6ba }), c.clone().multiplyScalar(1.15), P.wall.map));
+      plug.position.set(x - go.x * 0.15, deep + f + hgt / 2, t - go.z * 0.15);
+      plug.rotation.y = Math.atan2(go.x, go.z);
+      const crackPaint = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+      crackPaint.colorNode = vec3(0.02, 0.02, 0.025);
+      crackPaint.opacityNode = (texture(crackPicture(), uv()) as N).a.mul(this.fog());
+      const crack = new Mesh(new PlaneGeometry(CAVE.cell * 0.9, hgt * 0.9), crackPaint);
+      crack.position.set(x + go.x * 0.012, deep + f + hgt * 0.47, t + go.z * 0.012);
+      crack.rotation.y = Math.atan2(go.x, go.z);
+      this.inner.add(plug, crack);
+      // (What it falls to: stone heaped in the way through, and spilled out into the room.)
+      const fallen = new Props(), rr = this.rng.fork('fallen');
+      for (let k = 0; k < 9; k++) { const a = rr.range(-1.2, 0.6); fallen.put('rubble', new Vector3(x + go.x * a + d.dr * rr.range(-1.1, 1.1), deep + f, t + go.z * a + d.dc * rr.range(-1.1, 1.1)), rr.range(0, 6.3), rr.range(0.6, 1.2)); }
+      const after = this.drawProps(fallen);
+      for (const m of after) m.visible = false;
+      this.shuts.push({ door: i, kind: 'secret', open: 0, going: false, parts: [plug, crack], after });
+    }
+    // The key: an iron key, its bow a ring, lying by the hand that carried it; a glint over it.
+    if (!Number.isNaN(this.keyLocal.x)) {
+      this.lightAt(this.keyLocal.clone().setY(this.keyLocal.y + 0.8), UP, c);
+      const gold = this.glowing(new MeshStandardNodeMaterial({ color: 0xd8b060, roughness: 0.35, metalness: 0.9 }), c.clone().multiplyScalar(1.8));
+      const key = new Group();
+      key.add(new Mesh(new TorusGeometry(0.07, 0.018, 6, 14), gold));
+      const shaft = new Mesh(new CylinderGeometry(0.016, 0.016, 0.3, 6).rotateZ(Math.PI / 2).translate(0.22, 0, 0), gold);
+      const bit = new Mesh(new BoxGeometry(0.03, 0.08, 0.02).translate(0.34, -0.045, 0), gold);
+      key.add(shaft, bit);
+      key.rotation.x = -Math.PI / 2;
+      key.position.copy(this.keyLocal).setY(this.keyLocal.y + 0.03);
+      const glint = new MeshBasicNodeMaterial({ map: P.puff, transparent: true, depthWrite: false, blending: AdditiveBlending });
+      glint.colorNode = vec3(1, 0.8, 0.4).mul(texture(P.puff, uv()).a).mul(sin(time.mul(3.1)).mul(0.3).add(0.6));
+      glint.opacityNode = this.fog();
+      const shine = new Mesh(new PlaneGeometry(0.8, 0.8), glint);
+      shine.rotation.x = -Math.PI / 2;
+      shine.position.set(0.15, 0.02, 0);
+      key.add(shine);
+      this.inner.add(key);
+      this.keyMesh = key;
+    }
+    if (!Number.isNaN(this.stashLocal.x)) this.stash = { ...this.makeChest(this.stashLocal, this.stashTurn, 0.75), open: 0, opened: false };
+    // The traps: a plate a little proud of the floor, three slits in the wall beside it, and the darts they loose across.
+    if (plot.traps.length) {
+      const darts = new InstancedMesh(new CylinderGeometry(0.012, 0.006, 0.32, 5).rotateX(Math.PI / 2), new MeshBasicNodeMaterial({ color: 0x3a3430 }), plot.traps.length * 3);
+      darts.frustumCulled = false;
+      for (let k = 0; k < darts.count; k++) darts.setMatrixAt(k, this.m4.makeScale(0, 0, 0));
+      this.darts = darts;
+      this.inner.add(darts);
+      const slit = new MeshBasicNodeMaterial({ color: 0x050404 });
+      slit.opacityNode = this.fog();
+      slit.alphaTestNode = float(0.5);
+      for (const tr of plot.traps) {
+        const k = tr.r * cols + tr.c, x = this.latOf(tr.c), t = this.tOf(tr.r), y = deep + this.layout.floor[k], at = new Vector3(x, y, t);
+        this.lightAt(at.clone().setY(y + 0.2), UP, c);
+        const plate = new Mesh(new BoxGeometry(1.05, 0.05, 1.05), this.glowing(new MeshStandardNodeMaterial({ map: P.floor.map, color: 0x8a8278, roughness: 0.8 }), c, P.floor.map));
+        plate.position.set(x, y + 0.025, t);
+        plate.receiveShadow = true;
+        this.inner.add(plate);
+        const from = new Vector3(x + tr.dc * (half - 0.02), y + 1.05, t + tr.dr * (half - 0.02)), to = new Vector3(x - tr.dc * (half - 0.05), y + 1.05, t - tr.dr * (half - 0.05));
+        for (const s of [-0.35, 0, 0.35]) {
+          const m = new Mesh(new BoxGeometry(0.22, 0.05, 0.03), slit);
+          m.position.set(from.x - tr.dr * s, from.y, from.z + tr.dc * s);
+          m.rotation.y = Cave.along(-tr.dr, tr.dc);
+          this.inner.add(m);
+        }
+        this.traps.push({ at: at.setY(y), from, to, wait: 0, fly: 9, seen: false });
+      }
+    }
+    // The flooded room: still black water over its floor, the torchlight broken on it.
+    if (plot.flooded >= 0) {
+      const room = this.layout.rooms[plot.flooded], x0 = this.latOf(room.c0) - half, t0 = this.tOf(room.r0) - half, x1 = x0 + room.w * CAVE.cell, t1 = t0 + room.h * CAVE.cell, y = deep + room.level * DROP + 0.3;
+      this.lightAt(new Vector3((x0 + x1) / 2, y + 1, (t0 + t1) / 2), UP, c);
+      const pool = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+      const ripple = sin((positionWorld.x as N).mul(2.3).add(time.mul(0.9))).mul(sin((positionWorld.z as N).mul(1.9).sub(time.mul(0.7)))).mul(0.5).add(0.5);
+      pool.colorNode = vec3(0.012, 0.03, 0.035).add(vec3(c.r, c.g, c.b).mul(0.22).mul((ripple as N).pow(3).mul(1.6).add(0.2)));
+      pool.opacityNode = float(0.86).mul(this.fog());
+      const surface = new Mesh(new PlaneGeometry(x1 - x0, t1 - t0).rotateX(-Math.PI / 2), pool);
+      surface.position.set((x0 + x1) / 2, y, (t0 + t1) / 2);
+      surface.renderOrder = 2;
+      this.inner.add(surface);
+      this.water = { x0, t0, x1, t1, y };
+    }
+    // The crack of day: its light coming down in beams, and the snow it has let in, heaped, and still falling.
+    if (!Number.isNaN(this.shaftLocal.x)) {
+      const s = this.shaftLocal, beam = new MeshBasicNodeMaterial({ map: beamPicture(), transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide });
+      beam.colorNode = vec3(DAYLIGHT.r, DAYLIGHT.g, DAYLIGHT.b).mul((texture(beam.map!, uv()) as N).a).mul(0.32);
+      beam.opacityNode = this.fog();
+      for (let k = 0; k < 3; k++) {
+        const m = new Mesh(new PlaneGeometry(1.9, CAVE.room), beam);
+        m.position.set(s.x, s.y + CAVE.room / 2, s.z);
+        m.rotation.y = (k * Math.PI) / 3;
+        this.inner.add(m);
+      }
+      this.lightAt(s.clone().setY(s.y + 0.5), UP, c);
+      const heap = new Mesh(new SphereGeometry(1.15, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.24, 0.9), this.glowing(new MeshStandardNodeMaterial({ color: 0xeef3fa, roughness: 0.95 }), c.clone().multiplyScalar(1.1)));
+      heap.position.copy(s);
+      heap.receiveShadow = true;
+      this.inner.add(heap);
+      const flake = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending });
+      flake.colorNode = vec3(0.9, 0.93, 1).mul((texture(P.puff, uv()) as N).a).mul(0.9);
+      flake.opacityNode = this.fog();
+      const flakes = new InstancedMesh(new PlaneGeometry(0.07, 0.07), flake, 36), fr = this.rng.fork('flakes');
+      flakes.frustumCulled = false;
+      this.flakes = { mesh: flakes, at: Array.from({ length: 36 }, () => new Vector3(s.x + fr.range(-0.7, 0.7), s.y + fr.range(0, CAVE.room), s.z + fr.range(-0.7, 0.7))) };
+      this.inner.add(flakes);
+    }
+    // The cold braziers, unlit (their flames apart, shown as each is lit), and before each, cut in the floor, its numeral.
+    if (this.braziers.length) {
+      const cold = new Props();
+      for (const b of this.braziers) cold.put('brazier', b.at, 0);
+      this.drawProps(cold, true);
+      const P2 = paintsOf(), firePaint = new MeshBasicNodeMaterial({ map: P2.flame, transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide });
+      firePaint.colorNode = (texture(P2.flame, uv()).rgb as N).mul(vec3(2.4, 1.6, 1.0));
+      this.brazierFlames = new InstancedMesh(new PlaneGeometry(1, 1).translate(0, 0.38, 0), firePaint, 3);
+      this.brazierFlames.frustumCulled = false;
+      for (let k = 0; k < 3; k++) this.brazierFlames.setMatrixAt(k, this.m4.makeScale(0, 0, 0));
+      this.inner.add(this.brazierFlames);
+      const room = this.layout.rooms[plot.puzzle], cx = this.latOf(room.c0) - half + (room.w * CAVE.cell) / 2, ct = this.tOf(room.r0) - half + (room.h * CAVE.cell) / 2;
+      for (const b of this.braziers) {
+        const mark = new MeshBasicNodeMaterial({ map: numeralPicture(b.order), transparent: true, depthWrite: false, blending: AdditiveBlending });
+        mark.colorNode = vec3(1, 0.6, 0.25).mul((texture(mark.map!, uv()) as N).a).mul(sin(time.mul(1.7).add(b.order)).mul(0.15).add(0.55));
+        mark.opacityNode = this.fog();
+        const m = new Mesh(new PlaneGeometry(0.62, 0.62).rotateX(-Math.PI / 2), mark), dx = cx - b.at.x, dz = ct - b.at.z, l = Math.hypot(dx, dz) || 1;
+        m.position.set(b.at.x + (dx / l) * 0.78, b.at.y + 0.015, b.at.z + (dz / l) * 0.78);
+        m.rotation.y = Math.atan2(-dx, -dz);
+        this.inner.add(m);
+      }
+    }
+    // The folk. The hermit, sitting on the log by the fire, turned to it; lit as the camp is, by the day and the fire.
+    const f = this.fireAt, hx = f.x + 1.75, hz = f.z - 0.4;
+    const hermit = new Folk({ robe: 0x3d4a3a, hood: 0x7a3328, skin: 0xb98c70 }, 'sit', new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.95 }));
+    hermit.group.position.set(hx, this.groundAt(hx, hz) - 0.06, hz);
+    hermit.group.rotation.y = Math.atan2(f.x - hx, f.z - hz);
+    this.frame.add(hermit.group);
+    this.folk.push({ who: 'hermit', figure: hermit, fade: 0 });
+    if (!Number.isNaN(this.captiveLocal.x)) {
+      const at = this.captiveLocal;
+      this.lightAt(at.clone().setY(at.y + 1), UP, c, true);
+      const captive = new Folk({ robe: 0x6c675c, hood: 0x5a554c }, 'kneel', this.litByVertex(c));
+      captive.group.position.copy(at);
+      const room = this.layout.rooms[plot.captive];
+      captive.group.rotation.y = Math.atan2(this.latOf(room.c0) + ((room.w - 1) * CAVE.cell) / 2 - at.x, this.tOf(room.r0) + ((room.h - 1) * CAVE.cell) / 2 - at.z);
+      this.inner.add(captive.group);
+      this.folk.push({ who: 'captive', figure: captive, fade: 0 });
+    }
+    if (!Number.isNaN(this.ghostLocal.x)) {
+      const pale = new MeshBasicNodeMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: AdditiveBlending });
+      pale.colorNode = (attribute('color', 'vec3') as N).mul(0.22).mul(this.ghostFade).mul(sin(time.mul(2.1)).mul(0.12).add(0.88));
+      pale.opacityNode = this.fog();
+      const ghost = new Folk({ robe: 0x7fb6e8, hood: 0x9cc8f0, skin: 0xd8ecff }, 'stand', pale, true);
+      ghost.group.position.copy(this.ghostLocal);
+      const room = this.layout.rooms[plot.last];
+      if (room) ghost.group.rotation.y = Math.atan2(this.latOf(room.c0) + ((room.w - 1) * CAVE.cell) / 2 - this.ghostLocal.x, this.tOf(room.r0) + ((room.h - 1) * CAVE.cell) / 2 - this.ghostLocal.z);
+      this.inner.add(ghost.group);
+      this.folk.push({ who: 'ghost', figure: ghost, fade: 0 });
+    }
+  }
+  /** How bright the ghost is: whole, until it has spoken, then gone. */
+  private readonly ghostFade = uniform(1);
+  /** How long the one on foot has pressed against the cracked wall. */
+  private pushing = 0;
+
+  /** What the hermit says: what the place holds, as far as he knows it, and what to mind. */
+  private hermitSays(): string {
+    const p = this.plot, said: string[] = [];
+    if (p.locked.length && p.key >= 0) said.push(`"${this.whoSaid} lies shut away below. The key went down with one who never came back up; look in ${this.roomName(p.key)}."`);
+    else said.push(`"${this.whoSaid} lies below. Many went down for that gold."`);
+    if (p.traps.length) said.push('"Watch the floor in the passages: where a stone sits proud, and bones lie by it, step round."');
+    if (p.secret) said.push('"And where no door is, a draught still finds its way."');
+    if (p.puzzle >= 0) said.push('"The cold fires want lighting in their order."');
+    return `${said.join(' ')} Warm yourself; sit a while and we might trade.`;
+  }
+  /** Whose captive it is, and what they say for being freed. */
+  private captiveSays(): { name: string; line: string } {
+    const r = this.rng.fork('captive'), name = r.pick(['Brynja', 'Old Tove', 'Halvard', 'Inga the Ski-Runner', 'Eskil', 'Sigrid of the Pass', 'Ragna']), p = this.plot;
+    const tip = p.secret
+      ? `there is a cracked wall in ${this.roomName(this.secretBy)}. Lean on it.`
+      : p.key >= 0 && !this.keyTaken ? `the key to the last door lies in ${this.roomName(p.key)}.` : `the dead walk in these halls; keep your blade near.`;
+    return { name, line: `"Free, at last. Listen: ${tip}"` };
+  }
+
+  /**
+   * One on foot at (`x`, `y`, `z`, in the land) a moment (`dt`) on, through what the plot has laid: the hermit come to and sat by, the
+   * key taken up, the locked and barred ways and the cracked wall come to and opened, the stash and the braziers, a trap's plate trodden
+   * on, the captive freed, the last room come into. Gives back what came of it, for the game to tell, and to do (`CaveEvent`).
+   */
+  tread(x: number, y: number, z: number, dt: number): CaveEvent[] {
+    const out: CaveEvent[] = [], [t, lat] = siteLocal(this.site, x, z), half = CAVE.cell / 2, plot = this.plot, deep = this.site.deep;
+    const land = (v: Vector3, up = 0) => this.toLand(v.x, v.y + up, v.z);
+    const near = (v: Vector3, r: number) => Math.hypot(v.x - lat, v.z - t) < r && Math.abs(v.y - y) < 1.7;
+    const say = (title: string, text: string) => out.push({ kind: 'say', title, text });
+    const hermit = this.folk.find((q) => q.who === 'hermit');
+    if (hermit) {
+      const h = hermit.figure.group.position, d = Math.hypot(h.x - lat, h.z - t);
+      if (d < 2.8) {
+        if (this.met.hermitAway) { this.met.hermitAway = false; out.push({ kind: 'heal' }); say('The hermit by the fire', this.hermitSays()); }
+        this.met.by += dt;
+        // (Offered once each time one sits by him; taken up once a run, `traded`.)
+        if (!this.met.traded && this.met.by > 4) { this.met.by = -Infinity; out.push({ kind: 'trade', at: land(h, 1.2) }); }
+      } else { this.met.by = 0; if (d > 8) this.met.hermitAway = true; }
+    }
+    if (this.keyMesh && !this.keyTaken && near(this.keyLocal, 1.3)) {
+      this.keyTaken = true; this.keyMesh.visible = false;
+      out.push({ kind: 'key' });
+      say('The key', `iron, heavy, the mark of ${this.layout.who} on its bow`);
+    }
+    for (const s of this.shuts) {
+      if (s.going) continue;
+      const d = this.layout.doors[s.door], ex = this.latOf(d.c) + d.dc * half, et = this.tOf(d.r) + d.dr * half, f = deep + this.edgeFloor(d.c, d.r, d.dc, d.dr);
+      const along = (lat - ex) * d.dc + (t - et) * d.dr, across = Math.abs((lat - ex) * d.dr - (t - et) * d.dc), dist = Math.abs(along);
+      if (across > half + 0.4 || Math.abs(y - f) > 1.7) continue;
+      if (s.kind === 'locked') {
+        if (dist < 1.8) {
+          if (this.keyTaken || along > 0) { s.going = true; out.push({ kind: 'unlock' }); say('The portcullis rises', this.keyTaken ? 'the key turns in the winch' : 'its winch is on this side'); }
+          else if (!this.met.locked) { this.met.locked = true; say('Shut fast', 'the portcullis is down, its winch locked: somewhere there is a key'); }
+        } else if (dist > 4) this.met.locked = false;
+      } else if (s.kind === 'barred') {
+        if (dist < 1.6) {
+          if (Math.sign(along) === plot.barred!.from) { s.going = true; out.push({ kind: 'unbar' }); say('The bar lifted', 'a short way back toward the gate'); }
+          else if (!this.met.barred) { this.met.barred = true; say('Barred', 'from the other side'); }
+        } else if (dist > 4) this.met.barred = false;
+      } else {
+        if (along > 0 && along < 2.6 && across < half && !this.met.draught) { this.met.draught = true; say('A cracked wall', 'cold air comes through it: something lies behind'); }
+        if (along > 0 && along < 1.05 && across < half - 0.3) {
+          this.pushing += dt;
+          if (this.pushing > 0.8) {
+            s.going = true; this.hidden.clear(); this.field = null; this.lookedAt = -1;
+            out.push({ kind: 'secret' });
+            say('The wall gives way', 'a room no one has stood in for an age');
+          }
+        } else this.pushing = 0;
+      }
+    }
+    if (this.stash && !this.stash.opened && near(this.stashLocal, 1.5)) { this.stash.opened = true; this.stash.glow.visible = true; out.push({ kind: 'stash', at: land(this.stashLocal, 0.5) }); }
+    for (const tr of this.traps) {
+      tr.wait = Math.max(0, tr.wait - dt);
+      if (tr.wait <= 0 && near(tr.at, 0.62)) { tr.wait = 3.5; tr.fly = 0; out.push({ kind: 'trap', at: land(tr.from) }); }
+    }
+    if (this.braziers.length && !this.puzzleDone) {
+      // (A brazier just put out is not lit again until the one on foot has stepped away from it: `cool`.)
+      for (const b of this.braziers) if (b.cool && !near(b.at, 1.9)) b.cool = false;
+      if (this.puzzleWrong < 0) for (const b of this.braziers) {
+        if (b.lit || b.cool || !near(b.at, 1.1)) continue;
+        const next = this.braziers.filter((q) => q.lit).length;
+        b.lit = true;
+        if (b.order !== next) { this.puzzleWrong = 0; say('The flames gutter and die', 'that was not the fire to light'); }
+        else if (next === 2) {
+          this.puzzleDone = true;
+          const room = this.layout.rooms[plot.puzzle];
+          out.push({ kind: 'puzzle', at: this.toLand(this.latOf(room.c0) + ((room.w - 1) * CAVE.cell) / 2, b.at.y + 0.6, this.tOf(room.r0) + ((room.h - 1) * CAVE.cell) / 2) });
+          say('The three fires burn', 'a stone in the floor grinds back');
+        } else say(next ? 'The second fire lit' : 'The first fire lit', 'it takes, and burns');
+        break;
+      }
+    }
+    const captive = this.folk.find((q) => q.who === 'captive');
+    if (captive && !this.met.captive && near(this.captiveLocal, 2)) {
+      this.met.captive = true;
+      const { name, line } = this.captiveSays();
+      out.push({ kind: 'freed', name });
+      say(`${name}, freed`, line);
+    }
+    const room = this.roomAt(x, z);
+    if (room && room.i === plot.last && !this.met.ghost && plot.last >= 0) {
+      this.met.ghost = true;
+      const theirs = { tomb: 'rest', sanctum: 'altar', warden: 'keys', hoard: 'gold' }[this.layout.rooms[plot.last].kind as 'tomb'] ?? 'gold';
+      say(this.whoSaid, `"You have come far for my ${theirs}. Take it, if you can."`);
+      out.push({ kind: 'boss', at: land(this.ghostLocal.clone().setY(deep + this.layout.rooms[plot.last].level * DROP)), title: `${this.whoSaid}, Risen` });
+    }
+    return out;
+  }
+  /** The hermit's trade taken up: none more with him this run. */
+  traded(): void { this.met.traded = true; }
+  /** How fast one on foot may go at a point (in the land), as a share: slowed wading through the flooded room's water. */
+  wading(x: number, z: number, y: number): number {
+    const w = this.water;
+    if (!w) return 1;
+    const [t, lat] = siteLocal(this.site, x, z);
+    return lat > w.x0 && lat < w.x1 && t > w.t0 && t < w.t1 && Math.abs(y - (w.y - 0.3)) < 0.6 ? 0.55 : 1;
+  }
+  /** Whether a shut doorway stands in the way of one `r` across its middle at a point of the cave's own frame. */
+  private inShut(lat: number, t: number, r: number): boolean {
+    const half = CAVE.cell / 2;
+    for (const s of this.shuts) {
+      if (s.open >= 0.6) continue;
+      const d = this.layout.doors[s.door], ex = this.latOf(d.c) + d.dc * half, et = this.tOf(d.r) + d.dr * half;
+      const along = (lat - ex) * d.dc + (t - et) * d.dr, across = Math.abs((lat - ex) * d.dr - (t - et) * d.dc);
+      if (across > half) continue;
+      // (Each where it stands: the portcullis in its frame, the door's leaf just inside the room, the cracked wall flush with the room's.)
+      const mid = s.kind === 'locked' ? -0.22 : s.kind === 'barred' ? 0.28 : -0.15, thick = s.kind === 'secret' ? 0.15 : 0.08;
+      if (Math.abs(along - mid) < thick + r) return true;
+    }
+    return false;
+  }
+  /** Whether a shut doorway stands between square (c, r) and the next toward (dc, dr), for the foes' ways. */
+  private shutBetween(c: number, r: number, dc: number, dr: number): boolean {
+    return this.shuts.some((s) => {
+      if (s.open >= 0.6) return false;
+      const d = this.layout.doors[s.door];
+      return (d.c === c && d.r === r && d.dc === dc && d.dr === dr) || (d.c + d.dc === c && d.r + d.dr === r && d.dc === -dc && d.dr === -dr);
+    });
+  }
+  /** What has opened and moved a moment on: the ways opening, the darts flying, the fires lit, the snow falling, the folk stirring. */
+  private stepPlot(dt: number, seconds: number, eye: Vector3, me: Vector3 | null): void {
+    for (const s of this.shuts) {
+      if (!s.going || s.open >= 1) continue;
+      s.open = Math.min(1, s.open + dt * (s.kind === 'secret' ? 4 : s.kind === 'locked' ? 0.45 : 1.1));
+      const k = smooth(s.open), m = this.doorMesh.get(s.door);
+      if (s.kind === 'locked' && m) m.mesh.position.y = m.shut + (m.open - m.shut) * k;
+      if (s.kind === 'barred' && m) m.mesh.rotation.y = m.shut + Math.atan2(Math.sin(m.open - m.shut), Math.cos(m.open - m.shut)) * k;
+      for (const p of s.parts) p.visible = false;
+      for (const p of s.after) p.visible = true;
+      if (s.open >= 0.6) this.field = null;
+    }
+    const q = new Quaternion(), sc = new Vector3(), p = new Vector3(), face = (at: Vector3) => q.setFromAxisAngle(UP, Math.atan2(eye.x - at.x, eye.z - at.z));
+    if (this.darts) {
+      this.traps.forEach((tr, i) => {
+        tr.fly += dt;
+        const k = tr.fly / 0.28, dir = tr.to.clone().sub(tr.from).normalize(), turn = new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), dir);
+        for (let j = 0; j < 3; j++) {
+          const off = (j - 1) * 0.35;
+          if (k > 1) { this.darts!.setMatrixAt(i * 3 + j, this.m4.makeScale(0, 0, 0)); continue; }
+          p.copy(tr.from).lerp(tr.to, Math.min(1, k * (1 + j * 0.08))).add(new Vector3(-dir.z * off, (j - 1) * 0.12, dir.x * off));
+          this.darts!.setMatrixAt(i * 3 + j, this.m4.compose(p, turn, sc.set(1, 1, 1)));
+        }
+      });
+      this.darts.instanceMatrix.needsUpdate = true;
+    }
+    if (this.puzzleWrong >= 0) { this.puzzleWrong += dt; if (this.puzzleWrong > 1.1) { this.puzzleWrong = -1; for (const b of this.braziers) { b.lit = false; b.cool = !!me && Math.hypot(b.at.x - me.x, b.at.z - me.z) < 1.9; } } }
+    if (this.brazierFlames) {
+      this.braziers.forEach((b, i) => {
+        const f = 0.9 + 0.1 * Math.sin(seconds * 9 + i * 2), dying = this.puzzleWrong >= 0 ? Math.max(0, 1 - this.puzzleWrong) : 1;
+        this.brazierFlames!.setMatrixAt(i, b.lit ? this.m4.compose(p.copy(b.at).setY(b.at.y + 0.92), face(b.at), sc.set(0.42 * (2 - f) * dying, 0.8 * f * dying, 1)) : this.m4.makeScale(0, 0, 0));
+      });
+      this.brazierFlames.instanceMatrix.needsUpdate = true;
+    }
+    if (this.flakes) {
+      const s = this.shaftLocal;
+      this.flakes.at.forEach((v, i) => {
+        v.y -= dt * (0.45 + 0.1 * Math.sin(i));
+        if (v.y < s.y + 0.2) v.y += CAVE.room - 0.2;
+        this.flakes!.mesh.setMatrixAt(i, this.m4.compose(p.set(v.x + 0.15 * Math.sin(seconds * 0.8 + i), v.y, v.z + 0.15 * Math.cos(seconds * 0.7 + i * 1.3)), face(v), sc.set(1, 1, 1)));
+      });
+      this.flakes.mesh.instanceMatrix.needsUpdate = true;
+    }
+    if (this.keyMesh?.visible) this.keyMesh.rotation.z = 0.3 * Math.sin(seconds * 0.7);
+    if (this.stash?.opened && this.stash.open < 1) { this.stash.open = Math.min(1, this.stash.open + dt * 0.9); this.stash.hinge.rotation.x = -1.85 * smooth(this.stash.open); }
+    for (const f of this.folk) {
+      if ((f.who === 'ghost' && this.met.ghost) || (f.who === 'captive' && this.met.captive)) f.fade = Math.min(1, f.fade + dt / (f.who === 'ghost' ? 4 : 3.5));
+      if (f.who === 'ghost') this.ghostFade.value = 1 - smooth(f.fade);
+      f.figure.group.visible = f.fade < 1;
+      if (f.figure.group.visible) f.figure.update(dt, seconds, me);
+    }
+  }
+  /** The plot as it was before the run: every way shut again, the hidden room walled up, the key back, the fires out, the folk where they were. */
+  private resetPlot(): void {
+    for (const s of this.shuts) {
+      s.open = 0; s.going = false;
+      const m = this.doorMesh.get(s.door);
+      if (m && s.kind === 'locked') m.mesh.position.y = m.shut;
+      if (m && s.kind === 'barred') m.mesh.rotation.y = m.shut;
+      for (const p of s.parts) p.visible = true;
+      for (const p of s.after) p.visible = false;
+    }
+    if (this.plot.secret) for (const k of this.plot.secret.cells) this.hidden.add(k);
+    this.field = null;
+    this.keyTaken = false;
+    if (this.keyMesh) this.keyMesh.visible = true;
+    if (this.stash) { this.stash.opened = false; this.stash.open = 0; this.stash.hinge.rotation.x = 0; this.stash.glow.visible = false; }
+    for (const b of this.braziers) { b.lit = false; b.cool = false; }
+    this.puzzleDone = false; this.puzzleWrong = -1; this.pushing = 0;
+    for (const tr of this.traps) { tr.wait = 0; tr.fly = 9; }
+    for (const f of this.folk) f.fade = 0;
+    this.ghostFade.value = 1;
+    this.met = { hermit: false, hermitAway: true, by: 0, traded: false, captive: false, ghost: false, boss: false, locked: false, barred: false, draught: false, near: 0 };
+  }
+  /**
+   * Where what the plot has laid is, in the land, for a script to walk to (`__slope.walkTo`): the key, the stash, the braziers in the order
+   * they are to be lit, the captive, the ghost; the locked, barred and cracked ways, at their doorways; the traps' plates.
+   */
+  get plotPoints(): Record<string, [number, number, number] | [number, number, number][]> {
+    const half = CAVE.cell / 2, pt = (v: Vector3): [number, number, number] => { const q = this.toLand(v.x, v.y, v.z); return [+q.x.toFixed(2), +q.y.toFixed(2), +q.z.toFixed(2)]; };
+    const out: Record<string, [number, number, number] | [number, number, number][]> = {};
+    const ok = (v: Vector3) => !Number.isNaN(v.x);
+    if (ok(this.keyLocal)) out.key = pt(this.keyLocal);
+    if (ok(this.stashLocal)) out.stash = pt(this.stashLocal);
+    if (ok(this.captiveLocal)) out.captive = pt(this.captiveLocal);
+    if (ok(this.ghostLocal)) out.ghost = pt(this.ghostLocal);
+    for (const f of this.folk) if (f.who === 'hermit') out.hermit = pt(f.figure.group.position);
+    if (this.braziers.length) out.braziers = [...this.braziers].sort((a, b) => a.order - b.order).map((b) => pt(b.at));
+    for (const s of this.shuts) { const d = this.layout.doors[s.door]; out[s.kind] = pt(new Vector3(this.latOf(d.c) + d.dc * half, this.site.deep + this.edgeFloor(d.c, d.r, d.dc, d.dr), this.tOf(d.r) + d.dr * half)); }
+    if (this.traps.length) out.traps = this.traps.map((t) => pt(t.at));
+    return out;
+  }
+  /** The plot as it stands, for a script (`__slope.dungeon`). */
+  get plotState() {
+    const p = this.plot, name = (i: number) => (i >= 0 ? this.roomName(i) : null);
+    return {
+      last: name(p.last), locked: this.shuts.filter((s) => s.kind === 'locked').map((s) => +s.open.toFixed(2)), key: name(p.key), keyTaken: this.keyTaken,
+      barred: p.barred ? +(this.shuts.find((s) => s.kind === 'barred')?.open ?? 0).toFixed(2) : null,
+      secret: p.secret ? { by: name(this.secretBy), open: !this.hidden.size, stash: !!this.stash?.opened } : null,
+      traps: p.traps.length, flooded: name(p.flooded), shaft: name(p.shaft),
+      puzzle: p.puzzle >= 0 ? { room: name(p.puzzle), order: this.braziers.map((b) => b.order), lit: this.braziers.filter((b) => b.lit).length, done: this.puzzleDone, dying: +this.puzzleWrong.toFixed(2), cool: this.braziers.filter((b) => b.cool).length } : null,
+      captive: p.captive >= 0 ? { room: name(p.captive), freed: this.met.captive } : null, ghost: this.met.ghost, traded: this.met.traded,
+    };
   }
 
   // ---------------------------------------------------------------------------------------------------------- what it is asked
@@ -1653,6 +2489,7 @@ export class Cave {
   private roomFor(lat: number, t: number, r: number): boolean {
     const L = this.site.length;
     for (const p of this.posts) if (Math.hypot(lat - p.lat, t - p.t) < p.r + r) return false;
+    if (this.inShut(lat, t, r)) return false;
     if (t < -0.7 - r) return true;
     if (t < 0) return Math.abs(lat) <= CAVE.hw - r || Math.abs(lat) > MOUND_HALF + r;
     if (t <= L) return Math.abs(lat) <= CAVE.hw - r || (Math.abs(lat) > MOUND_HALF + r && t > this.site.holeTo + 3);
@@ -1746,8 +2583,40 @@ export class Cave {
     return i < 0 ? null : { i, note: this.layout.rooms[i].note, kind: this.layout.rooms[i].kind };
   }
   /** Where to stand (in the land) and which way to face, for a script: in the camp facing the mouth, inside the gate, before the chest, or in room `room`. */
-  spot(where: 'camp' | 'gate' | 'tomb' | 'room' | 'stair', room = 0): { x: number; z: number; heading: number } {
+  spot(where: CaveSpot, room = 0): { x: number; z: number; heading: number } {
     const turn = Math.atan2(this.site.ax, this.site.az);
+    // (What the plot has laid: a couple of metres off it, looking at it; the last room's locked way, the barred door and the cracked wall
+    // from the side they are opened from (the locked from outside); a trap from up its passage. The gate where there is none.)
+    const looking = (lat: number, t: number, fromLat: number, fromT: number) => ({ ...sitePoint(this.site, fromT, fromLat), heading: Math.atan2(lat - fromLat, t - fromT) + turn });
+    const half = CAVE.cell / 2, door = (i: number, side: number, back: number) => {
+      const d = this.layout.doors[i], ex = this.latOf(d.c) + d.dc * half, et = this.tOf(d.r) + d.dr * half;
+      return looking(ex, et, ex + d.dc * side * back, et + d.dr * side * back);
+    };
+    const toward = (v: Vector3, i: number, back: number) => {
+      const r = this.layout.rooms[i], cx = this.latOf(r.c0) + ((r.w - 1) * CAVE.cell) / 2, ct = this.tOf(r.r0) + ((r.h - 1) * CAVE.cell) / 2, dx = cx - v.x, dz = ct - v.z, l = Math.hypot(dx, dz) || 1;
+      return l < 0.5 ? looking(v.x, v.z, v.x, v.z - back) : looking(v.x, v.z, v.x + (dx / l) * back, v.z + (dz / l) * back);
+    };
+    const plot = this.plot, shut = (k: string) => this.shuts.find((q) => q.kind === k);
+    if (where === 'locked') { const q = shut('locked'); return q ? door(q.door, -1, 2.4) : this.spot('gate'); }
+    if (where === 'barred') { const q = shut('barred'); return q && plot.barred ? door(q.door, plot.barred.from, 2.4) : this.spot('gate'); }
+    if (where === 'secret') { const q = shut('secret'); return q ? door(q.door, 1, 2.2) : this.spot('gate'); }
+    if (where === 'key') return plot.key >= 0 ? toward(this.keyLocal, plot.key, 2.2) : this.spot('gate');
+    if (where === 'captive') return plot.captive >= 0 ? toward(this.captiveLocal, plot.captive, 2.6) : this.spot('gate');
+    if (where === 'puzzle') {
+      // (By the brazier to be lit `room`th, if one of the three is asked for; else at the room's way in.)
+      const b = this.braziers.find((q) => q.order === room);
+      return plot.puzzle < 0 ? this.spot('gate') : b ? toward(b.at, plot.puzzle, 0.95) : this.spot('room', plot.puzzle);
+    }
+    if (where === 'stash') return plot.secret ? toward(this.stashLocal, plot.secret.room, 2) : this.spot('gate');
+    if (where === 'water') return plot.flooded >= 0 ? this.spot('room', plot.flooded) : this.spot('gate');
+    if (where === 'shaft') return plot.shaft >= 0 ? toward(this.shaftLocal, plot.shaft, 3) : this.spot('gate');
+    if (where === 'trap') {
+      const tr = this.traps[0];
+      if (!tr) return this.spot('gate');
+      const along = Math.abs(tr.to.x - tr.from.x) > 0.1 ? [0, 1] : [1, 0], back = 2.6;
+      for (const sgn of [1, -1]) { const lat = tr.at.x + along[0] * back * sgn, t = tr.at.z + along[1] * back * sgn; if (this.openAt(lat, t)) return looking(tr.at.x, tr.at.z, lat, t); }
+      return this.spot('gate');
+    }
     if (where === 'stair') {
       // (At the head of the first stair down, looking down it; or, room 1, at its foot looking up.)
       const k = this.layout.down.findIndex((d, i) => d >= 0 && this.layout.down[i] >= 0), c = k % this.layout.cols, r = (k / this.layout.cols) | 0;
@@ -1791,7 +2660,7 @@ export class Cave {
     dist[k0] = 0;
     for (let q = 0; q < queue.length; q++) {
       const k = queue[q], c = k % cols, r = (k / cols) | 0;
-      for (const [dc, dr] of WAYS) { const i = c + dc, j = r + dr; if (!this.open(i, j) || dist[j * cols + i] >= 0) continue; dist[j * cols + i] = dist[k] + 1; queue.push(j * cols + i); }
+      for (const [dc, dr] of WAYS) { const i = c + dc, j = r + dr; if (!this.open(i, j) || dist[j * cols + i] >= 0 || this.shutBetween(c, r, dc, dr)) continue; dist[j * cols + i] = dist[k] + 1; queue.push(j * cols + i); }
     }
     this.field = { from: k0, dist };
     return dist;
@@ -1954,7 +2823,7 @@ export class Cave {
   /** The chest opened: its lid thrown back, its gold shining. */
   openChest(): void { this.chest.opened = true; this.glow.visible = true; }
   /** The chest shut again, its gold within: a run begun again. */
-  shutChest(): void { this.chest.opened = false; this.chest.open = 0; this.lid.rotation.x = 0; this.glow.visible = false; }
+  shutChest(): void { this.chest.opened = false; this.chest.open = 0; this.lid.rotation.x = 0; this.glow.visible = false; this.resetPlot(); }
 
   /**
    * A moment on: the torches and the fire flickering, their flames turned to the eye, the campfire's smoke rising; the light carried
@@ -1980,11 +2849,14 @@ export class Cave {
         const f = flick(i + 1);
         const k = torch.kind === 'candle' ? 0.22 : torch.kind === 'brazier' ? 1.5 : 1;
         // (Not where it has not been seen, under the fog: a flame there would have shone out of the dark.)
-        const hid = this.fogOn.value > 0 && !this.seenAt(torch.at.x + torch.facing.x * 0.5, torch.at.z + torch.facing.z * 0.5);
-        this.flames.setMatrixAt(i, this.m4.compose(p.copy(torch.at).addScaledVector(UP, -0.1 * k), face(torch.at), hid ? s.set(0, 0, 0) : s.set(0.26 * (2 - f) * k, 0.5 * f * k, 1)));
+        const hid = torch.kind === 'sky' || (this.fogOn.value > 0 && !this.seenAt(torch.at.x + torch.facing.x * 0.5, torch.at.z + torch.facing.z * 0.5));
+        const cold = torch.color === COLD_FIRE, placed = this.m4.compose(p.copy(torch.at).addScaledVector(UP, -0.1 * k), face(torch.at), hid ? s.set(0, 0, 0) : s.set(0.26 * (2 - f) * k, 0.5 * f * k, 1));
+        this.flames.setMatrixAt(i, cold ? ZERO_M : placed);
+        this.coldFlames.setMatrixAt(i, cold ? placed : ZERO_M);
       });
-      this.flames.count = this.torches.length;
+      this.flames.count = this.coldFlames.count = this.torches.length;
       this.flames.instanceMatrix.needsUpdate = true;
+      this.coldFlames.instanceMatrix.needsUpdate = true;
       for (let i = 0; i < 6; i++) {
         const a = i * 2.1 + seconds * 0.7, f = flick(i + 30), o = i < 3 ? 0.06 : 0.2;
         this.fire.setMatrixAt(i, this.m4.compose(p.set(this.fireAt.x + o * Math.cos(a), this.fireAt.y + 0.08, this.fireAt.z + o * Math.sin(a)), face(this.fireAt), s.set((i < 3 ? 0.75 : 0.45) * (2 - f), (i < 3 ? 1.15 : 0.7) * f * (0.85 + 0.15 * Math.sin(seconds * 3 + i)), 1)));
@@ -2013,5 +2885,7 @@ export class Cave {
     // (The chest's lid thrown back over a second, once opened.)
     if (this.chest.opened && this.chest.open < 1) { this.chest.open = Math.min(1, this.chest.open + dt * 0.9); this.lid.rotation.x = -1.85 * smooth(this.chest.open); }
     this.glow.rotation.y = Math.atan2(local.x - this.glow.position.x, local.z - this.glow.position.z);
+    if (this.stash) this.stash.glow.rotation.y = Math.atan2(local.x - this.stash.glow.position.x, local.z - this.stash.glow.position.z);
+    this.stepPlot(dt, seconds, local, player ? new Vector3(...this.localOf(player)).setY(player.y) : null);
   }
 }

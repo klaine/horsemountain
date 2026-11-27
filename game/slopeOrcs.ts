@@ -322,6 +322,22 @@ export class Horde {
   }
 
   /**
+   * A great one of `kind` raised at a point of the den last gone through, under a name of its own (`title`): whoever a dungeon was made
+   * for, risen as one comes into their room (`slopeDungeon.ts`, `Cave.tread`). None while none of that kind is made yet, or all are out.
+   */
+  summon(kind: string, x: number, z: number, y: number, title: string): boolean {
+    const k = FOES.find((f) => f.name === kind && f.den && f.titles), den = this.den, b = k && den ? this.foes.find((q) => q.kind === k && q.state === 'gone') : undefined;
+    if (!k || !den || !b) return false;
+    Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(...k.den!.pace), next: 0.8, hp: k.hp, reel: 0, bumped: 0, penned: false, met: true, comes: b.comes + 1, kneeling: false, title });
+    b.p.set(x, 0, z);
+    b.p.y = den.floor(x, z, y);
+    b.gait.go(b.pace * 0.9, this.rng.range(0, 1));
+    b.gait.model.visible = true;
+    this.greatAt = this.denClock;
+    return true;
+  }
+
+  /**
    * A frame on, by `dt`, in a den (`Den`) rather than on a run: a few at a time out of its rooms, out of the way of the one on foot
    * (`q.at`), more as fewer come; each coming at it round the walls, faster than up a run; and, come up to it, striking (`strike`, told
    * where from, and what it is), then a moment back before it may again. Fallen, as on the snow, on the floor. Far off, let go of.
