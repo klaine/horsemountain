@@ -26,7 +26,7 @@ import {
   type Material, SphereGeometry, SRGBColorSpace, Texture, Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
-import { attribute, float, lights, mix, normalWorld, positionWorld, select, sin, texture, time, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { attribute, float, lights, max, mix, normalWorld, positionWorld, select, sin, smoothstep, texture, time, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng, valueNoise2 } from '../src/core/rng';
 import { type PropKind, Props, type Stuff } from './slopeProps';
@@ -846,6 +846,46 @@ export const paintsOf = () => {
   return paints;
 };
 
+/**
+ * Each kind of place's own stone (asked: "what new materials ... do we need?"), its walls' and its floors': a tomb's pale grey-green, in
+ * courses of middling blocks, its floor of great slabs; a temple's cream, its blocks long and dressed, as marble is laid; a prison's dark
+ * and rough, in many small courses; a vault's warm sandstone. Made as each is first wanted, and kept. (The deeps and the props keep the
+ * plain stone, `paintsOf`.)
+ */
+const THEME_STONE: Record<Tags['theme'], { wall: [number, number, number, [number, number, number]]; floor: [number, number, number, [number, number, number]] }> = {
+  tomb: { wall: [5, 0.14, 0.32, [0.5, 0.52, 0.47]], floor: [2, 0.3, 0.55, [0.43, 0.44, 0.41]] },
+  temple: { wall: [4, 0.25, 0.5, [0.68, 0.63, 0.55]], floor: [2, 0.35, 0.7, [0.6, 0.56, 0.5]] },
+  prison: { wall: [7, 0.1, 0.22, [0.37, 0.35, 0.33]], floor: [4, 0.15, 0.3, [0.33, 0.31, 0.29]] },
+  vault: { wall: [5, 0.16, 0.34, [0.6, 0.5, 0.38]], floor: [3, 0.2, 0.45, [0.52, 0.44, 0.34]] },
+};
+const themed = new Map<Tags['theme'], { wall: Paint; floor: Paint }>();
+export const themePaints = (theme: Tags['theme']) => {
+  let t = themed.get(theme);
+  if (!t) {
+    const rng = new Rng(`dungeon paints ${theme}`), [wr, ws, wl, wt] = THEME_STONE[theme].wall, [fr, fs, fl, ft] = THEME_STONE[theme].floor;
+    t = { wall: masonry(512, wr, ws, wl, wt, rng.fork('wall')), floor: masonry(512, fr, fs, fl, ft, rng.fork('floor')) };
+    themed.set(theme, t);
+  }
+  return t;
+};
+/** The torches' light in each kind of place: a tomb's pale and greenish, a temple's golden, a prison's red, a vault's amber. */
+const THEME_TORCH: Record<Tags['theme'], Color> = {
+  tomb: new Color(0.9, 0.76, 0.5), temple: new Color(1.0, 0.74, 0.44), prison: new Color(1.0, 0.55, 0.3), vault: new Color(1.0, 0.68, 0.36),
+};
+let weather: Texture | null = null;
+/** Soft noise in patches, to lay the frost and the damp by (its red). */
+const weatherNoise = () => {
+  if (weather) return weather;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!, img = g.createImageData(128, 128);
+  for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) { const n = fbm(x / 32, y / 32, 4, 31, 4), k = (y * 128 + x) * 4; img.data[k] = img.data[k + 1] = img.data[k + 2] = 255 * n; img.data[k + 3] = 255; }
+  g.putImageData(img, 0, 0);
+  weather = new CanvasTexture(c);
+  weather.wrapS = weather.wrapT = RepeatWrapping;
+  return weather;
+};
+
 /** What each stuff a prop is made of is painted with, and how it takes the light. */
 export const STUFF_PAINT: Partial<Record<Stuff, 'wood' | 'wall' | 'rock' | 'earth'>> = { wood: 'wood', stone: 'wall', straw: 'earth', clay: 'rock' };
 export const STUFF_LOOK: Record<Stuff, { color?: number; roughness: number; metalness?: number; side?: typeof DoubleSide }> = {
@@ -994,6 +1034,38 @@ function beamPicture(): Texture {
   g.putImageData(img, 0, 0);
   return new CanvasTexture(c);
 }
+/** A band of runes cut in stone, as a picture's alpha: staves with their twigs, each its own by chance (`seed`). */
+function runePicture(seed: string): Texture {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 96;
+  const g = c.getContext('2d')!, r = new Rng(`runes ${seed}`);
+  g.strokeStyle = '#fff'; g.lineWidth = 5; g.lineCap = 'round'; g.lineJoin = 'round';
+  // (Lines along the band's top and foot, and between them the staves.)
+  for (const y of [10, 86]) { g.beginPath(); g.moveTo(8, y); g.lineTo(504, y); g.stroke(); }
+  for (let x = 30; x < 500; x += 38) {
+    g.beginPath(); g.moveTo(x, 22); g.lineTo(x, 74);
+    for (let k = r.int(1, 3); k > 0; k--) {
+      const y0 = r.range(24, 62), side = r.chance(0.5) ? 1 : -1, down = r.chance(0.5) ? 1 : -1;
+      g.moveTo(x, y0); g.lineTo(x + side * r.range(10, 15), y0 + down * r.range(10, 16));
+    }
+    g.stroke();
+  }
+  return new CanvasTexture(c);
+}
+/** A circle drawn on a floor for some rite: two rings, a star of lines across them, marks between, as a picture's alpha. */
+function circlePicture(): Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  g.strokeStyle = '#fff'; g.lineWidth = 4;
+  for (const r of [118, 96]) { g.beginPath(); g.arc(128, 128, r, 0, Math.PI * 2); g.stroke(); }
+  g.beginPath();
+  for (let k = 0; k <= 5; k++) { const a = -Math.PI / 2 + (k * 4 * Math.PI) / 5, x = 128 + 96 * Math.cos(a), y = 128 + 96 * Math.sin(a); if (k) g.lineTo(x, y); else g.moveTo(x, y); }
+  g.stroke();
+  g.lineWidth = 3;
+  for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; g.beginPath(); g.moveTo(128 + 100 * Math.cos(a), 128 + 100 * Math.sin(a)); g.lineTo(128 + 114 * Math.cos(a + 0.05), 128 + 114 * Math.sin(a + 0.05)); g.stroke(); }
+  return new CanvasTexture(c);
+}
 /** A numeral cut in stone, I, II or III (`order`, from 0), as a picture's alpha: before each cold brazier, the order it is to be lit in. */
 function numeralPicture(order: number): Texture {
   const c = document.createElement('canvas');
@@ -1087,6 +1159,8 @@ export class Cave {
    * goes as it opens; what is left when it is open (`after`) comes.
    */
   private readonly shuts: { door: number; kind: 'locked' | 'barred' | 'secret'; open: number; going: boolean; parts: Mesh[]; after: Mesh[] }[] = [];
+  /** Where a circle is drawn on a floor, candles about it (`layThings`): drawn, glowing, in `layPlot`. */
+  private readonly circles: Vector3[] = [];
   /** Spots taken on the floors by what the plot lays, kept apart (`layThings`). */
   private readonly taken: [number, number][] = [];
   /** The key, by the one who came before: where, whether taken; drawn, and its glint. */
@@ -1127,6 +1201,7 @@ export class Cave {
     if (toward) { const [t, lat] = siteLocal(site, toward.x, toward.z); cutDeepDoor(this.layout, [lat, t - (site.length + (this.layout.rows * CAVE.cell) / 2)]); }
     this.plot = plotDungeon(this.layout, this.rng.fork('plot'));
     this.notePlot();
+    this.torchLight = THEME_TORCH[this.layout.tags.theme];
     this.seen = new Uint8Array(this.layout.cols * this.layout.rows);
     this.fogMap = new DataTexture(new Uint8Array(this.layout.cols * this.layout.rows * 4), this.layout.cols, this.layout.rows, RGBAFormat);
     this.fogMap.magFilter = this.fogMap.minFilter = NearestFilter;
@@ -1151,9 +1226,21 @@ export class Cave {
 
     // ---- The cave's own stone, lit by its torches (worked out here, `bake`) and the day at the mouth, and by nothing in the scene but
     // the light carried in and the campfire.
+    // (Weathered as it lies: frost where the cold comes in, on the gate's level, on floors and at the feet of walls, in patches; below,
+    // the stone dark with damp toward the floor, and moss on it. `aFloor` is the floor each point stands over: the gate's, a level down.)
+    const noise = weatherNoise(), deepAt = float(this.site.deep);
+    const weathered = (paint: Paint): N => {
+      const base = texture(paint.map, uv()).rgb as N, floorY = attribute('aFloor', 'float') as N, up = (positionWorld.y as N).sub(floorY);
+      const n = (texture(noise, (positionWorld as N).xz.mul(0.21)) as N).r, n2 = (texture(noise, (positionWorld as N).xz.mul(0.37).add(0.5)) as N).r;
+      const below = deepAt.sub(floorY).div(DROP).clamp(0, 1), low = float(1).sub(up.div(1.4).clamp(0, 1));
+      const frost = float(1).sub(below).mul(smoothstep(0.52, 0.72, n)).mul(max((normalWorld.y as N).mul(0.9), low.mul(0.8))).mul(0.75);
+      const moss = below.mul(smoothstep(0.55, 0.75, n2)).mul(low).mul(0.7), damp = float(1).sub(below.mul(low).mul(0.3));
+      return mix(mix(base.mul(damp), vec3(0.14, 0.2, 0.1), moss), vec3(0.8, 0.86, 0.95), frost);
+    };
     const stone = (paint: Paint, roughness = 0.92) => {
-      const m = new MeshStandardNodeMaterial({ map: paint.map, normalMap: paint.normal, roughness, metalness: 0 });
-      m.emissiveNode = (texture(paint.map, uv()).rgb as N).mul(attribute('aLight', 'vec3')).mul(this.flicker);
+      const m = new MeshStandardNodeMaterial({ map: paint.map, normalMap: paint.normal, roughness, metalness: 0 }), look = weathered(paint);
+      m.colorNode = look;
+      m.emissiveNode = look.mul(attribute('aLight', 'vec3')).mul(this.flicker);
       m.lightsNode = lights([this.lantern, this.fireLight]);
       // (Seen from above, gone over the height it is cut at: its roof and the tops of its walls.)
       m.opacityNode = select(positionWorld.y.greaterThan((attribute('aFloor', 'float') as N).add(this.cutOver)), float(0), float(1)).mul(this.fog());
@@ -1161,7 +1248,8 @@ export class Cave {
       return m;
     };
     for (const s of [walls, floors, rock, earth]) this.bake(s);
-    for (const [s, m] of [[walls, stone(P.wall)], [floors, stone(P.floor, 0.85)], [rock, stone(P.rock, 0.95)], [earth, stone(P.earth, 0.97)]] as const) {
+    const T = themePaints(this.layout.tags.theme);
+    for (const [s, m] of [[walls, stone(T.wall)], [floors, stone(T.floor, 0.85)], [rock, stone(P.rock, 0.95)], [earth, stone(P.earth, 0.97)]] as const) {
       const mesh = new Mesh(s.geometry(true), m);
       mesh.receiveShadow = true;
       this.inner.add(mesh);
@@ -1856,7 +1944,7 @@ export class Cave {
     if (plot.captive >= 0) {
       const b = box(plot.captive), [x, t] = freeSpot(plot.captive, 0.9);
       this.captiveLocal.set(x, b.y, t);
-      put('chain', x + 0.45, b.y, t - 0.2, tales.range(0, 6.3), 0.8, true);
+      put('chain', x + 0.3, b.y, t - 0.15, tales.range(0, 6.3), [0.8, (CAVE.room - 0.05) / 3.7, 0.8], true);
       put('bucket', x - 0.7, b.y, t + 0.3, tales.range(0, 6.3), 1, true);
       this.posts.push({ lat: x, t, r: 0.45 });
     }
@@ -1865,6 +1953,93 @@ export class Cave {
       const b = box(plot.shaft), [x, t] = [(b.x0 + b.x1) / 2, (b.t0 + b.t1) / 2];
       this.shaftLocal.set(x, b.y, t);
       this.torches.push({ at: new Vector3(x, b.y + CAVE.room - 0.4, t), facing: UP.clone(), kind: 'sky', power: 1.5, color: DAYLIGHT.clone().multiplyScalar(1.1) });
+    }
+    // ---- Each kind of place dressed as its own (asked: "what new ... decorations ... do we need?"), by its own chance (`dress`), in the
+    // rooms the plot has not given over: a tomb's coffins stood against the walls, skulls heaped, runestones and fallen columns; a
+    // temple's rugs, basins, lecterns, tapestries; a prison's armour and spears, cages and chains hung from the roof; a vault's shelves of
+    // jars, amphorae, gems. Below, mushrooms and moss in the damp passages.
+    const dress = this.rng.fork('dress'), given = new Set([plot.key, plot.puzzle, plot.captive, plot.flooded, plot.shaft, plot.last, plot.secret?.room ?? -1, 0]);
+    const wallSpots = (i: number) => { const b = box(i); return walls_(b.x0, b.t0, b.x1, b.t1).filter(bare).filter(([x, t, n]) => !this.posts.some((p) => Math.hypot(x + n.x * 0.4 - p.lat, t + n.z * 0.4 - p.t) < p.r + 0.6) && !this.taken.some(([a, c]) => Math.hypot(x - a, t - c) < 1.4)); };
+    const wallOf = (i: number, k: PropKind, off: number, free = false) => { const spots = wallSpots(i); if (!spots.length) return; const w = spots[dress.int(0, spots.length - 1)]; onWall(k, w, box(i).y, off, free); this.taken.push([w[0], w[1]]); };
+    const floorOf = (i: number, k: PropKind, clear: number, scale: number | [number, number, number] = 1, free = false) => { const [x, t] = freeSpot(i, clear); put(k, x, box(i).y, t, dress.range(0, 6.3), scale, free); };
+    const hung: [number, number, number] = [1, (CAVE.room - 0.1) / 3.85, 1];
+    const DRESS: Record<Tags['theme'], Partial<Record<RoomKind, (i: number) => void>>> = {
+      tomb: {
+        crypt: (i) => { wallOf(i, 'coffin', 0.35); if (dress.chance(0.5)) wallOf(i, 'coffin', 0.35); },
+        ossuary: (i) => floorOf(i, 'skullPile', 0.8),
+        hall: (i) => { floorOf(i, 'runestone', 0.9); floorOf(i, 'brokenColumn', 0.9); },
+        shrine: (i) => floorOf(i, 'tombSlab', 1.0, 1, true),
+        store: (i) => floorOf(i, 'ribcage', 0.6, 1, true),
+      },
+      temple: {
+        shrine: (i) => { floorOf(i, 'rug', 1.3, 1, true); wallOf(i, 'basin', 0.4); },
+        library: (i) => floorOf(i, 'lectern', 0.8),
+        hall: (i) => { wallOf(i, 'tapestry', 0.02, true); wallOf(i, 'tapestry', 0.02, true); floorOf(i, 'brokenColumn', 0.9); },
+        crypt: (i) => floorOf(i, 'tombSlab', 1.0, 1, true),
+        store: (i) => wallOf(i, 'jarShelf', 0.22),
+      },
+      prison: {
+        guard: (i) => { wallOf(i, 'armorStand', 0.4); wallOf(i, 'spearBundle', 0.35); wallOf(i, 'shield', 0.06, true); },
+        hall: (i) => { floorOf(i, 'hangingCage', 0.7, hung, true); floorOf(i, 'hangingCage', 0.7, hung, true); },
+        store: (i) => { floorOf(i, 'chain', 0.5, [1, (CAVE.room - 0.05) / 3.7, 1], true); floorOf(i, 'hangingCage', 0.7, hung, true); },
+        ossuary: (i) => floorOf(i, 'chain', 0.5, [1, (CAVE.room - 0.05) / 3.7, 1], true),
+        cell: (i) => wallOf(i, 'shackles', 0.02, true),
+      },
+      vault: {
+        vault: (i) => { wallOf(i, 'jarShelf', 0.22); floorOf(i, 'amphora', 0.5); floorOf(i, 'gemPile', 0.6); },
+        guard: (i) => { wallOf(i, 'armorStand', 0.4); wallOf(i, 'shield', 0.06, true); },
+        store: (i) => { floorOf(i, 'amphora', 0.5); floorOf(i, 'pots', 0.5); },
+        hall: (i) => { wallOf(i, 'tapestry', 0.02, true); floorOf(i, 'amphora', 0.5); },
+      },
+    };
+    this.layout.rooms.forEach((room, i) => { if (!given.has(i)) DRESS[this.layout.tags.theme][room.kind]?.(i); });
+    for (let r = 0; r < this.layout.rows; r++) for (let c = 0; c < this.layout.cols; c++) {
+      const k = r * this.layout.cols + c, f = this.layout.floor[k];
+      if (this.layout.cells[k] !== 1 || this.layout.down[k] >= 0 || f >= 0 || !dress.chance(0.3)) continue;
+      strew(dress.chance(0.5) ? 'mushrooms' : 'moss', this.latOf(c), this.tOf(r), 1, 1.0, f);
+    }
+    // ---- What happened here, told by what was left (by `scenes`), each in a room no one else has: a camp someone made and left; a
+    // circle drawn on the floor, candles round it, a skull in it; a nest, webs thick across the room, its egg sacs in the corners.
+    const scenes = this.rng.fork('scenes'), open = this.layout.rooms.map((_, i) => i).filter((i) => !given.has(i) && this.layout.rooms[i].w * this.layout.rooms[i].h >= 4);
+    const takeRoom = (kinds: RoomKind[], below = false) => {
+      const can = open.filter((i) => kinds.includes(this.layout.rooms[i].kind)).sort((a, b) => (below ? this.layout.rooms[a].level - this.layout.rooms[b].level : 0));
+      if (!can.length) return -1;
+      const i = below && scenes.chance(0.6) ? can[0] : scenes.pick(can);
+      open.splice(open.indexOf(i), 1);
+      return i;
+    };
+    const tell = (i: number, more: string) => { this.layout.rooms[i].note += `; ${more}`; };
+    if (scenes.chance(0.55)) {
+      const i = takeRoom(['store', 'guard', 'hall', 'library', 'vault']);
+      if (i >= 0) {
+        const b = box(i), [x, t] = freeSpot(i, 1.3), turn = scenes.range(0, 6.3), sn = Math.sin(turn), cs = Math.cos(turn);
+        put('bedroll', x + sn * 0.6, b.y, t + cs * 0.6, turn + Math.PI / 2);
+        put('firewood', x - sn * 0.5, b.y, t - cs * 0.5, turn, 0.8, true);
+        put('pots', x - cs * 0.6, b.y, t + sn * 0.6, turn, 1, true);
+        put('sack', x + cs * 0.7, b.y, t - sn * 0.7, turn, 0.8, true);
+        strew('bones', x, t, 2, 0.6, b.f, () => 0.5);
+        tell(i, 'someone camped here and did not come back for their things');
+      }
+    }
+    if (scenes.chance(this.layout.tags.theme === 'temple' || this.layout.tags.theme === 'tomb' ? 0.6 : 0.35)) {
+      const i = takeRoom(['shrine', 'crypt', 'hall', 'ossuary', 'library']);
+      if (i >= 0) {
+        const b = box(i), [x, t] = freeSpot(i, 1.6, 3);
+        for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; put('candlestick', x + Math.cos(a) * 1.15, b.y, t + Math.sin(a) * 1.15, 0, 1, true); }
+        put('skull', x, b.y, t, scenes.range(0, 6.3), 1.2, true);
+        this.circles.push(new Vector3(x, b.y + 0.012, t));
+        tell(i, 'a circle drawn on its floor, candles burning about it');
+      }
+    }
+    if (scenes.chance(0.45)) {
+      const i = takeRoom(['store', 'ossuary', 'cell', 'crypt', 'guard'], true);
+      if (i >= 0) {
+        const b = box(i);
+        for (let k = 0; k < 2; k++) floorOf(i, 'eggSacs', 0.5, scenes.range(0.8, 1.2), true);
+        for (const [x, t, sx, st] of [[b.x0, b.t0, 1, 1], [b.x1, b.t0, -1, 1], [b.x0, b.t1, 1, -1], [b.x1, b.t1, -1, -1]] as const) put('cobweb', x + sx * 0.3, b.y + CAVE.room - 0.35, t + st * 0.3, Math.atan2(sx, st) + Math.PI, 1.4, true);
+        strew('bones', (b.x0 + b.x1) / 2, (b.t0 + b.t1) / 2, 4, 1.2, b.f);
+        tell(i, 'webs thick across it: something nests here');
+      }
     }
     // (The torches either side of the last room's locked way in burn with a cold fire: the way that matters, marked.)
     for (const i of plot.locked) {
@@ -2033,7 +2208,7 @@ export class Cave {
       this.lightAt(new Vector3(x, deep + f + 1.5, t).addScaledVector(go, 0.3), go, c);
       const g = new BoxGeometry(CAVE.cell, hgt, 0.3), uvs = g.getAttribute('uv') as BufferAttribute;
       for (let k = 0; k < uvs.count; k++) uvs.setXY(k, (uvs.getX(k) * CAVE.cell) / 2, (uvs.getY(k) * hgt) / 2);
-      const plug = new Mesh(g, this.glowing(new MeshStandardNodeMaterial({ map: P.wall.map, normalMap: P.wall.normal, roughness: 0.92, color: 0xcfc6ba }), c.clone().multiplyScalar(1.15), P.wall.map));
+      const T = themePaints(this.layout.tags.theme), plug = new Mesh(g, this.glowing(new MeshStandardNodeMaterial({ map: T.wall.map, normalMap: T.wall.normal, roughness: 0.92, color: 0xcfc6ba }), c.clone().multiplyScalar(1.15), T.wall.map));
       plug.position.set(x - go.x * 0.15, deep + f + hgt / 2, t - go.z * 0.15);
       plug.rotation.y = Math.atan2(go.x, go.z);
       const crackPaint = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
@@ -2049,6 +2224,44 @@ export class Cave {
       const after = this.drawProps(fallen);
       for (const m of after) m.visible = false;
       this.shuts.push({ door: i, kind: 'secret', open: 0, going: false, parts: [plug, crack], after });
+    }
+    // Runes over the locked way, glowing with the cold fire; and, in a temple or a tomb, bands of them high on its halls' and shrines' walls.
+    const runes = (color: Color, at: Vector3, facing: Vector3, w: number, seed: string, k: number) => {
+      const paint = new MeshBasicNodeMaterial({ map: runePicture(seed), transparent: true, depthWrite: false, blending: AdditiveBlending });
+      paint.colorNode = vec3(color.r, color.g, color.b).mul((texture(paint.map!, uv()) as N).a).mul(sin(time.mul(1.3).add(k)).mul(0.2).add(0.8)).mul(0.6);
+      paint.opacityNode = this.fog();
+      const m = new Mesh(new PlaneGeometry(w, w * 0.19), paint);
+      m.position.copy(at);
+      m.rotation.y = Math.atan2(facing.x, facing.z);
+      this.inner.add(m);
+    };
+    plot.locked.forEach((i, k) => {
+      const { d, x, t } = edge(i), go = new Vector3(d.dc, 0, d.dr), roof = this.layout.top[d.r * cols + d.c];
+      runes(COLD_FIRE, new Vector3(x, deep + roof - 0.3, t).addScaledVector(go, -0.455), go.clone().negate(), CAVE.cell - 1.1, `${this.seed} gate ${k}`, k);
+    });
+    const theme = this.layout.tags.theme;
+    if (theme === 'temple' || theme === 'tomb') {
+      const rr = this.rng.fork('runes'), glow = theme === 'temple' ? new Color(1, 0.72, 0.3) : new Color(0.55, 0.95, 0.7);
+      this.layout.rooms.forEach((room, ri) => {
+        if (!['hall', 'shrine', 'sanctum', 'tomb', 'crypt'].includes(room.kind)) return;
+        const y = deep + room.level * DROP + 3.4, x0 = this.latOf(room.c0) - half, t0 = this.tOf(room.r0) - half, x1 = x0 + room.w * CAVE.cell, t1 = t0 + room.h * CAVE.cell;
+        const spots: [number, number, Vector3][] = [];
+        for (let x = x0 + half; x < x1; x += CAVE.cell) { if (!this.openAt(x, t0 - 0.5)) spots.push([x, t0, new Vector3(0, 0, 1)]); if (!this.openAt(x, t1 + 0.5)) spots.push([x, t1, new Vector3(0, 0, -1)]); }
+        for (let t = t0 + half; t < t1; t += CAVE.cell) { if (!this.openAt(x0 - 0.5, t)) spots.push([x0, t, new Vector3(1, 0, 0)]); if (!this.openAt(x1 + 0.5, t)) spots.push([x1, t, new Vector3(-1, 0, 0)]); }
+        for (let k = 0; k < Math.min(2, spots.length); k++) {
+          const [x, t, n] = spots.splice(rr.int(0, spots.length - 1), 1)[0];
+          runes(glow, new Vector3(x, y, t).addScaledVector(n, 0.03), n, CAVE.cell - 0.4, `${this.seed} ${ri} ${k}`, ri + k);
+        }
+      });
+    }
+    // The circles drawn on the floors, smouldering red.
+    for (const at of this.circles) {
+      const paint = new MeshBasicNodeMaterial({ map: circlePicture(), transparent: true, depthWrite: false, blending: AdditiveBlending });
+      paint.colorNode = vec3(0.9, 0.18, 0.08).mul((texture(paint.map!, uv()) as N).a).mul(sin(time.mul(0.8)).mul(0.25).add(0.75));
+      paint.opacityNode = this.fog();
+      const m = new Mesh(new PlaneGeometry(2.9, 2.9).rotateX(-Math.PI / 2), paint);
+      m.position.copy(at);
+      this.inner.add(m);
     }
     // The key: an iron key, its bow a ring, lying by the hand that carried it; a glint over it.
     if (!Number.isNaN(this.keyLocal.x)) {
@@ -2178,7 +2391,7 @@ export class Cave {
     }
     if (!Number.isNaN(this.ghostLocal.x)) {
       const pale = new MeshBasicNodeMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: AdditiveBlending });
-      pale.colorNode = (attribute('color', 'vec3') as N).mul(0.22).mul(this.ghostFade).mul(sin(time.mul(2.1)).mul(0.12).add(0.88));
+      pale.colorNode = (attribute('color', 'vec3') as N).mul(0.16).mul(this.ghostFade).mul(sin(time.mul(2.1)).mul(0.12).add(0.88));
       pale.opacityNode = this.fog();
       const ghost = new Folk({ robe: 0x7fb6e8, hood: 0x9cc8f0, skin: 0xd8ecff }, 'stand', pale, true);
       ghost.group.position.copy(this.ghostLocal);
@@ -2302,6 +2515,19 @@ export class Cave {
     }
     return out;
   }
+  /**
+   * How much more often each kind of foe comes in this place than it would anywhere (`Den.favour`): the dead walk in a tomb, and in a
+   * temple; a prison is kept by orcs; goblins come after a vault's gold; whoever was laid in a barrow rises more often in one.
+   */
+  favour(kind: string): number {
+    const by: Record<Tags['theme'], Record<string, number>> = {
+      tomb: { draugr: 3, orc: 0.6, goblin: 0.6, 'barrow-king': 1.5 }, temple: { draugr: 2, goblin: 1.2 },
+      prison: { orc: 2.2, goblin: 1.4, draugr: 0.5 }, vault: { goblin: 3, orc: 1, draugr: 0.5 },
+    };
+    return by[this.layout.tags.theme][kind] ?? 1;
+  }
+  /** How near the great one's fight is, for what is heard (`CaveEcho`): its room come into and it risen, all of it; else none. */
+  dread(x: number, z: number): number { return this.met.ghost && this.roomAt(x, z)?.i === this.plot.last ? 1 : 0; }
   /** The hermit's trade taken up: none more with him this run. */
   traded(): void { this.met.traded = true; }
   /** How fast one on foot may go at a point (in the land), as a share: slowed wading through the flooded room's water. */
@@ -2435,6 +2661,7 @@ export class Cave {
       traps: p.traps.length, flooded: name(p.flooded), shaft: name(p.shaft),
       puzzle: p.puzzle >= 0 ? { room: name(p.puzzle), order: this.braziers.map((b) => b.order), lit: this.braziers.filter((b) => b.lit).length, done: this.puzzleDone, dying: +this.puzzleWrong.toFixed(2), cool: this.braziers.filter((b) => b.cool).length } : null,
       captive: p.captive >= 0 ? { room: name(p.captive), freed: this.met.captive } : null, ghost: this.met.ghost, traded: this.met.traded,
+      rooms: this.layout.rooms.map((r) => r.note),
     };
   }
 

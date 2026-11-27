@@ -78,6 +78,7 @@ import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
+import { CaveEcho } from './slopeEcho';
 import { carve, Cave, type CaveEvent, type CaveSpot, clearOfKickers, findSite, paintsOf, sitePoint, sliceGround, STUFF_LOOK, STUFF_PAINT } from './slopeDungeon';
 import { PROP_KINDS, Props } from './slopeProps';
 import { forkSign } from './slopeSign';
@@ -6073,6 +6074,8 @@ async function start() {
   // round flies as a tracer and strikes the snow, throwing it up, or an orc, which falls (`slopeGun.ts`, `slopeOrcs.ts`). Orcs come up
   // the run in hordes while it is carried, and how many have been brought down is counted.
   const gunRng = new Rng('tommy gun'), gun = tommyGun(), gunfire = new Gunfire(scene, gunRng.fork('fire')), gunSound = new GunSound(gunRng.fork('sound'));
+  /** What is heard in the caves, woken with the arms' sound (`slopeEcho.ts`). */
+  const echo = new CaveEcho();
   // (Struck, an orc spatters its blood over the snow, a great deal of it, and a pool spreads where it falls: `slopeSplatter.ts`.)
   const splatter = new Splatter(scene, gunRng.fork('blood'), ground, (x, z) => normalAt(x, z, 0.5));
   // (Struck and not brought down, a little blood thrown, and no pool.)
@@ -7022,7 +7025,7 @@ async function start() {
     swing = null; pulls = 0;
   };
   // (With the orcs on, the sound woken by any click or key, the first that a browser lets wake it: not left to the first shot.)
-  const wakeSound = () => { if (orcsOn) gunSound.wake(); };
+  const wakeSound = () => { if (orcsOn) { gunSound.wake(); echo.wake(); } };
   // The bar toward the next arm (`#armBar`), riding with the arms, drawn as the tricks' meter is: a block for each `ARM_BLOCK` orcs
   // toward it, filled as each is brought down; full and gilt for a moment (`ARM_WON` seconds, the page's own) as an arm is taken up,
   // then empty toward the one after it, or put away when there is none left to take up.
@@ -7080,6 +7083,7 @@ async function start() {
       floor: (x, z) => cave.floorUnder(x - o.x, z - o.z) ?? land.height(x, z),
       walk: (x, z, tx, tz, r) => { const [a, b] = cave.walk(x - o.x, z - o.z, tx - o.x, tz - o.z, r); return [a + o.x, b + o.z]; },
       shows: (p) => !foot || cave.inSight({ x: foot.x - o.x, z: foot.z - o.z, y: 0 } as Vector3, new Vector3(p.x - o.x, p.y, p.z - o.z)),
+      favour: (kind) => cave.favour(kind),
     };
   };
   /**
@@ -8167,7 +8171,7 @@ async function start() {
     // (Back out of them: the land's other things shown again, and how dark it is worked out afresh, as the cave there has it.)
     if (wasDeep) { wasDeep = false; under = false; for (const c of deeps?.group.parent?.children ?? []) if (c !== deeps?.group) c.visible = true; }
     const cave = caveNow();
-    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; caveLights.lantern.intensity = caveLights.fire.intensity = 0; return; }
+    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; caveLights.lantern.intensity = caveLights.fire.intensity = 0; echo.step(dt, 0, 0, 0); return; }
     const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
     // (On foot the view is from above, out in the air over the snow: how dark it is, is how dark it is where the one on foot is.)
     caveDark = cave.darkness(at && mode === 'ride' ? at : eye);
@@ -8177,6 +8181,9 @@ async function start() {
     if (deeps && at && into) { const door = cave.deepDoor(), near = !!door && Math.hypot(at.x - door.x, at.z - door.z) < 26; deeps.group.visible = near; if (near) { deeps.cutOver.value = 3; deeps.under.value = at.y; } }
     const ahead = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : undefined;
     cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0, ahead);
+    // (What is heard there: the wind at its mouth, the drips in the dark, the drone as its great one rises.)
+    const heard = at ?? eye, fromMouth = Math.hypot(heard.x - cave.site.mouth.x, heard.z - cave.site.mouth.z);
+    echo.step(dt, at && mode === 'ride' ? cave.darkness(at) : 0, Math.max(0, 1 - fromMouth / 22), at && mode === 'ride' ? cave.dread(at.x, at.z) : 0);
   };
 
   // ---------------------------------------------------------------- the cinematic camera

@@ -52,6 +52,8 @@ export interface Den {
   walk(x: number, z: number, tx: number, tz: number, r: number, y?: number): [number, number];
   /** Whether what stands at a point is to be drawn: in sight of the one on foot (the dark of the dungeon hides the rest). */
   shows?(p: Vector3): boolean;
+  /** How much more (or less) often each kind comes here than its own chance has it: a tomb's dead, a prison's orcs, a vault's goblins. */
+  favour?(kind: string): number;
 }
 
 /**
@@ -359,11 +361,12 @@ export class Horde {
     const coming = this.foes.filter((b) => b.state === 'come').length;
     if (dt > 0 && coming < most * 0.5 && this.rng.chance(dt * 0.8)) {
       const greatOn = this.foes.some((b) => b.state === 'come' && b.kind.titles);
-      const great = !greatOn && (this.only || this.denClock - this.greatAt > 90) && greats.find((k) => free(k).length && (this.only || this.rng.chance(k.den!.chance)));
+      const odds = (k: FoeKind) => k.den!.chance * (den.favour?.(k.name) ?? 1);
+      const great = !greatOn && (this.only || this.denClock - this.greatAt > 90) && greats.find((k) => free(k).length && (this.only || this.rng.chance(odds(k))));
       let kind: FoeKind | undefined = great || undefined;
       if (!kind) {
-        let pick = this.rng.range(0, packs.reduce((n, k) => n + k.den!.chance, 0));
-        for (const k of packs) { if (pick < k.den!.chance) { kind = k; break; } pick -= k.den!.chance; }
+        let pick = this.rng.range(0, packs.reduce((n, k) => n + odds(k), 0));
+        for (const k of packs) { if (pick < odds(k)) { kind = k; break; } pick -= odds(k); }
       }
       const waiting = kind ? free(kind) : [], from = kind && waiting.length >= Math.min(2, kind.den!.pack[0]) ? den.spawn(this.rng, q.at) : null;
       if (kind && from) {
