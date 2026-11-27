@@ -6,7 +6,7 @@
  *
  * The way is looked for over the land beside the run, out past the run's own snow: leaving the piste's edge some way up the run and
  * coming down across the land to a place well out from it, never climbing, never too steep down or across, nowhere over water, and
- * far from the run's own caves. Its end is where the cave's camp is to be, and a knoll is raised past it for the cave's mouth, facing
+ * far from the run's own caves; its end, and its lower half, well out from every piste of the run, any way of it (`CLEAR`). Its end is where the cave's camp is to be, and a knoll is raised past it for the cave's mouth, facing
  * back up the way (as `findSite` raises one where no bank will take a cave), the mouth tried as the run's own are (`trySite`).
  *
  * The run's snow at a metre (`SkiSlice.snow`) reaches only some fifty metres either side of its line; out past it there is only the
@@ -25,6 +25,7 @@ import { Rng } from '../src/core/rng';
 import { type Grid, gridAt, type SkiSlice } from '../src/core/skiSlice';
 import { COVER } from '../src/core/world';
 import { CAVE, type CaveSite, KNOLL, knollAt, sliceFrame, trySite } from './slopeDungeon';
+import type { Branch } from './slopeLand';
 
 type N = ReturnType<typeof float>;
 
@@ -32,7 +33,41 @@ type N = ReturnType<typeof float>;
 export interface Trail { site: CaveSite; path: [number, number][]; from: number; to: number; side: number }
 
 /** How the way is looked for: how far out past the run's snow it may end, how wide the lane laid for it is, and how far about its knoll the snow is laid. */
-const TRAIL = { out: [40, 130] as [number, number], lane: 6, clearing: 44, step: 2, tries: 260, best: 14 };
+const TRAIL = { out: [40, 150] as [number, number], lane: 6, clearing: 44, step: 2, tries: 260, best: 14 };
+/**
+ * How far from every piste the way keeps (asked: "The dungeon entrance of the off piste cave is practically in-piste here in lakewall and
+ * too close to the path to ski past easily without hitting rock ... need to be more away from the ski area"): its camp, and the lower
+ * half of the way, out past the nearest piste's edge, of any way of the run and anywhere along it. (Kept only out past the run's snow
+ * where the way left it, and that only some forty metres, a camp had stood some fifty metres from Lake Wall's piste with its rock nearer,
+ * and nothing had kept it from the other way of a run that parts, or from the run itself further down where it bends back.)
+ */
+const CLEAR = { camp: 70, way: 30 };
+
+/**
+ * How far a point (in `slice`'s scene frame) is out past the edge of the nearest piste: the run's own, and each way that parts from it
+ * (`SkiSlice.branches`) past where it parts; nothing on one. Taken across each piste every four metres along it.
+ */
+export function pisteGap(slice: SkiSlice): (x: number, z: number) => number {
+  const F = sliceFrame(slice), cuts: number[] = [];
+  const ways = [{ run: slice.run, from: 0 }, ...((slice as SkiSlice & { branches?: Branch[] }).branches ?? [])];
+  for (const w of ways) {
+    // (A way's own frame is from its own first point: shifted into the run's.)
+    const B = w.run === slice.run ? F : sliceFrame({ ...slice, run: w.run }), sx = B.ox - F.ox, sz = B.oz - F.oz;
+    for (let s = w.from; s <= B.length; s += 4) {
+      const [lo, hi] = B.edges(s), a = B.at(s, lo), b = B.at(s, hi);
+      cuts.push(a.x + sx, a.z + sz, b.x + sx, b.z + sz);
+    }
+  }
+  return (x, z) => {
+    let best = Infinity;
+    for (let i = 0; i < cuts.length; i += 4) {
+      const ax = cuts[i], az = cuts[i + 1], dx = cuts[i + 2] - ax, dz = cuts[i + 3] - az, l2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2)), d = (ax + dx * t - x) ** 2 + (az + dz * t - z) ** 2;
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
+  };
+}
 
 const catmull = (p0: number, p1: number, p2: number, p3: number, t: number) => 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
 /** The land at four metres at a point, smoothed (a cubic through the sixteen heights about it), for the snow laid at a metre not to show the coarser grid's facets. */
@@ -71,7 +106,7 @@ function fillSnow(slice: SkiSlice, ox: number, oz: number, points: [number, numb
  */
 export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; z: number }[] = [], away = 140, told?: Record<string, number>, clear?: (x: number, z: number) => boolean): Trail | null {
   const tell = (why: string) => { if (told) told[why] = (told[why] ?? 0) + 1; };
-  const F = sliceFrame(slice), L = F.length, rng = new Rng(`forgotten slope ${seed}`), h = F.height, far = F.far;
+  const F = sliceFrame(slice), L = F.length, rng = new Rng(`forgotten slope ${seed}`), h = F.height, far = F.far, gap = pisteGap(slice);
   const steep = (x: number, z: number, e = 3) => Math.hypot(h(x + e, z) - h(x - e, z), h(x, z + e) - h(x, z - e)) / (2 * e);
   const water = (x: number, z: number) => {
     const i = Math.round((x - far.x0) / far.cell), j = Math.round((z - far.z0) / far.cell), c = i < 0 || j < 0 || i >= far.nx || j >= far.nz ? COVER.sea : slice.cover[j * far.nx + i];
@@ -84,8 +119,11 @@ export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; 
   // (Found as one finding a way down would find it, a stride at a time from the piste's edge: of the headings about the way it wants
   // to go (out from the run, and down), the first that goes down, not too steeply, not across too steep a side, not over water and not
   // out of the land; out as far as it means to go, then on down the fall line to the first gentle place, where the camp will be.)
-  for (let n = 0; n < TRAIL.tries; n++) {
-    const side = rng.chance(0.5) ? 1 : -1, from = rng.range(0.12, 0.7) * L, [a, b] = F.edges(from), out = rng.range(TRAIL.out[0], TRAIL.out[1]);
+  // (Tried on, up to three times as often, while few ways have been found: where the land about a run gives few ways out far enough
+  // from its pistes, as about Ashbridge Bend's spur.)
+  for (let n = 0; n < TRAIL.tries || (found.length < 4 && n < TRAIL.tries * 3); n++) {
+    const side = rng.chance(0.5) ? 1 : -1, from = rng.range(0.12, 0.7) * L, [a, b] = F.edges(from);
+    let out = rng.range(TRAIL.out[0], TRAIL.out[1]);
     const p = F.at(from, side > 0 ? b + 1.5 : a - 1.5);
     let x = p.x, z = p.z, fell = 0, run = 0, beyond = 0, ok = false;
     const path: [number, number][] = [[x, z]], lean = rng.range(0.6, 1.6);
@@ -102,9 +140,16 @@ export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; 
         const t = (turn * Math.PI) / 180, dx = wx * Math.cos(t) - wz * Math.sin(t), dz = wx * Math.sin(t) + wz * Math.cos(t);
         const nx = x + dx * TRAIL.step, nz = z + dz * TRAIL.step, dh = h(nx, nz) - h(x, z);
         // (Nor through a village, `clear`, nor its camp in one.)
-        if (dh > -0.05 || -dh / TRAIL.step > tanOf(31) || steep(nx, nz) > tanOf(35) || water(nx, nz) || !inside(nx, nz, 40) || (clear && !clear(nx, nz))) continue;
+        // (Down no steeper than 34 degrees, across ground no steeper than 40: an off-piste way, for one who can. At 31 and 35, ways off
+        // Lake Wall's spur, ringed by steeper sides, could go no further out than some sixty metres from its pistes, and seldom that.)
+        if (dh > -0.05 || -dh / TRAIL.step > tanOf(34) || steep(nx, nz) > tanOf(40) || water(nx, nz) || !inside(nx, nz, 40) || (clear && !clear(nx, nz))) continue;
         next = [nx, nz]; fell -= dh; break;
       }
+      // (Stuck going out, but out far enough already: out no further, on down the fall line from here. Where a run's sides fall too
+      // steeply to go on out across, as Lake Wall's spur's do, ways had all been given up there.)
+      if (!next && wide < out && wide >= TRAIL.out[0]) { out = wide; step--; continue; }
+      // (Stuck on down, out far enough and on a while, where it is gentle enough to try a camp at: the end of it, for `trySite` to say.)
+      if (!next && beyond > 12 && steep(x, z, 6) < tanOf(22)) { ok = true; break; }
       if (!next) { tell(`stuck ${wide < out ? 'going out' : 'going down'}`); break; }
       // (How far on down the run it has come, for the run's frame to be taken there.)
       s += Math.max(0, (next[0] - x) * f.dx + (next[1] - z) * f.dz);
@@ -116,6 +161,9 @@ export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; 
     if (!ok || path.length < 20) { if (ok) tell('short'); continue; }
     const [ex, ez] = path[path.length - 1];
     if (keepFrom.some((c) => Math.hypot(c.x - ex, c.z - ez) < away) || !inside(ex, ez, TRAIL.clearing + 35)) { tell('near a cave or the land\'s edge'); continue; }
+    // (Its camp well out from every piste, and its lower half off them too, for the cave to be out of the ski area: `CLEAR`.)
+    if (gap(ex, ez) < CLEAR.camp) { tell('camp near a piste'); continue; }
+    if (path.slice(path.length >> 1).some(([x, z]) => gap(x, z) < CLEAR.way)) { tell('way near a piste'); continue; }
     // (Smoothed, for a way that sweeps rather than steps.)
     const smooth = path.map((q, i) => { if (i < 2 || i > path.length - 3) return q; let sx = 0, sz = 0; for (let k = -2; k <= 2; k++) { sx += path[i + k][0]; sz += path[i + k][1]; } return [sx / 5, sz / 5] as [number, number]; });
     const grade = (Math.atan(fell / run) * 180) / Math.PI;
@@ -137,7 +185,8 @@ export function planTrail(slice: SkiSlice, seed: string, keepFrom: { x: number; 
       const t = (turn * Math.PI) / 180, ax = dx * Math.cos(t) - dz * Math.sin(t), az = dx * Math.sin(t) + dz * Math.cos(t);
       const mouth = { x: ex + ax * (CAVE.campR - 0.5), z: ez + az * (CAVE.campR - 0.5) }, k = { x: mouth.x + ax * KNOLL.along * 0.62, z: mouth.z + az * KNOLL.along * 0.62 };
       const knoll = { x: k.x, z: k.z, ax, az, ...KNOLL };
-      if (f.path.slice(0, -8).some(([x, z]) => knollAt(knoll, x, z) > 0.2)) continue;
+      // (Not over the old tracks; nor the knoll's rock turned back toward a piste, nearer it than the camp may be.)
+      if (f.path.slice(0, -8).some(([x, z]) => knollAt(knoll, x, z) > 0.2) || gap(k.x, k.z) < CLEAR.camp) continue;
       const site: CaveSite = { s: f.to, side: f.side, mouth, ax, az, y0: 0, deep: 0, camp: { x: 0, z: 0 }, length: 20, holeTo: 0, knoll };
       const score = trySite(F, site, (x, z) => F.height(x, z) + knollAt(knoll, x, z));
       if (score !== null && (!best || score > best.score)) best = { site: { ...site, mouth: { ...site.mouth }, camp: { ...site.camp } }, score };

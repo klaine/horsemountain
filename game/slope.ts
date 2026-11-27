@@ -823,7 +823,10 @@ async function start() {
       const map = caved ? mapFor(kind) : null;
       let trail: Trail | null = null, trailBase: ReturnType<typeof carve> | null = null;
       if (map) try {
-        trail = planTrail(slice, map.seed, [site?.camp, ...branchCaves.map((b) => b?.site.camp)].filter((c): c is { x: number; z: number } => !!c), undefined, undefined, clear);
+        // (Its own seed first, then two more from it: where the land about a run gives few ways well out from its pistes, a map found had
+        // shown nothing.)
+        const caves = [site?.camp, ...branchCaves.map((b) => b?.site.camp)].filter((c): c is { x: number; z: number } => !!c);
+        for (let k = 0; !trail && k < 3; k++) trail = planTrail(slice, k ? `${map.seed}/${k}` : map.seed, caves, undefined, undefined, clear);
         if (trail) trailBase = carve(slice, trail.site);
       } catch (e) { console.error('the forgotten slope', e); trail = null; }
       took('forgotten slope');
@@ -2046,7 +2049,10 @@ async function start() {
   // probably no need for limits as there is the 15 second pull back?"): out over the land about the run as far as it can be ridden,
   // `Land.roam`, `keepOn`. It had been held to the run's own snow, some fifty metres either side of its line.)
   // (And on a forgotten slope's way, off the piste allowed or not.)
-  const reachAt = (s: number): [number, number] => (offPisteOk() || (flyingDemo && demoKind === 'show') || (mode === 'ride' && !flyingDemo && onTrail(14)) ? [-1e6, 1e6] : land.edges(s));
+  // (On a forgotten slope's way, riding: where it may go, out of bounds or not, and past the run's foot, as on Lake Wall, whose way goes
+  // down off its spur to the lake beside its foot, the only land well out from its pistes: not held to the foot, nor the run over there.)
+  const freeOnTrail = () => mode === 'ride' && !flyingDemo && onTrail(14);
+  const reachAt = (s: number): [number, number] => (offPisteOk() || (flyingDemo && demoKind === 'show') || freeOnTrail() ? [-1e6, 1e6] : land.edges(s));
   /**
    * Where the skier now is against the run: its way and its body's facing kept as they were in the world as the run's own way turns
    * under it; kept on the skiable path, inside its edges (or, off the piste allowed, the snow's reach) and between its top and its foot
@@ -2062,7 +2068,7 @@ async function start() {
       if (w !== land.way!()) { land.setWay!(w); switched = true; }
     }
     let f = land.frame(ride.x, ride.z, switched ? undefined : ride.down);
-    const [lo, hi] = reachAt(f.s), end = land.length + 20;
+    const [lo, hi] = reachAt(f.s), end = freeOnTrail() ? Infinity : land.length + 20;
     if (f.left < lo + 1 || f.left > hi - 1 || f.s < -20 || f.s > end) {
       const s = clamp(f.s, -20, end), left = clamp(f.left, lo + 1, hi - 1), p = land.at(s, left);
       ride.x = p.x; ride.z = p.z;
@@ -4365,7 +4371,7 @@ async function start() {
     // Taken onto the stones too fast, thrown (`STONES`).
     if (ride.overStones > STONES.catch && ride.speed > STONES.fast + g.stones / 3.6 && !ride.ended) { ride.overStones = 0; fall('caught an edge on the stones'); }
     // At the foot of a world's run: brought to a stop there.
-    if (!ride.ended && ride.down > land.length - 30) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else { if (!flyingDemo && !quiet) runOver = { what: 'The foot of the run', why: '', bad: false, drop: land.fall, time: ride.time, timeSaid: bestTimeSaid() }; tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); } }
+    if (!ride.ended && ride.down > land.length - 30 && !freeOnTrail()) { ride.ended = true; if (inside) tell('Back at the top', 'the world turning the right way up', false, 1e9); else if (carting) tell('At the top', 'a new run in a moment', false, 1e9); else { if (!flyingDemo && !quiet) runOver = { what: 'The foot of the run', why: '', bad: false, drop: land.fall, time: ride.time, timeSaid: bestTimeSaid() }; tell('The foot of the run', `${land.fall.toFixed(0)} m vertical in ${ride.time.toFixed(0)} s · ${score.toLocaleString('en')} points${bestBefore > 0 && score > bestBefore ? ' · new best!' : ''}`, false, 1e9); } }
     return { down: ride.down, left: ride.left, speed: ride.speed, way: ride.way, ski, skid: Math.max(Math.abs(Math.sin(ski - ride.way)), g180 ? g180.scrape * sideOn : 0), tuck: ride.tuck, brake: ride.brake, deep: ride.deep };
   };
   /** On foot, what it is doing, in words: in the camp, in the tunnel, or in which of the dungeon's rooms. */
@@ -7706,7 +7712,9 @@ async function start() {
     if (!f) { liftAsked = false; return; }
     if (cat || air || foot || carting || inside || crash) return;
     liftAsked = false;
-    const s = clamp(f.trail.to, 5, land.length === Infinity ? f.trail.to : land.length - 60), [a, b] = land.edges(s);
+    // (Across from the camp on the way ridden there, which on a run that parts may not be the way the forgotten one left.)
+    const o = land.group.position, c = f.cave.site.camp, at = land.frame(c.x + o.x, c.z + o.z).s;
+    const s = clamp(at, 5, land.length === Infinity ? at : land.length - 60), [a, b] = land.edges(s);
     backOnto = { s, left: clamp((a + b) / 2, a + 4, b - 4), way: ridden() };
     tell('The plane!', 'back to the piste', false, 2.5);
     WAYS.plane.begin();
@@ -9578,12 +9586,18 @@ async function start() {
       return { from: +f.trail.from.toFixed(0), to: +f.trail.to.toFixed(0), side: f.trail.side, length: Math.round(len), camp: [+(f.cave.site.camp.x + o.x).toFixed(1), +(f.cave.site.camp.z + o.z).toFixed(1)], onTrail: onTrail(), cave: caveNow() === f.cave };
     },
     goTrail: (along = 0) => {
+      // (Put at the point itself, its place along the run found from it: put by its place along the run and so far out from it, as `putAt`
+      // puts one, a point out past the outside of a bend, which has the bend's corner for its nearest place, was put elsewhere.)
       const f = (land as TrailLand).forgotten;
       if (!f) return null;
-      const P = f.trail.path, k = clamp(Math.round(along / 2), 0, P.length - 2), o = land.group.position, at = land.frame(P[k][0] + o.x, P[k][1] + o.z, f.trail.from + along);
+      const P = f.trail.path, k = clamp(Math.round(along / 2), 0, P.length - 2), o = land.group.position;
+      // (On the way whose frame the ride would have there, on a run that parts.)
+      if (land.wayAt) land.setWay?.(land.wayAt(P[k][0] + o.x, P[k][1] + o.z));
+      const at = land.frame(P[k][0] + o.x, P[k][1] + o.z);
       const dx = P[k + 1][0] - P[k][0], dz = P[k + 1][1] - P[k][1], fr = land.frame(P[k][0] + o.x, P[k][1] + o.z, at.s);
       Object.assign(ride, { speed: 8, way: Math.atan2(dx * runLeft(fr).x + dz * runLeft(fr).z, dx * runDir(fr).x + dz * runDir(fr).z) });
-      putAt(at.s, at.left); ride.y = ground(ride.x, ride.z); placed = false;
+      ride.x = P[k][0] + o.x; ride.z = P[k][1] + o.z; here = fr; ride.down = fr.s; ride.left = fr.left;
+      ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); placed = false;
       return { down: +at.s.toFixed(1), left: +at.left.toFixed(1) };
     },
     // (Health on foot: what is left of it, or, given `by`, that much lost, as a blow takes it.)
