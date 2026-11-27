@@ -81,6 +81,7 @@ import { CART_DECK, RocketCart } from './slopeCart';
 import { carve, Cave, clearOfKickers, findSite, paintsOf, sitePoint, sliceGround, STUFF_LOOK, STUFF_PAINT } from './slopeDungeon';
 import { PROP_KINDS, Props } from './slopeProps';
 import { forkSign } from './slopeSign';
+import { finishMarks } from './slopeFinish';
 import { Deeps, planDeeps } from './slopeDeeps';
 import { horseCadence, horseWalk, Walker } from './slopeFoot';
 import { MiniMap } from './slopeMini';
@@ -890,6 +891,13 @@ async function start() {
         took('deeps laid out');
       } catch (e) { console.error('the deeps', e); }
       if (made.ways) standSign(made, kind);
+      // (The end of each way marked on the snow, where the ride is brought to a stop: `slopeFinish.ts`.)
+      for (const w of made.ways ?? [made]) if (Number.isFinite(w.length)) {
+        const marks = finishMarks(w, (x, z) => made!.height(x, z));
+        made.group.add(marks.group);
+        const letGo = made.dispose;
+        made.dispose = () => { letGo?.(); marks.dispose(); };
+      }
       took('sign');
       if (village) {
         const [vx, vz] = slice.run.points[0], look = new VillageLook(village, vx, vz, (x, z) => made!.height(x, z));
@@ -5394,6 +5402,36 @@ async function start() {
     say($('menuDoing'), mode === 'ride' ? (foot ? 'On foot at the cave' : 'Riding') : demoKind === 'show' ? 'Watching the showcase' : demoKind === 'orcs' ? 'Watching the orc hunt' : 'Watching the demo run');
     say($('menuResume'), mode === 'ride' ? 'Resume' : 'Watch on');
   };
+  /**
+   * The tutorial (asked: "add short tutorial popup explaining controls and most important things of gameplay for first time players"):
+   * shown once, as a run is first ridden, the ride held while it is up; remembered in this browser (`slope.tutorial`), and always to be
+   * had again from the menu. `?tutorial=0` shows none, for scripts.
+   */
+  const tutorialEl = $('tutorial');
+  let tutorialHeld = false, tutorialSeen = false;
+  const tutorialKept = (): boolean => { try { return localStorage.getItem('slope.tutorial') === '1'; } catch { return tutorialSeen; } };
+  const showTutorial = () => {
+    if (!tutorialEl.hidden) return;
+    tutorialHeld = playing; playing = false;
+    tutorialEl.hidden = false;
+    $('tutorialGo').focus({ preventScroll: true });
+    reflect();
+  };
+  const closeTutorial = () => {
+    if (tutorialEl.hidden) return;
+    tutorialEl.hidden = true; tutorialSeen = true;
+    try { localStorage.setItem('slope.tutorial', '1'); } catch { /* (not kept: said once a visit instead) */ }
+    if (tutorialHeld && mode === 'ride') playing = true;
+    tutorialHeld = false;
+    reflect();
+  };
+  /** A first ride begun: the tutorial a moment on, if it has not been seen and what is ridden is still a ride, with nothing else asked. */
+  const tutorialSoon = () => {
+    if (query.get('tutorial') === '0' || tutorialSeen || tutorialKept()) return;
+    setTimeout(() => { if (mode === 'ride' && $('choose').hidden && $('intro').hidden && !menuOpen && !tutorialSeen && !tutorialKept()) showTutorial(); }, 700);
+  };
+  $('tutorialGo').onclick = closeTutorial;
+  $('openTutorial').onclick = () => { setMenu(false); showTutorial(); };
   /** The menu's parts, one shown at a time, chosen by its tabs; the last chosen kept in this browser. */
   const tabButtons = [...$('menuTabs').querySelectorAll<HTMLButtonElement>('button[data-tab]')];
   const showTab = (k: string) => {
@@ -5616,6 +5654,7 @@ async function start() {
     clearSpray();
     setView(viewFor[m]);
     placed = false;
+    if (m === 'ride' && !quietly) tutorialSoon();
   };
   /**
    * The showcase come to the foot of the run (asked: "the ending transition should be the robot arm throw in the demo"): ridden out as
@@ -5822,6 +5861,8 @@ async function start() {
     tell('Enter again to start over', 'from the top of the run', false, 2);
   };
   window.addEventListener('keydown', (e) => {
+    // (The tutorial up, its keys: Escape, Enter or Space close it, and no other key reaches the ride beneath.)
+    if (!tutorialEl.hidden) { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') closeTutorial(); e.preventDefault(); return; }
     if (e.key === 'Escape' && menuOpen) { setMenu(false); return; }
     // (The map of the runs open, the keys are its own: it closes itself on Escape. With the keys' focus gone from it, as a click on its
     // parchment or on the picture beside it takes it, Escape had gone to nothing, and the map could be closed only by its buttons.)
@@ -8711,12 +8752,40 @@ async function start() {
   const away = smoothstep(uFocus.mul(2.2), uFocus.mul(9), depthHere).mul(min(0.95, uBlur.mul(0.85)));
   // (The finished picture graded as a photograph of a bright day is: its tones drawn a little apart, a little more colour, and its
   // corners a little darker, which holds the eye on the middle. Worked out in the pass that is drawn anyway, for nothing more.)
+  // (The look is a handful of numbers, so that a few can be tried side by side: `__slope.look('golden')`. Tints multiply the shadows and
+  // the highlights apart from one another, which a plain curve and saturation cannot do; `fade` lifts the blacks as film does.)
+  const uShadowTint = uniform(new Vector3(1, 1, 1)), uHighTint = uniform(new Vector3(1, 1, 1));
+  const uCurve = uniform(0.22), uSat = uniform(1.12), uFade = uniform(0), uVignette = uniform(0.2);
   const grade = (c: N): N => {
-    const curved: N = mix(c.rgb, c.rgb.mul(c.rgb).mul(float(3).sub(c.rgb.mul(2))), 0.22);
-    const grey: N = dot(curved, vec3(0.2126, 0.7152, 0.0722)), rich: N = mix(vec3(grey), curved, 1.12);
+    const l0: N = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+    const tinted: N = c.rgb.mul(mix(uShadowTint, uHighTint, smoothstep(0.15, 0.75, l0)));
+    const curved: N = mix(tinted, tinted.mul(tinted).mul(float(3).sub(tinted.mul(2))), uCurve);
+    const grey: N = dot(curved, vec3(0.2126, 0.7152, 0.0722)), rich: N = mix(vec3(grey), curved, uSat);
     const edge: N = length(uv().sub(0.5).mul(vec2(1, 0.78)));
-    return vec4(rich.mul(mix(1, 0.8, smoothstep(0.32, 0.8, edge))), c.a);
+    const faded: N = mix(rich, vec3(1), uFade);
+    return vec4(faded.mul(mix(1, float(1).sub(uVignette), smoothstep(0.32, 0.8, edge))), c.a);
   };
+  const LOOKS: Record<string, { shadow: number[]; high: number[]; curve: number; sat: number; fade: number; vignette: number }> = {
+    plain: { shadow: [1, 1, 1], high: [1, 1, 1], curve: 0, sat: 1, fade: 0, vignette: 0 },
+    current: { shadow: [1, 1, 1], high: [1, 1, 1], curve: 0.22, sat: 1.12, fade: 0, vignette: 0.2 },
+    // Blue shadows, a faintly warm sun on the snow: the cold clear day.
+    alpine: { shadow: [0.9, 0.97, 1.1], high: [1.02, 1.0, 0.97], curve: 0.25, sat: 1.05, fade: 0.01, vignette: 0.22 },
+    // Long warm light and deep blue shade.
+    golden: { shadow: [0.9, 0.95, 1.1], high: [1.06, 1.0, 0.9], curve: 0.28, sat: 1.12, fade: 0.01, vignette: 0.25 },
+    // Flat grey light: low colour, soft contrast, lifted blacks.
+    overcast: { shadow: [0.97, 1, 1.03], high: [1, 1, 1.01], curve: 0.12, sat: 0.82, fade: 0.04, vignette: 0.18 },
+    // Portra-like: warm highlights, shadows gone a little green, blacks lifted, colour held back.
+    film: { shadow: [0.95, 1.03, 1.0], high: [1.03, 1.0, 0.95], curve: 0.18, sat: 0.92, fade: 0.05, vignette: 0.15 },
+    // Teal shadows against orange highlights.
+    cinema: { shadow: [0.8, 0.98, 1.1], high: [0.98, 1.0, 1.05], curve: 0.3, sat: 1.0, fade: 0.02, vignette: 0.3 },
+  };
+  const setLook = (name: string) => {
+    const k = LOOKS[name] ?? LOOKS.current;
+    uShadowTint.value.set(k.shadow[0], k.shadow[1], k.shadow[2]); uHighTint.value.set(k.high[0], k.high[1], k.high[2]);
+    uCurve.value = k.curve; uSat.value = k.sat; uFade.value = k.fade; uVignette.value = k.vignette;
+    return Object.keys(LOOKS);
+  };
+  setLook('current');
   const pipeline = new RenderPipeline(renderer);
   if (msaa) pipeline.outputNode = mix(smeared, soft, away);
   else { pipeline.outputColorTransform = false; pipeline.outputNode = grade(fxaa(renderOutput(mix(smeared, soft, away)))); }
@@ -9456,6 +9525,8 @@ async function start() {
     put: (o: Partial<typeof ride>) => { Object.assign(ride, o); if (o.down !== undefined || o.left !== undefined) { putAt(ride.down, ride.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); } placed = false; },
     // (The snow's height at a point of the run, with what is raised on it: the arena's pipe, a kicker.)
     groundAt: (down: number, left: number) => { const p = land.at(down, left); return ground(p.x, p.z); },
+    /** Where the finish marks stand (the middle of each way's), for a script to look at them: `lookAt` from above them. */
+    finish: () => land.group.children.filter((c) => c.name === 'finish').map((c) => new Box3().setFromObject(c).getCenter(new Vector3()).toArray()),
     land: () => ({ name: land.name, run: land.run, length: land.length, half: land.half, about: land.about }),
     setSkier: (w: Who, skis?: HorseSkis) => setSkier(w, skis), who: () => who,
     // (The view from so far east, up and south of the skier, looking at it: for pictures.)
@@ -9611,6 +9682,13 @@ async function start() {
     arena: () => arena && { foot: arena.pipe.foot, lip: arena.pipe.foot + arena.pipe.lip, top: arena.pipe.top, end: arena.pipe.foot + arena.pipe.end, mid: arena.pipe.mid, half: arena.pipe.half, sunk: arena.pipe.sunk, sinking: arena.sinking, pen: horde.pen, penned: horde.penned, boosters: boosters.where().length },
     // (The great one being sent off, if one is: by what, how far through; and `by`, what the next is sent off by.)
     launch: (by?: string) => { if (by) launchNext = by as LaunchBy; const l = launches.find((x) => x.by !== 'plain') ?? launches[0]; return l && { by: l.by, t: +l.t.toFixed(2), thrown: l.thrown, at: l.model.position.toArray().map((v) => +v.toFixed(1)), all: launches.map((x) => x.by) }; },
+    // (On foot in a dungeon, a pack of `kind` called out at once `ahead` metres before the one on foot and `side` to its right, for a
+    // video of a fight in sight; how many came.)
+    denPack: (kind = 'goblin', ahead = 7, side = 0, n = 3) => {
+      if (!foot) return 0;
+      const h = foot.heading, x = foot.x + Math.sin(h) * ahead + Math.cos(h) * side, z = foot.z + Math.cos(h) * ahead - Math.sin(h) * side;
+      return horde.comeAt(kind, x, z, rider.position.y, n);
+    },
     // (Only one kind of foe comes, for a script trying it (`slopeFoes.ts`); `null`, every kind again; and from how far ahead.)
     foes: (only: FoeKind['name'] | null, ahead?: [number, number]) => { horde.only = only; if (ahead) horde.ahead = ahead; horde.clear(); },
     // (With the arms: how many foes are about, how many have been brought down, and where those coming are, on the picture too.)
@@ -9744,6 +9822,7 @@ async function start() {
     demoAt: (at: number) => { const w = watchPose(at); return { down: +w.down.toFixed(2), left: +w.left.toFixed(2), speed: +w.speed.toFixed(2) }; },
     // (And `end`, where its last dozen seconds went, a point every 0.8 s: how far down, how far left, how fast in km/h, and `A` in
     // the air; for finding where a demo run stood still or fell.)
+    look: setLook,
     demo: () => ({ end: demo.frames.filter((_, i, a) => i > a.length - 400 && i % 25 === 0).map((f) => `${f.now.down.toFixed(0)}/${f.now.left.toFixed(1)}/${(f.now.speed * 3.6).toFixed(0)}${f.air ? 'A' : ''}`).join(' '), length: demo.length, parts: demo.parts, landed: demo.landed, tries: demo.tries, fell: demo.fell, flown: demo.flown }),
   };
   requestAnimationFrame(frame);

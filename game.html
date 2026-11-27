@@ -432,6 +432,16 @@
     /* How to get back to the top, asked as a run ends (asked: "add a dialog that shows at the end or after falling for the player to
        choose how to get back to the beginning of a new run"): at the foot of the picture, so that the skier stays in sight, the stick and
        the tricks put away while it is up. */
+    /* The first-ride tutorial: a card over a dimmed picture, shown once (kept in this browser) as a run is first ridden. */
+    #tutorial:not([hidden]) { position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; padding: 16px; box-sizing: border-box; background: rgba(8, 12, 20, .62); animation: rise .35s ease both; }
+    #tutorial .card { display: grid; gap: 14px; width: min(520px, 100%); max-height: 100%; overflow: auto; box-sizing: border-box; padding: 18px 20px 20px; background: var(--sheet); border: 1px solid var(--brass); border-radius: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, .5); }
+    #tutorial .what { font: 900 19px/1.15 "Cinzel", var(--serif); letter-spacing: .1em; text-align: center; color: var(--ink); }
+    #tutorial .tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 13.5px; line-height: 1.45; color: var(--ink-dim); }
+    #tutorial .tips li > b:first-child { display: block; font: 700 10.5px/1.2 "Cinzel", var(--serif); letter-spacing: .2em; text-transform: uppercase; color: var(--brass); margin-bottom: 2px; }
+    #tutorial .tips .blue { color: #6fa4ff; }
+    #tutorial kbd { font: inherit; font-size: 12px; padding: 0 5px; border: 1px solid var(--edge); border-radius: 4px; color: var(--ink); }
+    #tutorial .go { min-height: 40px; background: var(--brass); color: var(--on-brass); border-color: var(--brass); font-weight: 700; }
+    body.touchhud #tutorial .mouse-only, body:not(.touchhud) #tutorial .touch-only { display: none; }
     #backTo { position: fixed; left: 0; right: 0; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); margin: 0 auto; z-index: 5; display: grid; gap: 10px;
       padding: 14px 16px 14px; background: var(--sheet); border: 1px solid var(--brass); border-radius: 8px; box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
       width: min(580px, calc(100vw - 32px)); box-sizing: border-box; animation: rise .45s ease both; }
@@ -913,6 +923,19 @@
     <div class="ways" role="group" aria-label="How to get back to the top"></div>
     <label class="remember"><input type="checkbox" id="rememberWay"> Remember my choice</label>
   </div>
+  <div id="tutorial" hidden role="dialog" aria-modal="true" aria-labelledby="tutorialWhat">
+    <div class="card">
+      <div class="what" id="tutorialWhat">How to ride</div>
+      <ul class="tips">
+        <li><b>Steer</b><span class="mouse-only">Point the mouse where you want to go: to either side turns, up tucks (faster), down stands tall (slower). Arrow keys work too.</span><span class="touch-only">Hold a finger on the picture: to either side turns, up tucks (faster), down stands tall (slower).</span></li>
+        <li><b>Brake &amp; turn round</b><span class="mouse-only">Hold <kbd>Shift</kbd> or the mouse button to brake; <kbd>X</kbd> or a right-click turns you round to ride switch.</span><span class="touch-only">Hold <i>Brake</i> to slow down; <i>180</i> turns you round to ride switch.</span></li>
+        <li><b>Kickers</b>Ride at a jump and the stance you leave it in is your trick: tucked, a ski jumper's flight; standing tall, a backflip; turning, a spin. Land pointing downhill, or you fall and the run restarts.</li>
+        <li><b>The end</b>Ride on to the <b class="blue">blue line and flags</b> at the foot of the run to finish. Your points and best time are kept in this browser.</li>
+        <li><b>More</b><span class="mouse-only"><kbd>H</kbd> or <kbd>Esc</kbd> opens the menu, <kbd>M</kbd> the map of the runs, <kbd>Enter</kbd> starts the run again.</span><span class="touch-only">The <i>Menu</i> button has the map of the runs, the skier and the settings.</span></li>
+      </ul>
+      <button id="tutorialGo" class="go" type="button">Let's ride</button>
+    </div>
+  </div>
   <div id="intro" hidden><div class="title"><span class="horse">GRAND HORSE</span><span class="rule"></span><span class="mountain">Mountain</span></div></div>
   <div id="choose" hidden role="dialog" aria-modal="true" aria-labelledby="chooseWhat">
     <div class="head">
@@ -952,6 +975,7 @@
           <div class="playing"><button id="play" type="button">Pause</button><div class="seg" id="rates" role="group" aria-label="Speed of the demo run"></div></div>
           <div id="line" tabindex="0" role="slider" aria-label="Where in the demo run" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div class="ticks"></div><div class="head"></div></div>
         </div>
+        <button id="openTutorial" class="wide quiet" type="button">How to ride</button>
         <h2>Riding</h2>
         <div class="field" id="orcsField"><span class="label">Orcs &amp; weapons</span><div class="seg" id="orcsSeg" role="group" aria-label="Orcs and weapons"></div></div>
         <div class="field" id="aimField"><span class="label">Aiming</span><div class="seg" id="aimSeg" role="group" aria-label="How the arms are aimed"></div></div>

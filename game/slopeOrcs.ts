@@ -113,6 +113,8 @@ export class Horde {
   /** In a den: how long it has been gone through, and when a great one last came there. */
   private denClock = 0;
   private greatAt = -Infinity;
+  /** The den last gone through (`within`): for a script calling a pack out at a place in it (`comeAt`). */
+  private den: Den | null = null;
   private making = false;
   private readonly scratch = new Vector3();
   private readonly ball = new Vector3();
@@ -301,6 +303,25 @@ export class Horde {
   }
 
   /**
+   * A pack of `kind` come out at once about (`x`, `z`) in the den last gone through, on its floor nearest `y` (in the scene, as the one on
+   * foot is), up to `n` of those made and not out: for a script staging a fight in sight (`__slope.denPack`); each comes on as any pack
+   * does. How many came.
+   */
+  comeAt(kind: string, x: number, z: number, y: number, n = 3): number {
+    const k = FOES.find((f) => f.name === kind && f.den), den = this.den;
+    if (!k || !den) return 0;
+    const waiting = this.foes.filter((b) => b.kind === k && b.state === 'gone').slice(0, n);
+    for (const b of waiting) {
+      Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(...k.den!.pace), next: 0, hp: k.hp, reel: 0, bumped: 0, penned: false, met: false, comes: b.comes + 1, kneeling: false });
+      b.p.set(x + this.rng.range(-0.9, 0.9), 0, z + this.rng.range(-0.9, 0.9));
+      b.p.y = den.floor(b.p.x, b.p.z, y);
+      b.gait.go(b.pace * 0.9, this.rng.range(0, 1));
+      b.gait.model.visible = true;
+    }
+    return waiting.length;
+  }
+
+  /**
    * A frame on, by `dt`, in a den (`Den`) rather than on a run: a few at a time out of its rooms, out of the way of the one on foot
    * (`q.at`), more as fewer come; each coming at it round the walls, faster than up a run; and, come up to it, striking (`strike`, told
    * where from, and what it is), then a moment back before it may again. Fallen, as on the snow, on the floor. Far off, let go of.
@@ -309,6 +330,7 @@ export class Horde {
    * the bar across the foot of the picture as it comes (`bosses`). (Wolves and yetis keep to the snow.)
    */
   within(dt: number, den: Den, q: Quarry, strike: (from: Vector3, kind: FoeKind, who: number) => void, most = 9): void {
+    this.den = den;
     this.denClock += dt;
     // (Only one kind, if a script asks for it (`only`); a great one so asked, at once.)
     const kinds = FOES.filter((k) => k.den && (!this.only || k.name === this.only)), packs = kinds.filter((k) => !k.titles), greats = kinds.filter((k) => k.titles);
