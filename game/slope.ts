@@ -160,10 +160,34 @@ const kickerSpot = (l: { length: number; edges(s: number): [number, number]; kic
   }
   return null;
 };
+/**
+ * Kickers a run has besides those every `KICK.every` metres, by its slice's name: how far down its own way each stands (asked, of
+ * Ashbridge: "there needs to be also a new kicker on the straight in front of the buildings"; "maybe add one in both locations if
+ * they fit?": one beside the row of houses along its piste, between two of its own; one on the straight down to the village's heart,
+ * where the piste is narrowed through it, at the one place along it not too steep before a lip). Counted from `EXTRA_KICK` on, apart
+ * from those every so far, which are found from where the skier is by their spacing.
+ */
+const EXTRA_KICKS: Record<string, number[]> = { 'w2-8': [415, 585] }, EXTRA_KICK = 1000;
+/**
+ * Where an extra kicker stands (`EXTRA_KICKS`), `s` down a way: as near the middle of its path as a kicker of size 1 may stand, as
+ * `kickerSpot` finds, or the smallest (its size found after, `kickSize`); none if neither fits anywhere across it. (Not only in the
+ * middle: a village's houses narrow the path on one side, and its middle can lie where the land tilts too much across.)
+ */
+const extraSpot = (l: { length: number; edges(s: number): [number, number]; kickable(s: number, left: number, length: number): boolean }, s: number): { s: number; left: number; spare: number } | null => {
+  if (!(s < l.length)) return null;
+  const [lo, hi] = l.edges(s), mid = (lo + hi) / 2, one = kickDims(1), least = kickDims(KICK_SIZES[KICK_SIZES.length - 1]);
+  let room = 14;
+  for (let u = s - 60; u <= s; u += 6) { const [a, b] = l.edges(u); room = Math.min(room, Math.min(mid - a, b - mid) - Math.min(8, (b - a) / 4) - one.half - one.side - 1); }
+  for (let d = 0; d <= (hi - lo) / 2 - 6; d += 2) for (const left of d ? [mid - d, mid + d] : [mid]) {
+    if (l.kickable(s, left, one.L + one.B) || l.kickable(s, left, least.L + least.B)) return { s, left, spare: Math.max(0, room - d) };
+  }
+  return null;
+};
 /** Where every kicker will stand on a run, and how far it and the snow it lands on reach along it: what a cave keeps out of the way of. */
-const kickerZones = (l: { length: number; edges(s: number): [number, number]; kickable(s: number, left: number, length: number): boolean }) => {
-  const out: { s: number; left: number; reach: number }[] = [];
-  for (let i = 0; i < 60; i++) { const k = kickerSpot(l, i); if (k && k.s < l.length) out.push({ s: k.s, left: k.left, reach: kickDims(KICK_SIZES[0]).L + kickDims(KICK_SIZES[0]).B + 50 }); }
+const kickerZones = (l: { length: number; edges(s: number): [number, number]; kickable(s: number, left: number, length: number): boolean }, extra: number[] = []) => {
+  const out: { s: number; left: number; reach: number }[] = [], reach = kickDims(KICK_SIZES[0]).L + kickDims(KICK_SIZES[0]).B + 50;
+  for (let i = 0; i < 60; i++) { const k = kickerSpot(l, i); if (k && k.s < l.length) out.push({ s: k.s, left: k.left, reach }); }
+  for (const s of extra) { const k = extraSpot(l, s); if (k) out.push({ s: k.s, left: k.left, reach }); }
   return out;
 };
 /** A kicker's height `u` along it from its foot, and how steeply it rises there. */
@@ -440,13 +464,16 @@ async function start() {
   // browser: first the plain snow and rock, whose shaders are a small part of the detailed ones'; then, if that fails too, by WebGL 2
   // rather than WebGPU. Only on what has failed: where nothing fails, nothing changes. (Said in the menu under *Picture*, with a way to
   // try the full picture again; `?safe=0` forgets it, `?safe=1` or `2` asks for it.)
-  const SAFE = { most: 2, key: 'slope.safe', within: 12000 };
+  // (`v`, what a falling back kept is good for: one kept before it is forgotten, the full picture tried again. Raised when a fault of the
+  // game's own, not the device's, had made it fall back: the land's sky light laid in four buffers of its points, more than WebGPU
+  // takes, sent every WebGPU device back to the plain snow, and kept it there.)
+  const SAFE = { most: 2, key: 'slope.safe', within: 12000, v: 2 };
   const safe: { level: number; why: string } = (() => {
     const asked = query.get('safe');
     if (asked !== null) { try { localStorage.removeItem(SAFE.key); } catch { /* (not kept) */ } return { level: clamp(Number(asked) || 0, 0, SAFE.most), why: 'asked for in the address' }; }
     try {
       const k = JSON.parse(localStorage.getItem(SAFE.key) ?? 'null');
-      if (k && typeof k.level === 'number') return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') };
+      if (k && typeof k.level === 'number' && k.v === SAFE.v) return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') };
     } catch { /* (none kept) */ }
     return { level: 0, why: '' };
   })();
@@ -483,7 +510,7 @@ async function start() {
     console.warn(`Grand Horse Mountain will draw more simply here (${next}): ${why}`);
     let kept = false;
     // (And whether it was drawing by WebGL 2 when it failed: `gl`.)
-    try { localStorage.setItem(SAFE.key, JSON.stringify({ level: next, why, gl: !(renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend })); kept = localStorage.getItem(SAFE.key) !== null; } catch { /* (not kept) */ }
+    try { localStorage.setItem(SAFE.key, JSON.stringify({ v: SAFE.v, level: next, why, gl: !(renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend })); kept = localStorage.getItem(SAFE.key) !== null; } catch { /* (not kept) */ }
     loading.fail('This device could not draw everything: opening again, drawn more simply…');
     // (Opened again: by its address, where this browser keeps nothing, so that it cannot come back to the same.)
     setTimeout(() => {
@@ -804,7 +831,7 @@ async function start() {
       const clear = village ? villageClear(village, slice.run.points[0][0], slice.run.points[0][1]) : undefined;
       took('village read');
       await loading.part(0.32, 'Finding a place for the cave');
-      const ownZones = caved ? kickerZones(sliceGround(slice)) : [];
+      const ownZones = caved ? kickerZones(sliceGround(slice), EXTRA_KICKS[kind]) : [];
       const site = caved ? findSite(slice, ownZones, undefined, clear) : null, base = site ? carve(slice, site) : null;
       took('site');
       await loading.part(0.36);
@@ -813,7 +840,7 @@ async function start() {
         // (As far from the run's own as a good site may be: so that the deeps between them join two places apart on the mountain.)
         // (Clear of the run's own kickers too, where the two ways run side by side: `clearOfKickers`.)
         const along = { ...slice, run: b.run }, apart = clearOfKickers(slice, ownZones, along);
-        const at = findSite(along, kickerZones(sliceGround(along)), site?.mouth, (x, z) => apart(x, z) && (!clear || clear(x, z)));
+        const at = findSite(along, kickerZones(sliceGround(along), EXTRA_KICKS[b.id]), site?.mouth, (x, z) => apart(x, z) && (!clear || clear(x, z)));
         return at ? { site: at, base: carve(along, at), way: k + 1 } : null;
       }) : [];
       took('other sites');
@@ -881,6 +908,7 @@ async function start() {
         took('forgotten cave');
       }
     } else { await loading.stage('snow', 'Laying the groomed slope'); made = groomedLand(snowMap, powderMap); }
+    if (kind !== 'groomed') made.run = kind;
     lands.set(key, made);
     return made;
   };
@@ -913,10 +941,19 @@ async function start() {
   interface Kicker extends KickDims { i: number; s: number; left: number; x: number; z: number; dx: number; dz: number; group?: Group; flags?: Mesh[]; safe?: number }
   // (Kept by the way down they stand on, too, on a run that parts: each way's `i`th is its own.)
   const kickerAt = new Map<string, Kicker | null>();
+  /** The extra kickers of a way of the land (`EXTRA_KICKS`): of its own run, or of the run a way that parts from it is. */
+  const extrasOf = (w: number): number[] => EXTRA_KICKS[(w === 0 ? land.run : land.ways?.[w]?.id) ?? ''] ?? [];
+  /** Every kicker standing on a way, extras among them, from the top down. */
+  const allKickers = (w = ridden()): Kicker[] => {
+    const out: Kicker[] = [], length = wayOf(w).length;
+    for (let i = 0; i < 60 && KICK.first + i * KICK.every < length + KICK.shift; i++) { const k = kickerOf(i, w); if (k && k.s < length) out.push(k); }
+    extrasOf(w).forEach((_, j) => { const k = kickerOf(EXTRA_KICK + j, w); if (k && k.s < length) out.push(k); });
+    return out.sort((a, b) => a.s - b.s);
+  };
   const kickerOf = (i: number, w = ridden()): Kicker | null => {
     const key = `${w}:${i}`;
     if (kickerAt.has(key)) return kickerAt.get(key)!;
-    const on = wayOf(w), at = kickerSpot(on, i), p = at && on.at(at.s, at.left), k: Kicker | null = at && p ? { i, s: at.s, left: at.left, ...p, ...kickSize(i, at.s, at.left, p, at.spare, on) } : null;
+    const on = wayOf(w), at = i >= EXTRA_KICK ? extraSpot(on, extrasOf(w)[i - EXTRA_KICK] ?? Infinity) : kickerSpot(on, i), p = at && on.at(at.s, at.left), k: Kicker | null = at && p ? { i, s: at.s, left: at.left, ...p, ...kickSize(i, at.s, at.left, p, at.spare, on) } : null;
     kickerAt.set(key, k);
     return k;
   };
@@ -1129,11 +1166,14 @@ async function start() {
     // (None where an arena is laid, riding: its pen and its pipe have the snow, and a kicker's landing ran into the pipe.)
     const clear = (k: Kicker) => !arena || k.s < arena.pipe.foot - 120 || k.s > arena.pipe.foot + arena.pipe.end + 20;
     for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i); if (k && k.s < land.length && clear(k)) near.push(k); }
+    // (And the extras about it, as near as those: `EXTRA_KICKS`.)
+    extrasOf(ridden()).forEach((_, j) => { const k = kickerOf(EXTRA_KICK + j); if (k && k.s < land.length && k.s > s - KICK.every * 2 && k.s < s + KICK.every * 3 && clear(k)) near.push(k); });
     // (On a run that parts, the other ways' kickers past where they part too, while they are as near: seen from the fork down either
     // way, and there to be ridden into, before the skier is on that way and its kickers are its own.)
     for (const [w, o] of (land.ways ?? []).entries()) {
       if (w === ridden()) continue;
-      for (let i = Math.max(0, i0); i <= i0 + 3; i++) { const k = kickerOf(i, w); if (k && k.s < o.length && k.s > o.from + 10 && !near.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < 5)) near.push(k); }
+      const theirs = [...Array.from({ length: 4 }, (_, n) => Math.max(0, i0) + n), ...extrasOf(w).map((_, j) => EXTRA_KICK + j)];
+      for (const i of theirs) { const k = kickerOf(i, w); if (k && k.s < o.length && k.s > o.from + 10 && (i < EXTRA_KICK || (k.s > s - KICK.every * 2 && k.s < s + KICK.every * 3)) && !near.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < 5)) near.push(k); }
     }
     for (const k of kickerAt.values()) if (k && !near.includes(k)) takeDown(k);
     if (kickersOn) for (const k of near) if (!k.group) buildKicker(k);
@@ -1448,6 +1488,8 @@ async function start() {
     trimTracks();
   };
   /** Every ridden track let go of: the slope changed, or turned over. */
+  /** The ridden runs' tracks shown while the demo is watched too, for a video of runs ridden before it (`__slope.tracksWatched`). */
+  let tracksWatched = false;
   const clearRideTracks = () => { for (const c of rideChunks.splice(0)) dropChunk(c); rideBreak = true; };
   /**
    * The ridden tracks within `box` (in the scene: x from, to, z from, to) laid down on the snow again: those ridden over an arena's
@@ -4569,7 +4611,7 @@ async function start() {
   /** Which demo run a skier has: a horse's for each set of skis, as its tricks differ on them. */
   const demoKey = () => `${demoKind} ${who === 'person' ? who : `${who} ${horse.skis}`}`;
   /** The kickers that stand on the run, from the top, as many as `n`. */
-  const standing = (n: number) => { const out: Kicker[] = []; for (let i = 0; i < 60 && out.length < n; i++) { const k = kickerOf(i); if (k && k.s < land.length) out.push(k); } return out; };
+  const standing = (n: number) => allKickers().slice(0, n);
   /** Flies the demo run on the land as it is, for the skier as it is. */
   const flyDemo = (): Demo => {
     const TRICKS = demoTricks(), kicked = standing(TRICKS.length).filter((k) => k.s + 40 < land.length), was = kicks;
@@ -5225,7 +5267,7 @@ async function start() {
       const tall = innerHeight <= 500 && innerWidth > innerHeight ? 84 : 140;
       if (mini.of !== land || tall !== miniTall || ridden() !== miniWay) {
         miniTall = tall; miniWay = ridden();
-        const kickersAll = (w = ridden()) => { const on = wayOf(w), out: { s: number; left: number }[] = []; for (let i = 0; KICK.first + i * KICK.every < on.length; i++) { const k = kickerOf(i, w); if (k && k.s < on.length) out.push(k); } return out; };
+        const kickersAll = (w = ridden()): { s: number; left: number }[] => allKickers(w);
         const kicks = kickersAll();
         // (On a run that parts, the other ways down it too, each as it is.)
         const others = (land.ways ?? []).flatMap((o, w) => w === ridden() ? [] : [{ land: o, kicks: kickersAll(w) }]);
@@ -5238,7 +5280,7 @@ async function start() {
     const rail = touchHud && shown && !miniOpen && mode === 'ride';
     if (railEl.hidden === rail) railEl.hidden = !rail;
     if (rail) {
-      if (railOf !== land) { const kicks: { s: number }[] = []; for (let i = 0; KICK.first + i * KICK.every < land.length; i++) { const k = kickerOf(i); if (k && k.s < land.length) kicks.push(k); } layRail(kicks); }
+      if (railOf !== land) layRail(allKickers());
       const k = clamp(at.down / land.length, 0, 1).toFixed(3);
       if (k !== railAt) { railAt = k; railEl.style.setProperty('--at', k); }
     }
@@ -6052,7 +6094,9 @@ async function start() {
    * The showcase's arm at the moment watched: each in turn, the sword to the bazooka, for two of the cinematic view's shots each, and
    * round again (asked: "the weapons can change between camera cuts, its fine").
    */
-  const showArm = (): Arm => { const shots = shotsOf(demo), i = Math.max(0, shots.findIndex((x) => t >= x.t0 && t < x.t1)); return LADDER[Math.floor(i / 2) % LADDER.length]; };
+  const showArm = (): Arm => { if (showArmAs) return LADDER.find((a) => a.kind === showArmAs)!; const shots = shotsOf(demo), i = Math.max(0, shots.findIndex((x) => t >= x.t0 && t < x.t1)); return LADDER[Math.floor(i / 2) % LADDER.length]; };
+  /** The showcase's arm held to one, for a script making a video of it (`__slope.showArm`); none, each in turn again. */
+  let showArmAs: ArmKind | null = null;
   /** Watching, how near and how far off an orc each arm is fired at, in metres: the sword at either side, all else ahead. */
   const WATCH_REACH: Record<ArmKind, [number, number]> = { sword: [0, 4.6], pistol: [6, 60], shotgun: [5, 38], flamer: [3, 40], smg: [8, 100], lightning: [8, 100], bazooka: [16, 110] };
   /**
@@ -8718,8 +8762,9 @@ async function start() {
     return () => { for (let i = undo.length - 1; i >= 0; i--) undo[i](); };
   };
   const webgpu = !!(renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend;
-  // (How much, by *Blur*: from none, the plain picture drawn, to twice as much; `?blur=` too.)
-  let blurLevel = query.has('blur') ? clamp(Number(query.get('blur')) || 0, 0, 2) : 1;
+  // (How much, by *Blur*: from none, the plain picture drawn, to twice as much; `?blur=` too. Half, unless another is chosen (asked:
+  // "Lets make also for this trailer 0.5 blur setting, and set that as default for the game going forward").)
+  let blurLevel = query.has('blur') ? clamp(Number(query.get('blur')) || 0, 0, 2) : 0.5;
   // Hiding the menus and the text, `H` too; the distance of the views from the skier. (Kept in this browser for next time, where it may.)
   /**
    * Nothing kept while `unsaved` runs: the settings set as the page opens, from what was kept or from the address (`?orcs=1`, `?info=1`
@@ -9089,7 +9134,7 @@ async function start() {
     const where = cat ? cat.at.clone() : focus();
     land.keepAbout(where.x, where.z);
     stepCave(dt, now / 1000);
-    rideTrackGroup.visible = mode === 'ride' && !under;
+    rideTrackGroup.visible = (mode === 'ride' || tracksWatched) && !under;
     gloom(dt);
     land.lod?.(camera.position.x, camera.position.z);
     land.trees?.(camera.position, now / 1000);
@@ -9242,7 +9287,7 @@ async function start() {
     wild: (w: number) => { if (orcsOn) { wildEarned = clamp(w, 0, 1) * WILD.blocks; showWild(); } else wildInput.value = String(w); },
     meter: () => ({ earned: +wildEarned.toFixed(2), of: WILD.blocks, full: wildFull(), wildness: +wildness().toFixed(3) }), trick: () => (rideTrick ? demoName(rideTrick.trick) : null),
     // (How long the `i`th kicker that stands is reckoned to keep a skier going at `speed` in the air.)
-    airtime: (i: number, speed: number) => { const all = Array.from({ length: 60 }, (_, n) => kickerOf(n)).filter((k): k is Kicker => !!k && k.s < land.length); return airtimeOff(all[i] ?? all[0], speed); },
+    airtime: (i: number, speed: number) => { const all = allKickers(); return airtimeOff(all[i] ?? all[0], speed); },
     // (Where the skier's hips are in the picture: -1 to 1 across and up it, 0 its middle.)
     onScreen: () => { const p = focus().addScaledVector(UP, 0.9).project(camera); return [+p.x.toFixed(2), +p.y.toFixed(2)]; },
     // (`camp`: the cave's camp let brake the ride and take the skis off as it goes, as the frames do, until it does.)
@@ -9300,8 +9345,8 @@ async function start() {
     // (The speed check, on or off, for trying the kickers without it.)
     speedCheck: (on: boolean, blow?: number) => { speedChecks = on; if (blow) { SPEED_CHECK.blow = blow; for (const k of kickerAt.values()) if (k) k.safe = undefined; } },
     // (How hard a flight off the `i`th kicker comes down, built at `size`, taken at each of `speeds` (metres a second, on the run before it).)
-    landings: (i: number, size: number, speeds: number[]) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return speeds.map((v) => { const o = kickFlight(k, kickDims(size), v); return { v, u: +o.u.toFixed(1), f: +o.f.toFixed(2), blow: +o.blow.toFixed(1) }; }); },
-    flights: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return KICK_SIZES.map((size) => ({ size, slow: kickFlight(k, kickDims(size), KICK_SPEED - 3), fast: kickFlight(k, kickDims(size), KICK_SPEED + 3) })); },
+    landings: (i: number, size: number, speeds: number[]) => { const all = allKickers(); const k = all[i] ?? all[0]; return speeds.map((v) => { const o = kickFlight(k, kickDims(size), v); return { v, u: +o.u.toFixed(1), f: +o.f.toFixed(2), blow: +o.blow.toFixed(1) }; }); },
+    flights: (i: number) => { const all = allKickers(); const k = all[i] ?? all[0]; return KICK_SIZES.map((size) => ({ size, slow: kickFlight(k, kickDims(size), KICK_SPEED - 3), fast: kickFlight(k, kickDims(size), KICK_SPEED + 3) })); },
     // (The orcs brought down riding, over the session, which say the arm carried: read, or set, as a script would to try each arm.)
     slain: (n?: number) => { if (n !== undefined) slain = Math.max(0, n); return { slain, arm: armAfter(slain).arm.kind }; },
     /**
@@ -9342,7 +9387,7 @@ async function start() {
     },
     // (The sword `k` of the way through a swing at `side` (1, the right), held there while all is held still: for pictures.)
     swingAt: (k: number, side: number, charge = 0) => { swing = { ...newSwing(side, false, k), charge }; },
-    kicker: (i: number) => { const all = Array.from({ length: 60 }, (_, k) => kickerOf(k)).filter((k): k is Kicker => !!k && k.s < land.length); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, safe: +(safeOff(k) * 3.6).toFixed(0), height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
+    kicker: (i: number) => { const all = allKickers(); const k = all[i] ?? all[0]; return { down: k.s, left: k.left, length: k.L, size: k.size, safe: +(safeOff(k) * 3.6).toFixed(0), height: k.H, edges: land.edges(k.s), x: k.x, z: k.z, dx: k.dx, dz: k.dz }; },
     // (On a run that parts, its ways down: each's run, where it parts and how long it is; which is ridden, and the run it counts as. And
     // `onWay`, the skier put `down` and `left` on a way, riding: the ride takes it from there as if it had come.)
     ways: () => ({ ways: land.ways?.map((w) => ({ id: w.id, from: w.from, length: w.length })) ?? null, way: ridden(), key: areaKey() }),
@@ -9411,7 +9456,7 @@ async function start() {
     put: (o: Partial<typeof ride>) => { Object.assign(ride, o); if (o.down !== undefined || o.left !== undefined) { putAt(ride.down, ride.left); placeKickers(ride.down); ride.y = ground(ride.x, ride.z); ride.vy = risingHere(); } placed = false; },
     // (The snow's height at a point of the run, with what is raised on it: the arena's pipe, a kicker.)
     groundAt: (down: number, left: number) => { const p = land.at(down, left); return ground(p.x, p.z); },
-    land: () => ({ name: land.name, length: land.length, half: land.half, about: land.about }),
+    land: () => ({ name: land.name, run: land.run, length: land.length, half: land.half, about: land.about }),
     setSkier: (w: Who, skis?: HorseSkis) => setSkier(w, skis), who: () => who,
     // (The view from so far east, up and south of the skier, looking at it: for pictures.)
     lookFrom: (dx: number, dy: number, dz: number) => __look(new Vector3(dx, dy, dz)),
@@ -9544,6 +9589,8 @@ async function start() {
     hunt: (on: boolean) => { setDemoKind(on ? 'orcs' : 'tricks'); },
     // (The showcase, watched; and where it has got to: its arm now, and whether its end is ridden out or it has gone back to its top.)
     showcase: () => { setDemoKind('show'); setMode('watch'); },
+    // (The showcase's arm held to `kind` (`null`, each in turn again), for a video of one arm at one moment of it.)
+    showArm: (kind: ArmKind | null) => { showArmAs = kind; return showArm().kind; },
     show: () => ({ kind: demoKind, arm: mode === 'watch' && demoKind === 'show' ? showArm().kind : null, ending: showEnding, back: +showBack.toFixed(2) }),
     // (For a video made a frame at a time: told of each round and cry as it is made, their sound made afterwards, and told once each
     // frame is drawn, with `?dt=` set; none, with nothing.)
@@ -9553,6 +9600,8 @@ async function start() {
     // (As if the graphics had failed as the page opened: to try the falling back to a simpler picture, `fallBack`.)
     failGraphics: (why = 'tried') => fallBack(why),
     // (The ridden tracks kept: the run being ridden, and of each chunk its run, its steps, and how faint it is drawn.)
+    // (The ridden tracks shown while watching too, or not: for a video with the runs ridden before it on the snow.)
+    tracksWatched: (on: boolean) => { tracksWatched = on; },
     tracks: () => ({ run: rideRun, pooled: chunkPool.length, chunks: rideChunks.map((c) => ({ run: c.run, laid: c.laid, skis: c.meshes.length, opacity: (c.meshes[0].material as Material).opacity })) }),
     slowmo: (on?: boolean) => { if (on !== undefined) setSlowmo(on); return { on: slowmoOn, scale: timeScale, jump: !!slowJump, was: slowJump?.was ?? null, view }; },
     // (The arena laid for a great one, if there is one: where its pipe's foot, lip and end are along the run, its middle and half its
@@ -9688,7 +9737,9 @@ async function start() {
     learned: () => learned().map((p) => demoName(p.t)),
     // (The demo run as flown for the skier now: how long, its parts, the tricks it landed, how many times each kicker was flown again.)
     // (Every kicker standing on the run: which, how far down, across, how big.)
-    kickers: () => Array.from({ length: 60 }, (_, i) => kickerOf(i)).filter((k): k is Kicker => !!k && k.s < land.length).map((k) => ({ i: k.i, s: +k.s.toFixed(1), left: +k.left.toFixed(1), size: k.size })),
+    // (Whether a kicker may stand `s` down the way ridden, `left` across it, `length` long (size 1's): as the land and its cave say.)
+    kickable: (s: number, left = 0, length = kickDims(1).L + kickDims(1).B) => land.kickable(s, left, length),
+    kickers: () => allKickers().map((k) => ({ i: k.i, s: +k.s.toFixed(1), left: +k.left.toFixed(1), size: k.size })),
     // (Where the demo run is `t` seconds in: how far down, across, how fast.)
     demoAt: (at: number) => { const w = watchPose(at); return { down: +w.down.toFixed(2), left: +w.left.toFixed(2), speed: +w.speed.toFixed(2) }; },
     // (And `end`, where its last dozen seconds went, a point every 0.8 s: how far down, how far left, how fast in km/h, and `A` in

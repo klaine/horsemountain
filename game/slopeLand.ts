@@ -10,7 +10,7 @@
  * lakes frozen, and snowy firs where the world has woods. Scene coordinates are the world's, less the run's top.
  */
 import {
-  BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, Group, InstancedBufferAttribute, InstancedMesh, type Material, Matrix4, Mesh, MeshStandardMaterial,
+  BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, Group, InstancedInterleavedBuffer, InstancedMesh, InterleavedBufferAttribute, type Material, Matrix4, Mesh, MeshStandardMaterial,
   PlaneGeometry, Quaternion, type Texture, Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -28,6 +28,8 @@ export interface Frame { s: number; left: number; dx: number; dz: number }
 export interface Land {
   /** What it is called (and shortly), and what the run is like, for the page to say. */
   name: string; short: string; about: string;
+  /** Which run it is, by its slice's name (none, the groomed slope): what is kept by run, its extra kickers among it. */
+  run?: string;
   /** How long the run is, horizontally (`Infinity` for one that goes on); how far either side of its line its snow reaches. */
   length: number; half: number;
   /**
@@ -590,10 +592,15 @@ export async function sliceLand(slice: SkiSlice, snowMap: Texture, powderMap: Te
       // (As the walk page lights the world's land, `meshOf`: the sky's light by the share of it each point sees, here all of it.)
       // (Alike at every point: so one value of each, which every point reads, set in place of the builder's, one for each point. Those
       // were 56 bytes a point of a land of hundreds of thousands, kept twice over, on the graphics card and off it: some twenty megabytes
-      // each on the Silent Warden, more on the broader runs.)
-      const geometry = builder.build(), L = look.sky;
-      (['aSHr', 'aSHg', 'aSHb'] as const).forEach((name, c) => geometry.setAttribute(name, new InstancedBufferAttribute(new Float32Array([(Math.PI / 2) * L[c], 0, (Math.PI / 2) * L[c] * 0.8, 0]), 4)));
-      geometry.setAttribute('aBake', new InstancedBufferAttribute(new Float32Array([1, 0.6]), 2));
+      // each on the Silent Warden, more on the broader runs. All four in one buffer, as the builder lays them: in four, the snow's
+      // material asked for nine buffers of its points, and WebGPU gives eight; it could not be drawn, and the game fell back to drawing
+      // more simply.)
+      const geometry = builder.build(), L = look.sky, h = Math.PI / 2;
+      const light = new InstancedInterleavedBuffer(new Float32Array([h * L[0], 0, h * L[0] * 0.8, 0, h * L[1], 0, h * L[1] * 0.8, 0, h * L[2], 0, h * L[2] * 0.8, 0, 1, 0.6]), 14, 1);
+      geometry.setAttribute('aSHr', new InterleavedBufferAttribute(light, 4, 0));
+      geometry.setAttribute('aSHg', new InterleavedBufferAttribute(light, 4, 4));
+      geometry.setAttribute('aSHb', new InterleavedBufferAttribute(light, 4, 8));
+      geometry.setAttribute('aBake', new InterleavedBufferAttribute(light, 2, 12));
       const mesh = new Mesh(geometry, material);
       mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
       return mesh;
