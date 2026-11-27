@@ -33,6 +33,7 @@ import { type PropKind, Props, type Stuff } from './slopeProps';
 import { type Grid, gridAt, type SkiSlice } from '../src/core/skiSlice';
 import { kickerReachable } from './slopeLand';
 import { Folk } from './slopeFolk';
+import type { PlanMark } from './slopeMini';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const smooth = (t: number) => { const u = clamp(t, 0, 1); return u * u * (3 - 2 * u); };
@@ -348,7 +349,7 @@ export function carve(slice: SkiSlice, site: CaveSite): BaseHeight {
 
 // ---------------------------------------------------------------------------------------------------------------- the dungeon laid
 
-type RoomKind = 'gate' | 'hall' | 'store' | 'crypt' | 'ossuary' | 'shrine' | 'tomb' | 'library' | 'sanctum' | 'cell' | 'guard' | 'warden' | 'vault' | 'hoard' | 'hidden';
+type RoomKind = 'gate' | 'hall' | 'store' | 'crypt' | 'ossuary' | 'shrine' | 'tomb' | 'library' | 'sanctum' | 'cell' | 'guard' | 'warden' | 'vault' | 'hoard' | 'hidden' | 'chasm';
 /** A doorway: an open arch, a door standing open, a portcullis drawn up; or a way into a hidden room behind a cracked wall (`plotDungeon`). */
 type DoorKind = 'arch' | 'door' | 'portcullis' | 'secret';
 /** A room: its squares, what it is, which level it is on (0 the gate's, -1 the one below), and what is said of it as it is come into. */
@@ -448,6 +449,7 @@ const LINES: Record<RoomKind, string[]> = {
   warden: ["The warden's room: WHO's desk, and the chest of what was taken"],
   hoard: ['The hoard of WHO: gold heaped about a chest'],
   hidden: ['A hidden room, its air stale and still: no one has stood here in an age', 'A room walled up and forgotten, and what was hidden in it'],
+  chasm: ['A chasm splits the room, and a bridge of planks crosses it', 'The floor has fallen away into a pit; only a narrow bridge crosses'],
 };
 const NAMES = ['Aldric', 'Morwen', 'Hrothgar', 'Isolde', 'Cenric', 'Edda', 'Thorvald', 'Brannoc', 'Wulfhild', 'Osric', 'Sigrun', 'Eadmund'];
 const EPITHETS = ['the Pale', 'the Unbowed', 'Frostborn', 'the Silent', 'the Grey', 'the Hollow-Eyed', 'the Last', 'Oathbreaker', 'of the Long Winter'];
@@ -519,13 +521,20 @@ export interface Plot {
   secret: { room: number; door: number; cells: number[] } | null;
   traps: { c: number; r: number; dc: number; dr: number }[];
   flooded: number; shaft: number; puzzle: number; captive: number;
+  /**
+   * The chasm: a room whose middle rows (`band`, the squares of them) have fallen away into a pit, crossed by a bridge of planks straight
+   * on from the way it is come in by (`dc`, `dr`), down the line of squares `lane` (a column, or a row, of the lattice).
+   */
+  chasm: { room: number; dc: number; dr: number; lane: number; band: number[] } | null;
 }
+/** How far down a chasm's pit goes. */
+export const PIT = 3.2;
 export function plotDungeon(l: Layout, rng: Rng): Plot {
   const { cols, rows, cells } = l, at = (c: number, r: number) => r * cols + c;
   const inside = (c: number, r: number) => c >= 1 && r >= 1 && c < cols - 1 && r < rows - 1;
   const solid = (c: number, r: number) => c < 0 || r < 0 || c >= cols || r >= rows || !cells[at(c, r)];
   const last = l.rooms.findIndex((r) => r.kind === 'tomb' || r.kind === 'sanctum' || r.kind === 'warden' || r.kind === 'hoard');
-  const plot: Plot = { last, locked: [], key: -1, barred: null, secret: null, traps: [], flooded: -1, shaft: -1, puzzle: -1, captive: -1 };
+  const plot: Plot = { last, locked: [], key: -1, barred: null, secret: null, traps: [], flooded: -1, shaft: -1, puzzle: -1, captive: -1, chasm: null };
   const ex = l.exit, exitDoor = ex ? l.doors.length - 1 : -1;
 
   // ---- The hidden room: two squares by two (or one by two), down a corridor of one or two squares off a room's side, in solid rock
@@ -607,9 +616,36 @@ export function plotDungeon(l: Layout, rng: Rng): Plot {
     plot.traps.push(s);
   }
 
+  // ---- The chasm: an ordinary room (a store, a guardroom, a crypt...) three squares deep or more along the way it is come in by, its ways in all on its near or its far row
+  // (none onto the pit), taken over; its middle rows the pit, the bridge straight on from the way in.
+  const ch = rng.fork('chasm');
+  if (ch.chance(0.6)) {
+    const can: Plot['chasm'][] = [];
+    l.rooms.forEach((room, i) => {
+      if (!['store', 'guard', 'crypt', 'ossuary', 'vault', 'library'].includes(room.kind) || i === plot.key || i === last || i === plot.secret?.room) return;
+      const ins = l.doors.filter((d) => intoRoom(d) === i);
+      if (!ins.length) return;
+      const entry = ins.reduce((a, b) => (open[at(a.c, a.r)] >= 0 && (open[at(b.c, b.r)] < 0 || open[at(a.c, a.r)] <= open[at(b.c, b.r)]) ? a : b));
+      const deep = entry.dc ? room.w : room.h, wide = entry.dc ? room.h : room.w;
+      if (deep < 3 || wide < 2) return;
+      // (Each square's place along the way across, from the near row.)
+      const along = (c: number, r: number) => (entry.dc > 0 ? c - room.c0 : entry.dc < 0 ? room.c0 + room.w - 1 - c : entry.dr > 0 ? r - room.r0 : room.r0 + room.h - 1 - r);
+      if (!ins.every((d) => { const a = along(d.c + d.dc, d.r + d.dr); return a === 0 || a === deep - 1; })) return;
+      const band: number[] = [];
+      for (let j = room.r0; j < room.r0 + room.h; j++) for (let k = room.c0; k < room.c0 + room.w; k++) { const a = along(k, j); if (a > 0 && a < deep - 1) band.push(at(k, j)); }
+      can.push({ room: i, dc: entry.dc, dr: entry.dr, lane: entry.dc ? entry.r + entry.dr : entry.c + entry.dc, band });
+    });
+    if (can.length) {
+      plot.chasm = ch.pick(can);
+      const room = l.rooms[plot.chasm!.room];
+      room.kind = 'chasm';
+      room.note = `${room.level < -1 ? 'Deeper still: ' : room.level < 0 ? 'Below: ' : ''}${ch.pick(LINES.chasm)}`;
+    }
+  }
+
   // ---- The rooms given over: flooded (more often in a tomb or a temple, and below), the crack of day (on the gate's level), the
   // braziers (a room of six squares or more, not the hall), the captive (a cell, if a prison, else a store or a crypt).
-  const free = (i: number) => i !== last && i !== plot.key && l.rooms[i].kind !== 'gate' && l.rooms[i].kind !== 'hidden' && l.rooms[i].kind !== 'hall';
+  const free = (i: number) => i !== last && i !== plot.key && i !== plot.chasm?.room && l.rooms[i].kind !== 'gate' && l.rooms[i].kind !== 'hidden' && l.rooms[i].kind !== 'hall';
   const rooms = l.rooms.map((_, i) => i), sets = rng.fork('rooms'), theme = l.tags.theme;
   const wet = rooms.filter((i) => free(i) && l.rooms[i].w * l.rooms[i].h >= 4).sort((a, b) => l.rooms[a].level - l.rooms[b].level);
   if (wet.length && sets.chance(theme === 'tomb' || theme === 'temple' ? 0.6 : 0.35)) plot.flooded = sets.chance(0.6) ? wet[0] : sets.pick(wet);
@@ -1000,7 +1036,7 @@ export type CaveEvent =
 /** Each kind of room, as one would name it in telling the way. */
 const ROOM_NAMES: Record<RoomKind, string> = {
   gate: 'antechamber', hall: 'pillared hall', store: 'storeroom', crypt: 'crypt', ossuary: 'ossuary', shrine: 'shrine', tomb: 'tomb', library: 'library',
-  sanctum: 'sanctum', cell: 'cell', guard: 'guardroom', warden: "warden's room", vault: 'vault', hoard: 'hoard', hidden: 'hidden room',
+  sanctum: 'sanctum', cell: 'cell', guard: 'guardroom', warden: "warden's room", vault: 'vault', hoard: 'hoard', hidden: 'hidden room', chasm: 'chasm',
 };
 /** A picture of a crack, dark, branching across a wall from near its foot: the hidden room's wall's tell (its alpha only). */
 function crackPicture(): Texture {
@@ -1079,7 +1115,7 @@ function numeralPicture(order: number): Texture {
 }
 
 /** Where a script may be put in or by the cave (`Cave.spot`): the camp, the gate, the chest, a room, a stair, and what the plot has laid. */
-export type CaveSpot = 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'locked' | 'barred' | 'secret' | 'key' | 'captive' | 'puzzle' | 'stash' | 'water' | 'shaft' | 'trap';
+export type CaveSpot = 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'locked' | 'barred' | 'secret' | 'key' | 'captive' | 'puzzle' | 'stash' | 'water' | 'shaft' | 'trap' | 'chasm';
 /** The corners about a point, a quarter metre out, that must all be open floor for it to be clear of the walls (`Cave.clear`). */
 const ROOM_CORNERS = [[-0.25, -0.25], [0.25, 0.25], [-0.25, 0.25], [0.25, -0.25]] as const;
 
@@ -1159,6 +1195,28 @@ export class Cave {
    * goes as it opens; what is left when it is open (`after`) comes.
    */
   private readonly shuts: { door: number; kind: 'locked' | 'barred' | 'secret'; open: number; going: boolean; parts: Mesh[]; after: Mesh[] }[] = [];
+  /** The chasm's pit, its squares (`Plot.chasm`), but for those the bridge crosses. */
+  private readonly pit = new Set<number>();
+  /** Whether square `k` is the chasm's pit, off the bridge: no floor there to stand on. */
+  private overPitSquare(k: number): boolean {
+    const ch = this.plot.chasm;
+    if (!ch || !this.pit.has(k)) return false;
+    return (ch.dc ? (k / this.layout.cols) | 0 : k % this.layout.cols) !== ch.lane;
+  }
+  /** Whether one `r` across its middle at a point of the cave's own frame would be over the chasm's pit, off its bridge. */
+  private overPit(lat: number, t: number, r: number): boolean {
+    const ch = this.plot.chasm;
+    if (!ch) return false;
+    for (const [a, b] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
+      const at = this.cellAt(lat + a, t + b);
+      if (!at) continue;
+      const k = at[1] * this.layout.cols + at[0];
+      if (!this.pit.has(k)) continue;
+      const off = ch.dc ? t + b - this.tOf(ch.lane) : lat + a - this.latOf(ch.lane);
+      if (Math.abs(off) > 0.66) return true;
+    }
+    return false;
+  }
   /** Where a circle is drawn on a floor, candles about it (`layThings`): drawn, glowing, in `layPlot`. */
   private readonly circles: Vector3[] = [];
   /** Spots taken on the floors by what the plot lays, kept apart (`layThings`). */
@@ -1202,6 +1260,7 @@ export class Cave {
     this.plot = plotDungeon(this.layout, this.rng.fork('plot'));
     this.notePlot();
     this.torchLight = THEME_TORCH[this.layout.tags.theme];
+    for (const k of this.plot.chasm?.band ?? []) this.pit.add(k);
     this.seen = new Uint8Array(this.layout.cols * this.layout.rows);
     this.fogMap = new DataTexture(new Uint8Array(this.layout.cols * this.layout.rows * 4), this.layout.cols, this.layout.rows, RGBAFormat);
     this.fogMap.magFilter = this.fogMap.minFilter = NearestFilter;
@@ -1235,7 +1294,9 @@ export class Cave {
       const below = deepAt.sub(floorY).div(DROP).clamp(0, 1), low = float(1).sub(up.div(1.4).clamp(0, 1));
       const frost = float(1).sub(below).mul(smoothstep(0.52, 0.72, n)).mul(max((normalWorld.y as N).mul(0.9), low.mul(0.8))).mul(0.75);
       const moss = below.mul(smoothstep(0.55, 0.75, n2)).mul(low).mul(0.7), damp = float(1).sub(below.mul(low).mul(0.3));
-      return mix(mix(base.mul(damp), vec3(0.14, 0.2, 0.1), moss), vec3(0.8, 0.86, 0.95), frost);
+      // (And down in a chasm's pit, darker the deeper: past the depth any stair goes down within its square.)
+      const sunk = floorY.sub(positionWorld.y as N).sub(1.4).div(PIT - 1.4).clamp(0, 1);
+      return mix(mix(base.mul(damp), vec3(0.14, 0.2, 0.1), moss), vec3(0.8, 0.86, 0.95), frost).mul(float(1).sub(sunk.mul(0.8)));
     };
     const stone = (paint: Paint, roughness = 0.92) => {
       const m = new MeshStandardNodeMaterial({ map: paint.map, normalMap: paint.normal, roughness, metalness: 0 }), look = weathered(paint);
@@ -1440,7 +1501,10 @@ export class Cave {
       if (!cells[k]) continue;
       const x = this.latOf(c), t = this.tOf(r);
       walls.floor = floors.floor = this.caps.floor = deep + floor[k];
-      if (down[k] < 0) floors.panel(new Vector3(x - half, deep + floor[k], t - half), new Vector3(CAVE.cell, 0, 0), new Vector3(0, 0, CAVE.cell), UP, 3, 3, 3, x - half, t - half);
+      // (The chasm's pit: its floor far down, its walls going down to it, and from the ledges either side of it.)
+      const pit = this.pit.has(k), bottom = floor[k] - PIT;
+      if (pit) floors.panel(new Vector3(x - half, deep + bottom, t - half), new Vector3(CAVE.cell, 0, 0), new Vector3(0, 0, CAVE.cell), UP, 3, 3, 3, x - half, t - half);
+      else if (down[k] < 0) floors.panel(new Vector3(x - half, deep + floor[k], t - half), new Vector3(CAVE.cell, 0, 0), new Vector3(0, 0, CAVE.cell), UP, 3, 3, 3, x - half, t - half);
       else {
         // (A stair: six steps down its way, each a tread and the riser before it, facing down the stair, as it is seen from below.)
         const [dc, dr] = WAYS[down[k]], go = new Vector3(dc, 0, dr), side = new Vector3(-dr, 0, dc), steps = 6, rise = (floor[k] - low[k]) / steps;
@@ -1458,8 +1522,9 @@ export class Cave {
         const ex = this.layout.exit;
         if (ex && c === ex.c && r === ex.r && dc === ex.dc && dr === ex.dr) continue;
         const mine = this.edgeFloor(c, r, dc, dr);
-        if (!this.open(c + dc, r + dr)) { wall(c, r, dc, dr, Math.min(floor[k], low[k]), top[k]); this.capWall(c, r, dc, dr); continue; }
+        if (!this.open(c + dc, r + dr)) { wall(c, r, dc, dr, pit ? bottom : Math.min(floor[k], low[k]), top[k]); this.capWall(c, r, dc, dr); continue; }
         const n = (r + dr) * this.layout.cols + c + dc, theirs = this.edgeFloor(c + dc, r + dr, -dc, -dr);
+        if (pit && !this.pit.has(n)) wall(c, r, dc, dr, bottom, floor[k]);
         if (theirs > mine + 0.01) wall(c, r, dc, dr, mine, theirs);
         if (top[n] < top[k] - 0.01) wall(c, r, dc, dr, Math.max(top[n], mine), top[k]);
       }
@@ -1829,6 +1894,19 @@ export class Cave {
         case 'hidden':
           // (Laid by the plot, with its stash: `layThings`, after the rooms.)
           break;
+        case 'chasm': {
+          // (What fell, far down in the pit; on the ledges, a little left behind by those who crossed.)
+          for (const k of this.plot.chasm!.band) {
+            if (!this.overPitSquare(k)) continue;
+            const px = this.latOf(k % this.layout.cols), pt = this.tOf((k / this.layout.cols) | 0), py = y - PIT;
+            if (rng.chance(0.5)) put('bones', px + rng.range(-1, 1), py, pt + rng.range(-1, 1), rng.range(0, 6.3), 1, true);
+            if (rng.chance(0.4)) put('rubble', px + rng.range(-1, 1), py, pt + rng.range(-1, 1), rng.range(0, 6.3), rng.range(0.8, 1.4), true);
+            if (rng.chance(0.2)) put('skeleton', px + rng.range(-0.6, 0.6), py, pt + rng.range(-0.6, 0.6), rng.range(0, 6.3), 1, true);
+          }
+          for (const [x, t, sx, st] of corners.slice(0, 2)) put(rng.chance(0.5) ? 'sack' : 'crate', x + sx * 0.5, y, t + st * 0.5, rng.range(0, 6.3));
+          cobwebs(2);
+          break;
+        }
         default: {
           // The last room: across from the way in, what it is for; and the chest before it.
           const [bx, bt] = back(room.kind === 'hoard' || room.kind === 'warden' ? 1.2 : 1.6);
@@ -2254,6 +2332,35 @@ export class Cave {
         }
       });
     }
+    // The chasm's bridge: planks laid across two beams, a little uneven, from ledge to ledge, a post at each corner and a rope between.
+    if (plot.chasm) {
+      const ch = plot.chasm, lanes = ch.band.filter((k) => !this.overPitSquare(k)), alongOf = (k: number) => (ch.dc ? this.latOf(k % cols) : this.tOf((k / cols) | 0));
+      const a0 = Math.min(...lanes.map(alongOf)) - half, a1 = Math.max(...lanes.map(alongOf)) + half, mid = ch.dc ? this.tOf(ch.lane) : this.latOf(ch.lane);
+      const y = deep + this.layout.rooms[ch.room].level * DROP, P2 = paintsOf(), br = this.rng.fork('bridge');
+      const point = (a: number, s: number, h: number) => (ch.dc ? new Vector3(a, y + h, mid + s) : new Vector3(mid + s, y + h, a));
+      this.lightAt(point((a0 + a1) / 2, 0, 1), UP, c);
+      const wood = this.glowing(this.stuffOf('wood'), c, P2.wood.map), rope = this.glowing(new MeshStandardNodeMaterial({ color: 0x8a7350, roughness: 1 }), c);
+      const bridge = new Group(), turn = ch.dc ? Math.PI / 2 : 0;
+      for (let a = a0 + 0.14; a < a1; a += 0.29) {
+        const plank = new Mesh(new BoxGeometry(1.3, 0.06, 0.25), wood);
+        plank.position.copy(point(a, br.range(-0.04, 0.04), -0.02 - 0.06 * Math.sin((Math.PI * (a - a0)) / (a1 - a0))));
+        plank.rotation.set(br.range(-0.03, 0.03), turn + br.range(-0.06, 0.06), br.range(-0.03, 0.03));
+        bridge.add(plank);
+      }
+      for (const s of [-0.5, 0.5]) {
+        const beam = new Mesh(new BoxGeometry(0.12, 0.14, a1 - a0 + 0.6), wood);
+        beam.position.copy(point((a0 + a1) / 2, s, -0.14));
+        beam.rotation.y = turn;
+        bridge.add(beam);
+        for (const a of [a0 - 0.15, a1 + 0.15]) { const post = new Mesh(new CylinderGeometry(0.05, 0.06, 1.1, 6), wood); post.position.copy(point(a, s * 1.35, 0.55)); bridge.add(post); }
+        const line = new Mesh(new CylinderGeometry(0.018, 0.018, a1 - a0 + 0.3, 5).rotateX(Math.PI / 2), rope);
+        line.position.copy(point((a0 + a1) / 2, s * 1.35, 0.85));
+        line.rotation.y = turn;
+        bridge.add(line);
+      }
+      bridge.traverse((o) => { o.castShadow = o.receiveShadow = true; });
+      this.inner.add(bridge);
+    }
     // The circles drawn on the floors, smouldering red.
     for (const at of this.circles) {
       const paint = new MeshBasicNodeMaterial({ map: circlePicture(), transparent: true, depthWrite: false, blending: AdditiveBlending });
@@ -2649,6 +2756,15 @@ export class Cave {
     if (this.braziers.length) out.braziers = [...this.braziers].sort((a, b) => a.order - b.order).map((b) => pt(b.at));
     for (const s of this.shuts) { const d = this.layout.doors[s.door]; out[s.kind] = pt(new Vector3(this.latOf(d.c) + d.dc * half, this.site.deep + this.edgeFloor(d.c, d.r, d.dc, d.dr), this.tOf(d.r) + d.dr * half)); }
     if (this.traps.length) out.traps = this.traps.map((t) => pt(t.at));
+    // (The chasm's bridge, its near end and its far: the ledges either side.)
+    const ch = this.plot.chasm;
+    if (ch) {
+      const cols = this.layout.cols, lanes = ch.band.filter((k) => !this.overPitSquare(k)), y = this.site.deep + this.layout.rooms[ch.room].level * DROP;
+      const ends = lanes.map((k) => new Vector3(this.latOf(k % cols), y, this.tOf((k / cols) | 0))).sort((a, b) => (ch.dc ? (a.x - b.x) * ch.dc : (a.z - b.z) * ch.dr));
+      const first = ends[0].clone().addScaledVector(new Vector3(ch.dc, 0, ch.dr), -CAVE.cell), last = ends[ends.length - 1].clone().addScaledVector(new Vector3(ch.dc, 0, ch.dr), CAVE.cell);
+      out.bridge = [pt(first), pt(last)];
+      out.pit = pt(ends[0].clone().addScaledVector(new Vector3(ch.dr, 0, ch.dc), CAVE.cell * 0.4));
+    }
     return out;
   }
   /** The plot as it stands, for a script (`__slope.dungeon`). */
@@ -2658,7 +2774,7 @@ export class Cave {
       last: name(p.last), locked: this.shuts.filter((s) => s.kind === 'locked').map((s) => +s.open.toFixed(2)), key: name(p.key), keyTaken: this.keyTaken,
       barred: p.barred ? +(this.shuts.find((s) => s.kind === 'barred')?.open ?? 0).toFixed(2) : null,
       secret: p.secret ? { by: name(this.secretBy), open: !this.hidden.size, stash: !!this.stash?.opened } : null,
-      traps: p.traps.length, flooded: name(p.flooded), shaft: name(p.shaft),
+      traps: p.traps.length, flooded: name(p.flooded), shaft: name(p.shaft), chasm: p.chasm ? name(p.chasm.room) : null,
       puzzle: p.puzzle >= 0 ? { room: name(p.puzzle), order: this.braziers.map((b) => b.order), lit: this.braziers.filter((b) => b.lit).length, done: this.puzzleDone, dying: +this.puzzleWrong.toFixed(2), cool: this.braziers.filter((b) => b.cool).length } : null,
       captive: p.captive >= 0 ? { room: name(p.captive), freed: this.met.captive } : null, ghost: this.met.ghost, traded: this.met.traded,
       rooms: this.layout.rooms.map((r) => r.note),
@@ -2716,7 +2832,7 @@ export class Cave {
   private roomFor(lat: number, t: number, r: number): boolean {
     const L = this.site.length;
     for (const p of this.posts) if (Math.hypot(lat - p.lat, t - p.t) < p.r + r) return false;
-    if (this.inShut(lat, t, r)) return false;
+    if (this.inShut(lat, t, r) || this.overPit(lat, t, r)) return false;
     if (t < -0.7 - r) return true;
     if (t < 0) return Math.abs(lat) <= CAVE.hw - r || Math.abs(lat) > MOUND_HALF + r;
     if (t <= L) return Math.abs(lat) <= CAVE.hw - r || (Math.abs(lat) > MOUND_HALF + r && t > this.site.holeTo + 3);
@@ -2836,6 +2952,7 @@ export class Cave {
     }
     if (where === 'stash') return plot.secret ? toward(this.stashLocal, plot.secret.room, 2) : this.spot('gate');
     if (where === 'water') return plot.flooded >= 0 ? this.spot('room', plot.flooded) : this.spot('gate');
+    if (where === 'chasm') return plot.chasm ? this.spot('room', plot.chasm.room) : this.spot('gate');
     if (where === 'shaft') return plot.shaft >= 0 ? toward(this.shaftLocal, plot.shaft, 3) : this.spot('gate');
     if (where === 'trap') {
       const tr = this.traps[0];
@@ -2887,7 +3004,7 @@ export class Cave {
     dist[k0] = 0;
     for (let q = 0; q < queue.length; q++) {
       const k = queue[q], c = k % cols, r = (k / cols) | 0;
-      for (const [dc, dr] of WAYS) { const i = c + dc, j = r + dr; if (!this.open(i, j) || dist[j * cols + i] >= 0 || this.shutBetween(c, r, dc, dr)) continue; dist[j * cols + i] = dist[k] + 1; queue.push(j * cols + i); }
+      for (const [dc, dr] of WAYS) { const i = c + dc, j = r + dr; if (!this.open(i, j) || dist[j * cols + i] >= 0 || this.shutBetween(c, r, dc, dr) || this.overPitSquare(j * cols + i)) continue; dist[j * cols + i] = dist[k] + 1; queue.push(j * cols + i); }
     }
     this.field = { from: k0, dist };
     return dist;
@@ -2995,10 +3112,26 @@ export class Cave {
    * room, and whether seen; its rooms (kind and what is said of each); the square a point of the land is in, and where in it; and the way
    * the lattice lies in the land (radians, from the land's +z to the cave's way in).
    */
-  plan(): { cols: number; rows: number; kind: Uint8Array; room: Int16Array; seen: Uint8Array; rooms: { kind: string; note: string }[]; name: string; turn: number } {
+  plan(): { cols: number; rows: number; kind: Uint8Array; room: Int16Array; seen: Uint8Array; rooms: { kind: string; note: string }[]; name: string; turn: number; marks: PlanMark[] } {
     const L = this.layout, kind = new Uint8Array(L.cols * L.rows);
     for (let k = 0; k < kind.length; k++) kind[k] = L.cells[k] === 1 && L.down[k] >= 0 ? 3 : L.cells[k];
-    return { cols: L.cols, rows: L.rows, kind, room: L.roomAt, seen: this.seen, rooms: L.rooms.map((r) => ({ kind: r.kind, note: r.note })), name: L.name, turn: Math.atan2(this.site.ax, this.site.az) };
+    // (What is marked on it, where its square has been seen: what is still to be done, or minded.)
+    const marks: PlanMark[] = [], half = CAVE.cell / 2;
+    const mark = (lat: number, t: number, kind: PlanMark['kind'], dc?: number, dr?: number) => {
+      const c = lat / CAVE.cell + L.cols / 2, r = (t - this.site.length) / CAVE.cell, k = Math.floor(r) * L.cols + Math.floor(c);
+      if (this.seen[k]) marks.push({ c, r, kind, dc, dr });
+    };
+    if (this.keyMesh && !this.keyTaken) mark(this.keyLocal.x, this.keyLocal.z, 'key');
+    for (const s of this.shuts) {
+      if (s.open > 0 || s.kind === 'secret') continue;
+      const d = L.doors[s.door];
+      mark(this.latOf(d.c) + d.dc * (half - 0.01), this.tOf(d.r) + d.dr * (half - 0.01), s.kind === 'locked' ? 'locked' : 'barred', d.dc, d.dr);
+    }
+    if (!this.chest.opened) { const [lat, , t] = this.localOf(this.chest.at); mark(lat, t, 'chest'); }
+    if (this.stash && !this.stash.opened && !this.hidden.size) mark(this.stashLocal.x, this.stashLocal.z, 'stash');
+    for (const tr of this.traps) mark(tr.at.x, tr.at.z, 'trap');
+    if (!Number.isNaN(this.captiveLocal.x) && !this.met.captive) mark(this.captiveLocal.x, this.captiveLocal.z, 'captive');
+    return { cols: L.cols, rows: L.rows, kind, room: L.roomAt, seen: this.seen, rooms: L.rooms.map((r) => ({ kind: r.kind, note: r.note })), name: L.name, turn: Math.atan2(this.site.ax, this.site.az), marks };
   }
   /** Where a point of the land lies on the plan: in squares, across (`c`) and in (`r`), as fractions; none outside the lattice. */
   onPlan(x: number, z: number): { c: number; r: number } | null {

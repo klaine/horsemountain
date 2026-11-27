@@ -14,7 +14,7 @@
 import type { WorldPlan } from '../src/core/world';
 import { drawInkWorld, inkFrame, type WorldMap } from '../src/maps/inkWorld';
 import type { MapRun, RunMap } from '../src/core/runMap';
-import type { Plan } from './slopeMini';
+import { MARK_COLOUR, type Plan } from './slopeMini';
 
 /**
  * The dungeon under the run ridden, as far as it has been seen (asked: "a dungeon minimap and inkmap that updates accordingly"): where
@@ -296,6 +296,13 @@ export class RunMapView {
     }
     if (hatch.length) out.push(`<path d="${hatch.join(' ')}" fill="none" stroke="${INK}" stroke-width="0.6" opacity="0.55" vector-effect="non-scaling-stroke"/>`);
     if (walls.length) out.push(`<path d="${walls.join(' ')}" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="square" vector-effect="non-scaling-stroke"/>`);
+    // (What is marked on it, as the small map marks it: `PlanMark`.)
+    for (const m of p.marks ?? []) {
+      const x = x0 + m.c * sq, y = y0 + m.r * sq, col = MARK_COLOUR[m.kind];
+      if (m.kind === 'locked' || m.kind === 'barred') out.push(`<path d="M ${x - (m.dr ?? 0) * sq * 0.45} ${y - (m.dc ?? 0) * sq * 0.45} L ${x + (m.dr ?? 0) * sq * 0.45} ${y + (m.dc ?? 0) * sq * 0.45}" stroke="${col}" stroke-width="3" vector-effect="non-scaling-stroke"/>`);
+      else if (m.kind === 'trap') out.push(`<path d="M ${x - sq * 0.2} ${y - sq * 0.2} L ${x + sq * 0.2} ${y + sq * 0.2} M ${x + sq * 0.2} ${y - sq * 0.2} L ${x - sq * 0.2} ${y + sq * 0.2}" stroke="${col}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`);
+      else out.push(`<circle cx="${x}" cy="${y}" r="${sq * 0.22}" fill="${col}" stroke="${INK}" stroke-width="0.8" vector-effect="non-scaling-stroke"/>`);
+    }
     if (d.here) out.push(`<circle cx="${x0 + d.here.c * sq}" cy="${y0 + d.here.r * sq}" r="${Math.max(2.5 * k, sq * 0.28)}" fill="#c0322b" stroke="${PAPER}" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`);
     out.push('</g>');
     return out.join('');
