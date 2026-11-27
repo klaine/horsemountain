@@ -52,6 +52,8 @@ export interface Den {
   walk(x: number, z: number, tx: number, tz: number, r: number, y?: number): [number, number];
   /** Whether what stands at a point is to be drawn: in sight of the one on foot (the dark of the dungeon hides the rest). */
   shows?(p: Vector3): boolean;
+  /** How much more (or less) often each kind comes here than its own chance has it: a tomb's dead, a prison's orcs, a vault's goblins. */
+  favour?(kind: string): number;
 }
 
 /**
@@ -322,6 +324,22 @@ export class Horde {
   }
 
   /**
+   * A great one of `kind` raised at a point of the den last gone through, under a name of its own (`title`): whoever a dungeon was made
+   * for, risen as one comes into their room (`slopeDungeon.ts`, `Cave.tread`). None while none of that kind is made yet, or all are out.
+   */
+  summon(kind: string, x: number, z: number, y: number, title: string): boolean {
+    const k = FOES.find((f) => f.name === kind && f.den && f.titles), den = this.den, b = k && den ? this.foes.find((q) => q.kind === k && q.state === 'gone') : undefined;
+    if (!k || !den || !b) return false;
+    Object.assign(b, { state: 'come', since: 1, pace: this.rng.range(...k.den!.pace), next: 0.8, hp: k.hp, reel: 0, bumped: 0, penned: false, met: true, comes: b.comes + 1, kneeling: false, title });
+    b.p.set(x, 0, z);
+    b.p.y = den.floor(x, z, y);
+    b.gait.go(b.pace * 0.9, this.rng.range(0, 1));
+    b.gait.model.visible = true;
+    this.greatAt = this.denClock;
+    return true;
+  }
+
+  /**
    * A frame on, by `dt`, in a den (`Den`) rather than on a run: a few at a time out of its rooms, out of the way of the one on foot
    * (`q.at`), more as fewer come; each coming at it round the walls, faster than up a run; and, come up to it, striking (`strike`, told
    * where from, and what it is), then a moment back before it may again. Fallen, as on the snow, on the floor. Far off, let go of.
@@ -343,11 +361,12 @@ export class Horde {
     const coming = this.foes.filter((b) => b.state === 'come').length;
     if (dt > 0 && coming < most * 0.5 && this.rng.chance(dt * 0.8)) {
       const greatOn = this.foes.some((b) => b.state === 'come' && b.kind.titles);
-      const great = !greatOn && (this.only || this.denClock - this.greatAt > 90) && greats.find((k) => free(k).length && (this.only || this.rng.chance(k.den!.chance)));
+      const odds = (k: FoeKind) => k.den!.chance * (den.favour?.(k.name) ?? 1);
+      const great = !greatOn && (this.only || this.denClock - this.greatAt > 90) && greats.find((k) => free(k).length && (this.only || this.rng.chance(odds(k))));
       let kind: FoeKind | undefined = great || undefined;
       if (!kind) {
-        let pick = this.rng.range(0, packs.reduce((n, k) => n + k.den!.chance, 0));
-        for (const k of packs) { if (pick < k.den!.chance) { kind = k; break; } pick -= k.den!.chance; }
+        let pick = this.rng.range(0, packs.reduce((n, k) => n + odds(k), 0));
+        for (const k of packs) { if (pick < odds(k)) { kind = k; break; } pick -= odds(k); }
       }
       const waiting = kind ? free(kind) : [], from = kind && waiting.length >= Math.min(2, kind.den!.pack[0]) ? den.spawn(this.rng, q.at) : null;
       if (kind && from) {

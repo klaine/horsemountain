@@ -78,7 +78,8 @@ import { ICE, IceJump } from './slopeIce';
 import { SNOWMAN, Snowman } from './slopeSnowman';
 import { type Fold, Folding, heightIn } from './slopeInvert';
 import { CART_DECK, RocketCart } from './slopeCart';
-import { carve, Cave, clearOfKickers, findSite, paintsOf, sitePoint, sliceGround, STUFF_LOOK, STUFF_PAINT } from './slopeDungeon';
+import { CaveEcho } from './slopeEcho';
+import { carve, Cave, type CaveEvent, type CaveSpot, clearOfKickers, findSite, paintsOf, sitePoint, sliceGround, STUFF_LOOK, STUFF_PAINT } from './slopeDungeon';
 import { PROP_KINDS, Props } from './slopeProps';
 import { forkSign } from './slopeSign';
 import { finishMarks } from './slopeFinish';
@@ -2595,6 +2596,7 @@ async function start() {
     // (A map found of this run: laid again with its forgotten slope, which begins it again.)
     if (mapLaysOut === landKind && !trip?.swapped && mode === 'ride') { mapLaysOut = null; void setLand(landKind, true); return; }
     caveNow()?.shutChest();
+    bossDue = null;
     (land as DeepsLand).deeps?.restock();
     // (What was found and not yet come to the player, given it now: nothing found is lost.)
     giveLeft();
@@ -6072,6 +6074,8 @@ async function start() {
   // round flies as a tracer and strikes the snow, throwing it up, or an orc, which falls (`slopeGun.ts`, `slopeOrcs.ts`). Orcs come up
   // the run in hordes while it is carried, and how many have been brought down is counted.
   const gunRng = new Rng('tommy gun'), gun = tommyGun(), gunfire = new Gunfire(scene, gunRng.fork('fire')), gunSound = new GunSound(gunRng.fork('sound'));
+  /** What is heard in the caves, woken with the arms' sound (`slopeEcho.ts`). */
+  const echo = new CaveEcho();
   // (Struck, an orc spatters its blood over the snow, a great deal of it, and a pool spreads where it falls: `slopeSplatter.ts`.)
   const splatter = new Splatter(scene, gunRng.fork('blood'), ground, (x, z) => normalAt(x, z, 0.5));
   // (Struck and not brought down, a little blood thrown, and no pool.)
@@ -7021,7 +7025,7 @@ async function start() {
     swing = null; pulls = 0;
   };
   // (With the orcs on, the sound woken by any click or key, the first that a browser lets wake it: not left to the first shot.)
-  const wakeSound = () => { if (orcsOn) gunSound.wake(); };
+  const wakeSound = () => { if (orcsOn) { gunSound.wake(); echo.wake(); } };
   // The bar toward the next arm (`#armBar`), riding with the arms, drawn as the tricks' meter is: a block for each `ARM_BLOCK` orcs
   // toward it, filled as each is brought down; full and gilt for a moment (`ARM_WON` seconds, the page's own) as an arm is taken up,
   // then empty toward the one after it, or put away when there is none left to take up.
@@ -7079,6 +7083,7 @@ async function start() {
       floor: (x, z) => cave.floorUnder(x - o.x, z - o.z) ?? land.height(x, z),
       walk: (x, z, tx, tz, r) => { const [a, b] = cave.walk(x - o.x, z - o.z, tx - o.x, tz - o.z, r); return [a + o.x, b + o.z]; },
       shows: (p) => !foot || cave.inSight({ x: foot.x - o.x, z: foot.z - o.z, y: 0 } as Vector3, new Vector3(p.x - o.x, p.y, p.z - o.z)),
+      favour: (kind) => cave.favour(kind),
     };
   };
   /**
@@ -7607,7 +7612,10 @@ async function start() {
     let ranDown: { at: Vector3; kind: FoeKind }[] = [];
     const deepsHere = foot?.deep && (land as DeepsLand).deeps;
     if (foot && deepsHere) horde.within(going, deepDen(deepsHere, foot.deep!.s), { at: rider.position, down: now.down, left: now.left, v, reach: 0.9 }, struck);
-    else if (foot && cave) horde.within(going, den(cave), { at: rider.position, down: now.down, left: now.left, v, reach: 0.9 }, struck);
+    else if (foot && cave) {
+      horde.within(going, den(cave), { at: rider.position, down: now.down, left: now.left, v, reach: 0.9 }, struck);
+      if (bossDue && horde.summon('barrow-king', bossDue.at.x, bossDue.at.z, bossDue.at.y, bossDue.title)) bossDue = null;
+    }
     else ranDown = horde.update(going, { ground, at: land.at, edges: land.edges, length: land.length, ...hordeWays() }, { at: rider.position, down: now.down, left: now.left, v, reach: who === 'person' ? 0.9 : 1.5 });
     for (const r of ranDown) orcDowned(rider.position.clone().addScaledVector(UP, 1.6), 'run', r.kind);
     wardStep(going, !watching);
@@ -7908,6 +7916,56 @@ async function start() {
    * (`Cave.walk`), on the floor where it is (the tunnel's, the stairs'). Out of the camp, the skis back on; into a room, what it is said;
    * at the chest, opened.
    */
+  /**
+   * What came of a step through a dungeon's plot (`Cave.tread`; asked: "proceed autonomously to make these all dungeon improvements",
+   * of its locked ways, its secrets, its traps, its folk and its great one): said; points for the key, a way opened, the hidden room
+   * found, a captive freed; a find thrown up from the hidden room's stash and the braziers lit in order, as from a chest; a trap's darts
+   * rolled at the one on foot as a foe's blow is, and felt as one; health back by the hermit's fire, and something traded with him for
+   * points; and whoever the place was made for raised in their room to be fought (with the arms carried; else only their ghost speaks).
+   */
+  const dungeonEvent = (e: CaveEvent, cave: Cave) => {
+    const o = land.group.position, head = () => rider.position.clone().addScaledVector(UP, 1.8);
+    const reward = (n: number, why: string) => { addScore(n); const s = overPictureAt(head()); if (s) popUp(s, `+${n.toLocaleString('en')}`, 'trick', why); };
+    switch (e.kind) {
+      case 'say': tell(e.title, e.text, false, 4.5); break;
+      case 'key': reward(500, 'the key'); gunSound.hear('ring'); break;
+      case 'unlock': case 'unbar': gunSound.hear('chop'); break;
+      case 'secret': reward(1000, 'a hidden room'); gunSound.hear('boom'); bladeJolt = Math.max(bladeJolt, 0.4); break;
+      case 'heal': healAll(); break;
+      case 'freed': reward(1000, `${e.name} freed`); break;
+      case 'stash': case 'puzzle': {
+        const at = e.at.clone().add(o);
+        reward(2500, e.kind === 'stash' ? 'hidden treasure' : 'the fires lit');
+        runStats.chest = true;
+        findLoot('chest', at, e.kind === 'stash' ? `hidden in ${cave.title.name.replace(/^The /, 'the ')}` : 'under a stone in the floor', e.at.y - 0.5);
+        break;
+      }
+      case 'trade': {
+        const price = 2500;
+        if (score < price) { tell('The hermit shakes his head', `"Come back with ${price.toLocaleString('en')} points' worth, and I'll have something for you."`, false, 4); break; }
+        score -= price;
+        cave.traded();
+        scoreEl.textContent = score.toLocaleString('en');
+        tell('A trade with the hermit', `${price.toLocaleString('en')} points for something he has kept`, false, 4);
+        findLoot('chest', e.at.clone().add(o), 'traded with the hermit by the fire');
+        break;
+      }
+      case 'trap': {
+        // (Rolled as a foe's blow is, against the guard of the one on foot: the darts' skill and their damage, `slopeDice.ts`.)
+        const r = rollAt(diceRng, 4, { n: 1, d: 6, plus: 2 }, GUARD);
+        gunSound.hear('swish');
+        if (!r.hit) { dmgPop(head(), 'dodged', 'miss'); tell('A dart trap!', 'the darts whistle past', false, 2); break; }
+        dmgPop(head().addScaledVector(UP, 0.3), String(r.dmg), r.crit ? 'hurt crit' : 'hurt', 'darts');
+        bladeJolt = Math.max(bladeJolt, 0.4);
+        tell('A dart trap!', 'darts from the wall', true, 2);
+        hurt(r.dmg, 'A dart trap');
+        break;
+      }
+      case 'boss': bossDue = armed() ? { at: e.at.clone().add(o), title: e.title } : null; break;
+    }
+  };
+  /** Whoever a dungeon was made for, risen, to be raised by the horde as soon as it can (its bodies made, `Horde.summon`). */
+  let bossDue: { at: Vector3; title: string } | null = null;
   const stepFoot = (dt: number): Now => {
     const f = foot!, cave = caveNow()!, person = walks(), o = land.group.position, k = want.keys;
     let sx = (k.right ? 1 : 0) - (k.left ? 1 : 0), sy = (k.up ? 1 : 0) - (k.down ? 1 : 0);
@@ -7923,7 +7981,8 @@ async function start() {
     else if (footPad.to) { const d = new Vector3(footPad.to.x - f.x, 0, footPad.to.z - f.z), l = d.length(); if (l < 0.3) footPad.to = null; else move.copy(d.divideScalar(l)); }
     const amount = Math.min(1, move.length());
     if (amount > 1e-3) { move.normalize(); f.dx = move.x; f.dz = move.z; }
-    const top = want.brakeKey ? (person ? FOOT.walk : FOOT.horseWalk) : person ? FOOT.run : FOOT.horseRun, goal = amount * top;
+    // (Slowed wading the flooded room's water.)
+    const top = want.brakeKey ? (person ? FOOT.walk : FOOT.horseWalk) : person ? FOOT.run : FOOT.horseRun, goal = amount * top * (f.deep ? 1 : cave.wading(f.x - o.x, f.z - o.z, f.y));
     f.speed += (goal - f.speed) * ease(dt, goal > f.speed ? 10 : 14);
     // (Facing what it attacks while it attacks; else the way it goes.)
     const attacking = firing || performance.now() < footPad.facing || fingerAims();
@@ -8010,6 +8069,8 @@ async function start() {
       tell('Treasure!', `left in ${where} · 5,000 points`, false, 4);
       findLoot('chest', at.setY(at.y + 0.6), `found in ${where}`, c.at.y);
     });
+    // (What the dungeon's plot has for it here, `Cave.tread`: told, and done.)
+    if (!f.deep && !beaten) for (const e of cave.tread(nx, f.y, nz, dt)) dungeonEvent(e, cave);
     // (Never under the mountain, whatever else says it is out: where the cave's floor under it lies well under the snow, not out.)
     const under = cave.floorUnder(nx, nz), buried = under !== null && land.height(nx + o.x, nz + o.z) - under > 1.5;
     if (!f.deep && caveNow() === cave && !cave.inCamp(nx, nz, 1.2) && !cave.inside(nx, nz) && !buried) { const lifted = cave === (land as TrailLand).forgotten?.cave; skisOn(); if (lifted) liftHome(); }
@@ -8110,7 +8171,7 @@ async function start() {
     // (Back out of them: the land's other things shown again, and how dark it is worked out afresh, as the cave there has it.)
     if (wasDeep) { wasDeep = false; under = false; for (const c of deeps?.group.parent?.children ?? []) if (c !== deeps?.group) c.visible = true; }
     const cave = caveNow();
-    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; caveLights.lantern.intensity = caveLights.fire.intensity = 0; return; }
+    if (!cave) { caveDark = 0; uUnder.value = 0; under = false; caveLights.lantern.intensity = caveLights.fire.intensity = 0; echo.step(dt, 0, 0, 0); return; }
     const o = land.group.position, eye = camera.position.clone().sub(o), at = foot ? new Vector3(foot.x - o.x, foot.y, foot.z - o.z) : null;
     // (On foot the view is from above, out in the air over the snow: how dark it is, is how dark it is where the one on foot is.)
     caveDark = cave.darkness(at && mode === 'ride' ? at : eye);
@@ -8120,6 +8181,9 @@ async function start() {
     if (deeps && at && into) { const door = cave.deepDoor(), near = !!door && Math.hypot(at.x - door.x, at.z - door.z) < 26; deeps.group.visible = near; if (near) { deeps.cutOver.value = 3; deeps.under.value = at.y; } }
     const ahead = foot ? new Vector3(Math.sin(foot.heading), 0, Math.cos(foot.heading)) : undefined;
     cave.update(dt, seconds, eye, at, at ? Math.max(0.15 * smooth(1 - cave.fireSpot.distanceTo(at) / 12), cave.darkness(at)) : 0, ahead);
+    // (What is heard there: the wind at its mouth, the drips in the dark, the drone as its great one rises.)
+    const heard = at ?? eye, fromMouth = Math.hypot(heard.x - cave.site.mouth.x, heard.z - cave.site.mouth.z);
+    echo.step(dt, at && mode === 'ride' ? cave.darkness(at) : 0, Math.max(0, 1 - fromMouth / 22), at && mode === 'ride' ? cave.dread(at.x, at.z) : 0);
   };
 
   // ---------------------------------------------------------------- the cinematic camera
@@ -9710,10 +9774,19 @@ async function start() {
     faceTo: (x: number, z: number) => { if (foot) { foot.heading = Math.atan2(x - foot.x, z - foot.z); placed = false; } return !!foot; },
     // (The cave, where the run has one: what it is made of, where its camp is, the one on foot, how dark it is about the eye.)
     cave: () => { const c = caveNow(); if (!c) return null; const o = land.group.position; return { ...c.counts, made: Math.round(caveMade), s: +c.site.s.toFixed(0), knoll: !!c.site.knoll, camp: [+(c.site.camp.x + o.x).toFixed(1), +(c.site.camp.z + o.z).toFixed(1)], foot: foot && { ...foot }, view: foot && +camera.position.distanceTo(new Vector3(foot.x, foot.y, foot.z)).toFixed(2), stopping, dark: +caveDark.toFixed(2), chest: c.chest.opened }; },
+    // (The dungeon's plot, `Cave.plotState`: its locked way and key, its barred door, its hidden room, its traps, the rooms given over,
+    // and how far each has gone; on foot in it, put by any of them with `goCave`: 'locked', 'barred', 'secret', 'key', 'captive',
+    // 'puzzle', 'stash', 'water', 'shaft', 'trap'.)
+    dungeon: () => {
+      const c = caveNow(), o = land.group.position;
+      if (!c) return null;
+      const at = (v: unknown): unknown => (Array.isArray(v) && typeof v[0] === 'number' ? [+(v[0] + o.x).toFixed(2), +(v[1] + o.y).toFixed(2), +(v[2] + o.z).toFixed(2)] : Array.isArray(v) ? v.map(at) : v);
+      return { ...c.plotState, at: Object.fromEntries(Object.entries(c.plotPoints).map(([k, v]) => [k, at(v)])) };
+    },
     // (Riding, put at the cave: on skis `back` metres up the run from its camp, coming down to it (`ride`); or on foot in the camp, inside
     // the gate, before the chest, or in room `back` (by its number); or, `chest`, a step from the chest, to open it; or, `tunnel`, `back`
     // metres in from the mouth.)
-    goCave: (where: 'ride' | 'edge' | 'cart' | 'camp' | 'gate' | 'tomb' | 'room' | 'stair' | 'chest' | 'tunnel' = 'camp', back = 50, t = -1.2, speed = 1) => {
+    goCave: (where: 'ride' | 'edge' | 'cart' | 'chest' | 'tunnel' | CaveSpot = 'camp', back = 50, t = -1.2, speed = 1) => {
       const c = caveNow();
       if (!c) return false;
       if (mode !== 'ride') setMode('ride');

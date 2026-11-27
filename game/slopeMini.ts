@@ -22,7 +22,15 @@ const KICK = '#e0b070', MARK = '#ff5a3c', OUT = '#ffd25a';
 const ROOM = 'rgba(236, 224, 196, .92)', HALL = 'rgba(196, 184, 160, .85)', STAIR = 'rgba(150, 170, 200, .9)', ROCK = 'rgba(20, 18, 16, .9)';
 
 /** The dungeon as seen so far, for the map (`Cave.plan`): its lattice, what each square is (0 rock, 1 hall, 2 room, 3 stair), whether seen; and how the lattice lies in the land. */
-export interface Plan { cols: number; rows: number; kind: Uint8Array; seen: Uint8Array; turn: number }
+/**
+ * What is marked on a plan, where it has been seen (`slopeDungeon.ts`, `Cave.plan`): the key, until taken; the locked and barred ways,
+ * until opened (a bar across the doorway, `dc`, `dr` the way through it); the chest and the hidden room's stash, until opened; a trap's
+ * plate; one left captive, until freed. In squares, across (`c`) and in (`r`), as fractions.
+ */
+export interface PlanMark { c: number; r: number; kind: 'key' | 'locked' | 'barred' | 'chest' | 'stash' | 'trap' | 'captive'; dc?: number; dr?: number }
+export interface Plan { cols: number; rows: number; kind: Uint8Array; seen: Uint8Array; turn: number; marks?: PlanMark[] }
+/** How each mark is drawn: its colour. */
+export const MARK_COLOUR: Record<PlanMark['kind'], string> = { key: '#ffd25a', locked: '#7fb8ff', barred: '#b07a48', chest: '#ffc040', stash: '#ffc040', trap: '#ff5a3c', captive: '#e8e0d0' };
 
 export class MiniMap {
   /** The land drawn, so that it is drawn again only when another is shown. */
@@ -139,7 +147,7 @@ export class MiniMap {
       this.el.style.width = this.el.style.height = `${side}px`;
       this.of = null;
     }
-    const key = `plan ${seen},${(at.c * 4) | 0},${(at.r * 4) | 0},${Math.round(heading * 12)},${Math.round(yaw * 12)}`;
+    const key = `plan ${seen},${(at.c * 4) | 0},${(at.r * 4) | 0},${Math.round(heading * 12)},${Math.round(yaw * 12)},${p.marks?.map((m) => m.kind[0]).join('') ?? ''}`;
     if (key === this.shown) return;
     this.shown = key;
     const g = this.g, w = this.w, h = this.h, cell = 3, px = Math.min(w, h) / 34;
@@ -161,6 +169,16 @@ export class MiniMap {
       g.beginPath();
       for (const [dc, dr] of [[0, 0], [1, 0], [1, 1], [0, 1]]) { const [x, y] = toMap(c + dc, r + dr); if (dc + dr === 0) g.moveTo(x, y); else g.lineTo(x, y); }
       g.closePath(); g.fill();
+    }
+    // (What is marked on it: a bar across a shut way, a cross for a trap, a dot for the rest.)
+    for (const m of p.marks ?? []) {
+      const [x, y] = toMap(m.c, m.r);
+      g.fillStyle = g.strokeStyle = MARK_COLOUR[m.kind];
+      g.beginPath();
+      if (m.kind === 'locked' || m.kind === 'barred') { const [ax, ay] = toMap(m.c - (m.dr ?? 0) * 0.45, m.r - (m.dc ?? 0) * 0.45), [bx, by] = toMap(m.c + (m.dr ?? 0) * 0.45, m.r + (m.dc ?? 0) * 0.45); g.lineWidth = 3; g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); }
+      else if (m.kind === 'trap') { g.lineWidth = 1.6; g.moveTo(x - 2.5, y - 2.5); g.lineTo(x + 2.5, y + 2.5); g.moveTo(x + 2.5, y - 2.5); g.lineTo(x - 2.5, y + 2.5); g.stroke(); }
+      else if (m.kind === 'chest' || m.kind === 'stash') { g.fillRect(x - 3, y - 2.2, 6, 4.4); }
+      else { g.arc(x, y, m.kind === 'key' ? 3 : 2.4, 0, Math.PI * 2); g.fill(); }
     }
     // (The one on foot: an arrowhead at the middle, pointing the way it faces, turned as the map is.)
     const hx = Math.sin(heading), hz = Math.cos(heading), turn = Math.atan2(hx * right[0] + hz * right[1], hx * up[0] + hz * up[1]);
