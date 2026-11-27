@@ -476,6 +476,11 @@ async function start() {
       const k = JSON.parse(localStorage.getItem(SAFE.key) ?? 'null');
       if (k && typeof k.level === 'number' && k.v === SAFE.v) return { level: clamp(k.level, 0, SAFE.most), why: String(k.why ?? '') };
     } catch { /* (none kept) */ }
+    // (A phone, where nothing has been kept or asked: plain snow by WebGL 2 from the first, as a device that failed twice is given
+    // (asked: "can we default to the plain snow WebGL on phones?"): phones' WebGPU had been failing to make the detailed shaders, and
+    // falling back through two reloads. A tablet is not a phone: it keeps the full picture. *Try full detail* keeps its choice.)
+    const phone = matchMedia('(pointer: coarse)').matches && !matchMedia('(hover: hover) and (pointer: fine)').matches && Math.min(screen.width, screen.height) < 600;
+    if (phone) return { level: SAFE.most, why: 'a phone' };
     return { level: 0, why: '' };
   })();
   await loading.stage('start', safe.level ? 'Waking the graphics, drawn simply for this device' : undefined);
@@ -892,7 +897,8 @@ async function start() {
       } catch (e) { console.error('the deeps', e); }
       if (made.ways) standSign(made, kind);
       // (The end of each way marked on the snow, where the ride is brought to a stop: `slopeFinish.ts`.)
-      for (const w of made.ways ?? [made]) if (Number.isFinite(w.length)) {
+      // (`?finish=0` lays none, to tell whether they are what a device's graphics cannot draw.)
+      for (const w of made.ways ?? [made]) if (Number.isFinite(w.length) && query.get('finish') !== '0') {
         const marks = finishMarks(w, (x, z) => made!.height(x, z));
         made.group.add(marks.group);
         const letGo = made.dispose;
@@ -8881,7 +8887,8 @@ async function start() {
     note.hidden = false;
     note.querySelector('span')!.textContent = `Drawn more simply on this device (${safe.level >= 2 ? 'plain snow, by WebGL' : 'plain snow'})${safe.why ? `: ${safe.why}` : ''}.`;
     note.querySelector('button')!.onclick = () => {
-      try { localStorage.removeItem(SAFE.key); } catch { /* (not kept) */ }
+      // (Kept as chosen, level none: a phone is otherwise given the plain picture again as the page opens.)
+      try { localStorage.setItem(SAFE.key, JSON.stringify({ v: SAFE.v, level: 0, why: 'full detail chosen' })); } catch { /* (not kept) */ }
       const u = new URL(location.href);
       if (!u.searchParams.has('safe')) { location.reload(); return; }
       u.searchParams.delete('safe'); location.replace(u.href);
